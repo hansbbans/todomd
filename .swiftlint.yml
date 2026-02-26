@@ -1,0 +1,30 @@
+included:
+  - Sources
+  - Tests
+
+excluded:
+  - .build
+  - TodoMD.xcodeproj
+  - TodoMD.xcworkspace
+
+line_length:
+  warning: 120
+  error: 120
+  ignores_comments: true
+  ignores_urls: true
+
+force_cast: error
+force_try: error
+force_unwrapping: error
+todo: error
+
+opt_in_rules:
+  - empty_count
+  - explicit_init
+  - explicit_self
+  - first_where
+  - fatal_error_message
+  - force_unwrapping
+
+analyzer_rules:
+  - unused_import

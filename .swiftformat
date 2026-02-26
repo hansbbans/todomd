@@ -1,0 +1,14 @@
+--swiftversion 6.0
+--indent 4
+--linebreaks lf
+--maxwidth 120
+--commas always
+--decimalgrouping 3,6
+--trimwhitespace always
+--wraparguments before-first
+--wrapparameters before-first
+--wrapcollections before-first
+--wrapreturntype if-multiline
+--self remove
+--stripunusedargs closure-only
+--exclude .build,TodoMD.xcodeproj

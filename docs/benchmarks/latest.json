@@ -1,0 +1,23 @@
+[
+  {
+    "changedCount" : 10,
+    "coldSyncMilliseconds" : 662.622167,
+    "incrementalSyncMilliseconds" : 64.401167,
+    "queryMilliseconds" : 0.460625,
+    "taskCount" : 500
+  },
+  {
+    "changedCount" : 10,
+    "coldSyncMilliseconds" : 677.100291,
+    "incrementalSyncMilliseconds" : 153.590375,
+    "queryMilliseconds" : 0.892584,
+    "taskCount" : 1000
+  },
+  {
+    "changedCount" : 10,
+    "coldSyncMilliseconds" : 3317.770625,
+    "incrementalSyncMilliseconds" : 413.721083,
+    "queryMilliseconds" : 4.382625,
+    "taskCount" : 5000
+  }
+]
