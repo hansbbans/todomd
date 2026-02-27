@@ -5,17 +5,68 @@ private struct DeferDateTarget: Identifiable {
     var id: String { path }
 }
 
+private struct QuickEntrySheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var container: AppContainer
+    @AppStorage("settings_quick_entry_default_view") private var quickEntryDefaultView = BuiltInView.inbox.rawValue
+
+    @State private var title = ""
+    @State private var dateText = ""
+    @State private var tagsText = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("Title", text: $title)
+                    .accessibilityIdentifier("quickEntry.titleField")
+                TextField("Date phrase (optional)", text: $dateText)
+                    .accessibilityIdentifier("quickEntry.dateField")
+                TextField("Tags (comma separated)", text: $tagsText)
+                    .textInputAutocapitalization(.never)
+                    .accessibilityIdentifier("quickEntry.tagsField")
+            }
+            .accessibilityIdentifier("quickEntry.form")
+            .navigationTitle("Quick Entry")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .accessibilityIdentifier("quickEntry.cancelButton")
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add") {
+                        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !trimmedTitle.isEmpty else { return }
+                        let trimmedDateText = dateText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let tags = tagsText
+                            .split(separator: ",")
+                            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                            .filter { !$0.isEmpty }
+                        let defaultView = BuiltInView(rawValue: quickEntryDefaultView)
+                        container.createTask(
+                            title: trimmedTitle,
+                            naturalDate: trimmedDateText.isEmpty ? nil : trimmedDateText,
+                            tags: tags,
+                            defaultView: defaultView
+                        )
+                        dismiss()
+                    }
+                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityIdentifier("quickEntry.addButton")
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+}
+
 struct RootView: View {
     @EnvironmentObject private var container: AppContainer
     @EnvironmentObject private var theme: ThemeManager
     @Environment(\.editMode) private var editMode
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-    @AppStorage("settings_quick_entry_default_view") private var quickEntryDefaultView = BuiltInView.inbox.rawValue
-
-    @State private var quickEntryTitle = ""
-    @State private var quickEntryDateText = ""
-    @State private var quickEntryTagsText = ""
     @State private var showingQuickEntry = false
     @State private var navigationPath = NavigationPath()
     @State private var pathsCompleting: Set<String> = []
@@ -83,7 +134,7 @@ struct RootView: View {
                     container.refresh()
                 }
                 .sheet(isPresented: $showingQuickEntry) {
-                    quickEntrySheet
+                    QuickEntrySheet()
                 }
                 .sheet(item: $deferDateTarget) { target in
                     deferDateSheet(target: target)
@@ -314,59 +365,6 @@ struct RootView: View {
         }
     }
 
-    private var quickEntrySheet: some View {
-        NavigationStack {
-            Form {
-                TextField("Title", text: $quickEntryTitle)
-                    .accessibilityIdentifier("quickEntry.titleField")
-                TextField("Date phrase (optional)", text: $quickEntryDateText)
-                    .accessibilityIdentifier("quickEntry.dateField")
-                TextField("Tags (comma separated)", text: $quickEntryTagsText)
-                    .textInputAutocapitalization(.never)
-                    .accessibilityIdentifier("quickEntry.tagsField")
-            }
-            .accessibilityIdentifier("quickEntry.form")
-            .navigationTitle("Quick Entry")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        showingQuickEntry = false
-                    }
-                    .accessibilityIdentifier("quickEntry.cancelButton")
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") {
-                        let trimmedTitle = quickEntryTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !trimmedTitle.isEmpty else { return }
-                        let trimmedDateText = quickEntryDateText.trimmingCharacters(in: .whitespacesAndNewlines)
-                        let tags = quickEntryTagsText
-                            .split(separator: ",")
-                            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                            .filter { !$0.isEmpty }
-
-                        // Dismiss first so the sheet never appears stuck while storage I/O runs.
-                        quickEntryTitle = ""
-                        quickEntryDateText = ""
-                        quickEntryTagsText = ""
-                        showingQuickEntry = false
-
-                        let defaultView = BuiltInView(rawValue: quickEntryDefaultView)
-                        Task { @MainActor in
-                            container.createTask(
-                                title: trimmedTitle,
-                                naturalDate: trimmedDateText.isEmpty ? nil : trimmedDateText,
-                                tags: tags,
-                                defaultView: defaultView
-                            )
-                        }
-                    }
-                    .disabled(quickEntryTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .accessibilityIdentifier("quickEntry.addButton")
-                }
-            }
-            .presentationDetents([.medium])
-        }
-    }
 
     private func deferDateSheet(target: DeferDateTarget) -> some View {
         NavigationStack {
