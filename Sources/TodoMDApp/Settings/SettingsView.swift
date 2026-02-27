@@ -78,13 +78,14 @@ struct SettingsView: View {
                     Button("Use Default iCloud Folder", role: .destructive) {
                         TaskFolderPreferences.clearSelectedFolder()
                         selectedFolderPath = nil
+                        container.reloadStorageLocation()
                     }
                 }
 
                 Text("Current resolved folder in this session: \(container.rootFolderPath)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("Changing folder selection takes effect on next app launch.")
+                Text("Changing folder selection refreshes tasks immediately.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -141,6 +142,7 @@ struct SettingsView: View {
             do {
                 try TaskFolderPreferences.saveSelectedFolder(selectedURL)
                 selectedFolderPath = selectedURL.path
+                container.reloadStorageLocation()
             } catch {
                 folderSelectionErrorMessage = error.localizedDescription
             }

@@ -29,8 +29,8 @@ public struct NaturalLanguageDateParser {
             return localDate(from: date)
         }
 
-        if let nextWeekday = parseNextWeekday(lowered, relativeTo: referenceDate) {
-            return localDate(from: nextWeekday)
+        if let weekday = parseWeekdayPhrase(lowered, relativeTo: referenceDate) {
+            return localDate(from: weekday)
         }
 
         if let absolute = parseAbsoluteDate(lowered, referenceDate: referenceDate) {
@@ -51,7 +51,7 @@ public struct NaturalLanguageDateParser {
         return Int(lowered[numberRange])
     }
 
-    private func parseNextWeekday(_ lowered: String, relativeTo date: Date) -> Date? {
+    private func parseWeekdayPhrase(_ lowered: String, relativeTo date: Date) -> Date? {
         let weekdays: [String: Int] = [
             "sunday": 1,
             "monday": 2,
@@ -62,13 +62,36 @@ public struct NaturalLanguageDateParser {
             "saturday": 7
         ]
 
-        guard lowered.hasPrefix("next ") else { return nil }
-        let dayName = lowered.replacingOccurrences(of: "next ", with: "")
-        guard let targetWeekday = weekdays[dayName] else { return nil }
+        let tokens = lowered.split(separator: " ").map(String.init)
+        guard !tokens.isEmpty else { return nil }
 
-        var components = DateComponents()
-        components.weekday = targetWeekday
-        return calendar.nextDate(after: date, matching: components, matchingPolicy: .nextTimePreservingSmallerComponents)
+        let targetWeekday: Int
+        let strictFuture: Bool
+        if tokens.count == 1, let bare = weekdays[tokens[0]] {
+            targetWeekday = bare
+            strictFuture = false
+        } else if tokens.count == 2, let weekday = weekdays[tokens[1]] {
+            switch tokens[0] {
+            case "next":
+                targetWeekday = weekday
+                strictFuture = true
+            case "this":
+                targetWeekday = weekday
+                strictFuture = false
+            default:
+                return nil
+            }
+        } else {
+            return nil
+        }
+
+        let currentWeekday = calendar.component(.weekday, from: date)
+        var dayOffset = (targetWeekday - currentWeekday + 7) % 7
+        if strictFuture, dayOffset == 0 {
+            dayOffset = 7
+        }
+
+        return calendar.date(byAdding: .day, value: dayOffset, to: date)
     }
 
     private func parseAbsoluteDate(_ lowered: String, referenceDate: Date) -> Date? {
