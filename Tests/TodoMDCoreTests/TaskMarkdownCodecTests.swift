@@ -178,4 +178,49 @@ final class TaskMarkdownCodecTests: XCTestCase {
         XCTAssertTrue(serialized.contains("due_time"))
         XCTAssertTrue(serialized.contains("08:30"))
     }
+
+    func testLocationReminderParsesAndSerializes() throws {
+        let raw = """
+        ---
+        title: "Pick up package"
+        status: "todo"
+        created: "2025-02-26T14:30:00Z"
+        source: "user"
+        location_name: "Post Office"
+        location_latitude: 37.3318
+        location_longitude: -122.0312
+        location_radius_meters: 150
+        location_trigger: "leave"
+        ---
+        """
+
+        let codec = TaskMarkdownCodec()
+        let parsed = try codec.parse(markdown: raw)
+        let locationReminder = try XCTUnwrap(parsed.frontmatter.locationReminder)
+        XCTAssertEqual(locationReminder.name, "Post Office")
+        XCTAssertEqual(locationReminder.latitude, 37.3318, accuracy: 0.000_001)
+        XCTAssertEqual(locationReminder.longitude, -122.0312, accuracy: 0.000_001)
+        XCTAssertEqual(locationReminder.radiusMeters, 150, accuracy: 0.000_001)
+        XCTAssertEqual(locationReminder.trigger, .onDeparture)
+
+        let serialized = try codec.serialize(document: parsed)
+        XCTAssertTrue(serialized.contains("location_trigger"))
+        XCTAssertTrue(serialized.contains("leave"))
+    }
+
+    func testLocationReminderWithoutLongitudeThrows() {
+        let raw = """
+        ---
+        title: "Pick up package"
+        status: "todo"
+        created: "2025-02-26T14:30:00Z"
+        source: "user"
+        location_latitude: 37.3318
+        location_trigger: "arrive"
+        ---
+        """
+
+        let codec = TaskMarkdownCodec()
+        XCTAssertThrowsError(try codec.parse(markdown: raw))
+    }
 }

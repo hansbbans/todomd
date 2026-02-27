@@ -50,6 +50,12 @@ struct TaskEditState: Equatable {
     var tagsText: String
     var recurrence: String
     var body: String
+    var hasLocationReminder: Bool
+    var locationName: String
+    var locationLatitude: String
+    var locationLongitude: String
+    var locationRadiusMeters: Int
+    var locationTrigger: TaskLocationReminderTrigger
 
     var createdAt: Date
     var modifiedAt: Date?
@@ -69,6 +75,28 @@ struct UpcomingSection: Identifiable, Equatable {
     let records: [TaskRecord]
 
     var id: String { date.isoString }
+}
+
+struct LocationFavorite: Identifiable, Codable, Equatable {
+    var id: String
+    var name: String
+    var latitude: Double
+    var longitude: Double
+    var radiusMeters: Int
+
+    init(
+        id: String = UUID().uuidString,
+        name: String,
+        latitude: Double,
+        longitude: Double,
+        radiusMeters: Int = Int(TaskLocationReminder.defaultRadiusMeters.rounded())
+    ) {
+        self.id = id
+        self.name = name
+        self.latitude = latitude
+        self.longitude = longitude
+        self.radiusMeters = radiusMeters
+    }
 }
 
 private struct ReminderImportCandidate: Sendable {
@@ -112,6 +140,7 @@ final class AppContainer: ObservableObject {
     @Published private(set) var selectedReminderListID: String?
     @Published var remindersImportStatusMessage: String?
     @Published var isRemindersImporting = false
+    @Published private(set) var locationFavorites: [LocationFavorite] = []
 
     private var repository: FileTaskRepository
     private var fileWatcher: FileWatcherService
@@ -160,6 +189,7 @@ final class AppContainer: ObservableObject {
     private static let settingsGoogleCalendarEnabledKey = "settings_google_calendar_enabled"
     private static let settingsGoogleCalendarSelectedIDsKey = "settings_google_calendar_selected_ids"
     private static let settingsRemindersImportListIDKey = "settings_reminders_import_list_id"
+    private static let settingsLocationFavoritesKey = "settings_location_favorites_v1"
     private static let infoGoogleCalendarClientIDKey = "GOOGLE_OAUTH_CLIENT_ID"
     private static let infoGoogleCalendarRedirectURIKey = "GOOGLE_OAUTH_REDIRECT_URI"
     private static let defaultGoogleCalendarRedirectURI = "todomd://oauth"
@@ -188,6 +218,7 @@ final class AppContainer: ObservableObject {
 
         loadCalendarSourceSelection()
         loadReminderListSelection()
+        loadLocationFavorites()
         loadPerspectivesFromDisk()
         migrateLegacyPerspectivesFromSettingsIfNeeded()
         isCalendarConnected = googleCalendarService.isConnected
@@ -254,7 +285,11 @@ final class AppContainer: ObservableObject {
                 lastSync: sync.summary.timestamp,
                 totalFilesIndexed: allIndexedRecords.count,
                 parseFailureCount: diagnostics.count,
-                pendingNotificationCount: canonicalRecords.flatMap { planner.planNotifications(for: $0) }.count,
+                pendingNotificationCount: canonicalRecords.flatMap { planner.planNotifications(for: $0) }.count
+                    + canonicalRecords.filter { record in
+                        let status = record.document.frontmatter.status
+                        return (status == .todo || status == .inProgress) && record.document.frontmatter.locationReminder != nil
+                    }.count,
                 enumerateMilliseconds: enumerateMilliseconds,
                 parseMilliseconds: parseMilliseconds,
                 indexMilliseconds: indexMilliseconds,
@@ -288,8 +323,9 @@ final class AppContainer: ObservableObject {
             ])
 
 #if canImport(UserNotifications)
+            let hasLocationReminders = canonicalRecords.contains { $0.document.frontmatter.locationReminder != nil }
             Task {
-                await notificationScheduler.requestAuthorizationIfNeeded()
+                await notificationScheduler.requestAuthorizationIfNeeded(requestLocation: hasLocationReminders)
                 await notificationScheduler.synchronize(records: canonicalRecords, planner: planner)
             }
 #endif
@@ -737,6 +773,7 @@ final class AppContainer: ObservableObject {
     func makeEditState(path: String) -> TaskEditState? {
         guard let record = record(for: path) else { return nil }
         let frontmatter = record.document.frontmatter
+        let locationReminder = frontmatter.locationReminder
 
         return TaskEditState(
             title: frontmatter.title,
@@ -759,6 +796,12 @@ final class AppContainer: ObservableObject {
             tagsText: frontmatter.tags.joined(separator: ", "),
             recurrence: frontmatter.recurrence ?? "",
             body: record.document.body,
+            hasLocationReminder: locationReminder != nil,
+            locationName: locationReminder?.name ?? "",
+            locationLatitude: locationReminder.map { String(format: "%.6f", $0.latitude) } ?? "",
+            locationLongitude: locationReminder.map { String(format: "%.6f", $0.longitude) } ?? "",
+            locationRadiusMeters: Int((locationReminder?.radiusMeters ?? TaskLocationReminder.defaultRadiusMeters).rounded()),
+            locationTrigger: locationReminder?.trigger ?? .onArrival,
             createdAt: frontmatter.created,
             modifiedAt: frontmatter.modified,
             completedAt: frontmatter.completed,
@@ -1132,6 +1175,46 @@ final class AppContainer: ObservableObject {
         persistReminderListSelection()
     }
 
+    @discardableResult
+    func saveLocationFavorite(name: String, latitude: Double, longitude: Double, radiusMeters: Int) -> LocationFavorite? {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return nil }
+        guard trimmedName.count <= TaskValidation.maxLocationNameLength else { return nil }
+        guard (-90.0...90.0).contains(latitude), (-180.0...180.0).contains(longitude) else { return nil }
+
+        let normalizedRadius = max(50, min(1_000, radiusMeters))
+        if let existingIndex = locationFavorites.firstIndex(where: {
+            $0.name.compare(trimmedName, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+        }) {
+            let favoriteID = locationFavorites[existingIndex].id
+            locationFavorites[existingIndex].name = trimmedName
+            locationFavorites[existingIndex].latitude = latitude
+            locationFavorites[existingIndex].longitude = longitude
+            locationFavorites[existingIndex].radiusMeters = normalizedRadius
+            sortLocationFavorites()
+            persistLocationFavorites()
+            return locationFavorites.first(where: { $0.id == favoriteID })
+        }
+
+        let favorite = LocationFavorite(
+            name: trimmedName,
+            latitude: latitude,
+            longitude: longitude,
+            radiusMeters: normalizedRadius
+        )
+        locationFavorites.append(favorite)
+        sortLocationFavorites()
+        persistLocationFavorites()
+        return locationFavorites.first(where: { $0.id == favorite.id })
+    }
+
+    func deleteLocationFavorite(id: String) {
+        let originalCount = locationFavorites.count
+        locationFavorites.removeAll { $0.id == id }
+        guard locationFavorites.count != originalCount else { return }
+        persistLocationFavorites()
+    }
+
     func importFromReminders() async {
         guard !isRemindersImporting else { return }
         isRemindersImporting = true
@@ -1394,6 +1477,29 @@ final class AppContainer: ObservableObject {
         selectedReminderListID = UserDefaults.standard.string(forKey: Self.settingsRemindersImportListIDKey)
     }
 
+    private func loadLocationFavorites() {
+        let defaults = UserDefaults.standard
+        guard let data = defaults.data(forKey: Self.settingsLocationFavoritesKey) else {
+            locationFavorites = []
+            return
+        }
+
+        guard let decoded = try? JSONDecoder().decode([LocationFavorite].self, from: data) else {
+            locationFavorites = []
+            return
+        }
+
+        locationFavorites = decoded.filter { favorite in
+            let trimmedName = favorite.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            return !trimmedName.isEmpty
+                && trimmedName.count <= TaskValidation.maxLocationNameLength
+                && (-90.0...90.0).contains(favorite.latitude)
+                && (-180.0...180.0).contains(favorite.longitude)
+                && (50...1_000).contains(favorite.radiusMeters)
+        }
+        sortLocationFavorites()
+    }
+
     private func syncSelectedReminderList(with lists: [ReminderList]) {
         guard !lists.isEmpty else {
             selectedReminderListID = nil
@@ -1412,6 +1518,18 @@ final class AppContainer: ObservableObject {
     private func persistReminderListSelection() {
         let defaults = UserDefaults.standard
         defaults.set(selectedReminderListID, forKey: Self.settingsRemindersImportListIDKey)
+    }
+
+    private func persistLocationFavorites() {
+        let defaults = UserDefaults.standard
+        guard let data = try? JSONEncoder().encode(locationFavorites) else { return }
+        defaults.set(data, forKey: Self.settingsLocationFavoritesKey)
+    }
+
+    private func sortLocationFavorites() {
+        locationFavorites.sort {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
     }
 
     private func eventsForToday(_ events: [CalendarEventItem], today: Date) -> [CalendarEventItem] {
@@ -2024,7 +2142,26 @@ final class AppContainer: ObservableObject {
             .filter { !$0.isEmpty }
 
         document.frontmatter.recurrence = editState.recurrence.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        document.frontmatter.locationReminder = locationReminder(from: editState)
         document.body = String(editState.body.prefix(TaskValidation.maxBodyLength))
+    }
+
+    private func locationReminder(from editState: TaskEditState) -> TaskLocationReminder? {
+        guard editState.hasLocationReminder else { return nil }
+
+        let latitudeText = editState.locationLatitude.trimmingCharacters(in: .whitespacesAndNewlines)
+        let longitudeText = editState.locationLongitude.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let latitude = Double(latitudeText), let longitude = Double(longitudeText) else {
+            return nil
+        }
+
+        return TaskLocationReminder(
+            name: editState.locationName.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+            latitude: latitude,
+            longitude: longitude,
+            radiusMeters: Double(max(50, min(1_000, editState.locationRadiusMeters))),
+            trigger: editState.locationTrigger
+        )
     }
 
     private func upsertRecordInMemory(_ record: TaskRecord) {

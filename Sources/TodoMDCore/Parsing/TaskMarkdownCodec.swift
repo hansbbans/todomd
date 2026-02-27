@@ -15,7 +15,9 @@ public struct TaskMarkdownCodec {
 
         let knownKeys: Set<String> = [
             "title", "status", "due", "due_time", "defer", "scheduled", "priority", "flagged", "area", "project", "tags",
-            "recurrence", "estimated_minutes", "description", "created", "modified", "completed", "source"
+            "recurrence", "estimated_minutes", "description",
+            "location_name", "location_latitude", "location_longitude", "location_radius_meters", "location_trigger",
+            "created", "modified", "completed", "source"
         ]
 
         var unknown: [String: YAMLValue] = [:]
@@ -51,6 +53,13 @@ public struct TaskMarkdownCodec {
         if let recurrence = document.frontmatter.recurrence { object["recurrence"] = recurrence }
         if let estimatedMinutes = document.frontmatter.estimatedMinutes { object["estimated_minutes"] = estimatedMinutes }
         if let description = document.frontmatter.description { object["description"] = description }
+        if let locationReminder = document.frontmatter.locationReminder {
+            if let name = locationReminder.name { object["location_name"] = name }
+            object["location_latitude"] = locationReminder.latitude
+            object["location_longitude"] = locationReminder.longitude
+            object["location_radius_meters"] = locationReminder.radiusMeters
+            object["location_trigger"] = locationReminder.trigger.rawValue
+        }
         if let modified = document.frontmatter.modified { object["modified"] = DateCoding.encode(modified) }
         if let completed = document.frontmatter.completed { object["completed"] = DateCoding.encode(completed) }
 
@@ -176,6 +185,7 @@ public struct TaskMarkdownCodec {
         let recurrence = try optionalString("recurrence", in: object)
         let estimatedMinutes = try optionalInt("estimated_minutes", in: object)
         let description = try optionalString("description", in: object)
+        let locationReminder = try parseLocationReminder(from: object)
 
         let tags: [String]
         if let rawTags = object["tags"] {
@@ -219,6 +229,7 @@ public struct TaskMarkdownCodec {
             recurrence: recurrence,
             estimatedMinutes: estimatedMinutes,
             description: description,
+            locationReminder: locationReminder,
             created: created,
             modified: modified,
             completed: completed,
@@ -275,6 +286,22 @@ public struct TaskMarkdownCodec {
         if let int = value as? Int { return int }
         if let double = value as? Double, floor(double) == double { return Int(double) }
         throw TaskError.parseFailure("Field \(key) must be an integer")
+    }
+
+    private func optionalDouble(_ key: String, in object: [String: Any]) throws -> Double? {
+        guard let value = object[key] else { return nil }
+        if value is NSNull { return nil }
+        if let number = value as? Double { return number }
+        if let number = value as? Int { return Double(number) }
+        if let number = value as? NSNumber { return number.doubleValue }
+        if let string = value as? String {
+            let normalized = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let parsed = Double(normalized) else {
+                throw TaskError.parseFailure("Field \(key) must be a number")
+            }
+            return parsed
+        }
+        throw TaskError.parseFailure("Field \(key) must be a number")
     }
 
     private func optionalDate(_ key: String, in object: [String: Any]) throws -> LocalDate? {
@@ -359,6 +386,41 @@ public struct TaskMarkdownCodec {
         }
     }
 
+    private func parseLocationReminder(from object: [String: Any]) throws -> TaskLocationReminder? {
+        let locationName = try optionalString("location_name", in: object)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+        let latitude = try optionalDouble("location_latitude", in: object)
+        let longitude = try optionalDouble("location_longitude", in: object)
+        let radiusMeters = try optionalDouble("location_radius_meters", in: object)
+        let triggerRaw = try optionalString("location_trigger", in: object)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        let hasLocationFields = locationName != nil || latitude != nil || longitude != nil || radiusMeters != nil || triggerRaw != nil
+        guard hasLocationFields else { return nil }
+
+        guard let latitude else {
+            throw TaskError.parseFailure("location_latitude is required when using location reminders")
+        }
+        guard let longitude else {
+            throw TaskError.parseFailure("location_longitude is required when using location reminders")
+        }
+
+        let trigger = TaskLocationReminderTrigger(rawValue: triggerRaw ?? TaskLocationReminderTrigger.onArrival.rawValue)
+        guard let trigger else {
+            throw TaskError.parseFailure("location_trigger must be one of: arrive, leave")
+        }
+
+        return TaskLocationReminder(
+            name: locationName,
+            latitude: latitude,
+            longitude: longitude,
+            radiusMeters: radiusMeters ?? TaskLocationReminder.defaultRadiusMeters,
+            trigger: trigger
+        )
+    }
+
     private func parseStatus(_ raw: String) -> TaskStatus {
         let normalized = raw
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -397,5 +459,11 @@ public struct TaskMarkdownCodec {
         default:
             return .none
         }
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }
