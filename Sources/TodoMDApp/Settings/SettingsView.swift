@@ -1,6 +1,12 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+private struct BottomNavigationOption: Identifiable, Hashable {
+    let id: String
+    let label: String
+    let icon: String
+}
+
 struct SettingsView: View {
     @EnvironmentObject private var container: AppContainer
 
@@ -16,6 +22,7 @@ struct SettingsView: View {
     @AppStorage("settings_quick_entry_default_view") private var quickEntryDefaultView = BuiltInView.inbox.rawValue
     @AppStorage(QuickEntrySettings.fieldsKey) private var quickEntryFieldsRawValue = QuickEntrySettings.defaultFieldsRawValue
     @AppStorage(QuickEntrySettings.defaultDateModeKey) private var quickEntryDefaultDateModeRawValue = QuickEntryDefaultDateMode.today.rawValue
+    @AppStorage(BottomNavigationSettings.sectionsKey) private var bottomNavigationSectionsRawValue = BottomNavigationSettings.defaultSectionsRawValue
     @AppStorage("settings_icloud_folder_name") private var iCloudFolderName = "todo.md"
     @State private var selectedFolderPath = UserDefaults.standard.string(forKey: TaskFolderPreferences.selectedFolderPathKey)
     @State private var showingFolderPicker = false
@@ -225,6 +232,53 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Bottom Navigation") {
+                Text("Configure 0 to 5 bottom sections for compact screens.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if bottomNavigationSections.isEmpty {
+                    Text("No bottom sections configured.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(bottomNavigationSections) { section in
+                        let sectionNumber = (bottomNavigationSections.firstIndex(where: { $0.id == section.id }) ?? 0) + 1
+                        Picker("Section \(sectionNumber)", selection: bottomNavigationSectionBinding(section.id)) {
+                            ForEach(bottomNavigationOptions) { option in
+                                Label(option.label, systemImage: option.icon)
+                                    .tag(option.id)
+                            }
+
+                            if !bottomNavigationOptions.contains(where: { $0.id == section.viewRawValue }) {
+                                Text("Unavailable (\(section.viewRawValue))")
+                                    .tag(section.viewRawValue)
+                            }
+                        }
+                    }
+                    .onMove(perform: moveBottomNavigationSections)
+                    .onDelete(perform: deleteBottomNavigationSections)
+                }
+
+                HStack {
+                    Button("Add Section") {
+                        addBottomNavigationSection()
+                    }
+                    .disabled(bottomNavigationSections.count >= BottomNavigationSettings.maxSections)
+
+                    Spacer()
+
+                    Text("\(bottomNavigationSections.count)/\(BottomNavigationSettings.maxSections)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if !bottomNavigationSections.isEmpty {
+                    Button("Remove All Sections", role: .destructive) {
+                        bottomNavigationSectionsRawValue = BottomNavigationSettings.encodeSections([])
+                    }
+                }
+            }
+
             Section("Storage") {
                 TextField("Default iCloud folder name", text: $iCloudFolderName)
                     .textInputAutocapitalization(.never)
@@ -327,6 +381,127 @@ struct SettingsView: View {
                 container.setReminderListSelected(id: selectedID)
             }
         )
+    }
+
+    private var bottomNavigationSections: [BottomNavigationSection] {
+        BottomNavigationSettings.decodeSections(bottomNavigationSectionsRawValue)
+    }
+
+    private var bottomNavigationOptions: [BottomNavigationOption] {
+        var options: [BottomNavigationOption] = []
+        var seen = Set<String>()
+
+        func appendOption(view: ViewIdentifier, label: String, icon: String) {
+            let rawValue = view.rawValue
+            guard seen.insert(rawValue).inserted else { return }
+            options.append(BottomNavigationOption(id: rawValue, label: label, icon: icon))
+        }
+
+        for builtIn in BuiltInView.allCases {
+            let label: String
+            let icon: String
+            switch builtIn {
+            case .inbox:
+                label = "Inbox"
+                icon = "tray"
+            case .today:
+                label = "Today"
+                icon = "sun.max"
+            case .upcoming:
+                label = "Upcoming"
+                icon = "calendar"
+            case .anytime:
+                label = "Anytime"
+                icon = "list.bullet"
+            case .someday:
+                label = "Someday"
+                icon = "clock"
+            case .flagged:
+                label = "Flagged"
+                icon = "flag"
+            }
+            appendOption(view: .builtIn(builtIn), label: label, icon: icon)
+        }
+
+        for perspective in container.perspectives {
+            appendOption(
+                view: container.perspectiveViewIdentifier(for: perspective.id),
+                label: "Perspective: \(perspective.name)",
+                icon: perspective.icon
+            )
+        }
+
+        for area in container.availableAreas() {
+            appendOption(view: .area(area), label: "Area: \(area)", icon: "square.grid.2x2")
+        }
+
+        for project in container.allProjects() {
+            appendOption(view: .project(project), label: "Project: \(project)", icon: "folder")
+        }
+
+        for tag in container.availableTags() {
+            appendOption(view: .tag(tag), label: "Tag: #\(tag)", icon: "number")
+        }
+
+        return options
+    }
+
+    private func bottomNavigationSectionBinding(_ sectionID: String) -> Binding<String> {
+        Binding(
+            get: {
+                bottomNavigationSections.first(where: { $0.id == sectionID })?.viewRawValue ?? BuiltInView.inbox.rawValue
+            },
+            set: { newRawValue in
+                var sections = bottomNavigationSections
+                guard let index = sections.firstIndex(where: { $0.id == sectionID }) else { return }
+                sections[index].viewRawValue = newRawValue
+                bottomNavigationSectionsRawValue = BottomNavigationSettings.encodeSections(sections)
+            }
+        )
+    }
+
+    private func addBottomNavigationSection() {
+        var sections = bottomNavigationSections
+        guard sections.count < BottomNavigationSettings.maxSections else { return }
+        let existingViews = sections.map(\.viewIdentifier)
+        sections.append(BottomNavigationSection(view: nextBottomNavigationView(existing: existingViews)))
+        bottomNavigationSectionsRawValue = BottomNavigationSettings.encodeSections(sections)
+    }
+
+    private func moveBottomNavigationSections(from source: IndexSet, to destination: Int) {
+        var sections = bottomNavigationSections
+        sections.move(fromOffsets: source, toOffset: destination)
+        bottomNavigationSectionsRawValue = BottomNavigationSettings.encodeSections(sections)
+    }
+
+    private func deleteBottomNavigationSections(at offsets: IndexSet) {
+        var sections = bottomNavigationSections
+        sections.remove(atOffsets: offsets)
+        bottomNavigationSectionsRawValue = BottomNavigationSettings.encodeSections(sections)
+    }
+
+    private func nextBottomNavigationView(existing: [ViewIdentifier]) -> ViewIdentifier {
+        let builtInCandidates: [ViewIdentifier] = [
+            .builtIn(.inbox),
+            .builtIn(.today),
+            .builtIn(.upcoming),
+            .builtIn(.anytime),
+            .builtIn(.flagged),
+            .builtIn(.someday)
+        ]
+
+        for candidate in builtInCandidates where !existing.contains(candidate) {
+            return candidate
+        }
+
+        if let firstPerspective = container.perspectives.first {
+            let perspectiveView = container.perspectiveViewIdentifier(for: firstPerspective.id)
+            if !existing.contains(perspectiveView) {
+                return perspectiveView
+            }
+        }
+
+        return .builtIn(.inbox)
     }
 
     private func color(for hex: String) -> Color {
