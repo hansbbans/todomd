@@ -16,6 +16,20 @@ final class RecurrenceServiceTests: XCTestCase {
         XCTAssertEqual(next.isoString, "2025-03-03")
     }
 
+    func testWeeklyByDayRespectsInterval() throws {
+        let service = RecurrenceService()
+        let start = try LocalDate(isoDate: "2025-03-03") // Monday
+        let next = try service.nextOccurrence(after: start, rule: "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO")
+        XCTAssertEqual(next.isoString, "2025-03-17")
+    }
+
+    func testWeeklyByDayAllowsLaterDaysInSameWeek() throws {
+        let service = RecurrenceService()
+        let start = try LocalDate(isoDate: "2025-03-03") // Monday
+        let next = try service.nextOccurrence(after: start, rule: "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE")
+        XCTAssertEqual(next.isoString, "2025-03-05")
+    }
+
     func testMonthlyRecurrenceEndOfMonth() throws {
         let service = RecurrenceService()
         let start = try LocalDate(isoDate: "2025-01-31")

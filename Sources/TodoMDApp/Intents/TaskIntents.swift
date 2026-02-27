@@ -97,18 +97,36 @@ struct AddTaskIntent: AppIntent {
 
     @Parameter(title: "Title") var title: String
     @Parameter(title: "Due Date", default: "") var dueDate: String
+    @Parameter(title: "Defer Date", default: "") var deferDate: String
+    @Parameter(title: "Priority", default: "") var priority: String
+    @Parameter(title: "Area", default: "") var area: String
+    @Parameter(title: "Project", default: "") var project: String
+    @Parameter(title: "Tags", default: "") var tags: String
 
     func perform() async throws -> some IntentResult & ReturnsValue<TaskIntentEntity> {
         let services = IntentServices()
         let repository = try services.makeRepository()
 
         let due = dueDate.isEmpty ? nil : try? LocalDate(isoDate: dueDate)
+        let deferred = deferDate.isEmpty ? nil : try? LocalDate(isoDate: deferDate)
+        let parsedPriority = TaskPriority(rawValue: priority.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) ?? .none
+        let trimmedArea = area.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : area.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedProject = project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : project.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parsedTags = tags
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
         let now = Date()
 
         let frontmatter = TaskFrontmatterV1(
             title: title,
             status: .todo,
             due: due,
+            defer: deferred,
+            priority: parsedPriority,
+            area: trimmedArea,
+            project: trimmedProject,
+            tags: parsedTags,
             created: now,
             modified: now,
             source: "shortcut"

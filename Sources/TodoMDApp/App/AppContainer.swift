@@ -1,4 +1,4 @@
-import Foundation
+@preconcurrency import Foundation
 #if canImport(SwiftData)
 import SwiftData
 #endif
@@ -62,6 +62,13 @@ struct TodaySection: Identifiable, Equatable {
     var id: String { group.rawValue }
 }
 
+struct UpcomingSection: Identifiable, Equatable {
+    let date: LocalDate
+    let records: [TaskRecord]
+
+    var id: String { date.isoString }
+}
+
 @MainActor
 final class AppContainer: ObservableObject {
     @Published var selectedView: ViewIdentifier = .builtIn(.inbox) {
@@ -76,14 +83,14 @@ final class AppContainer: ObservableObject {
     @Published var conflicts: [ConflictSummary] = []
     @Published var navigationTaskPath: String?
 
-    private let repository: FileTaskRepository
-    private let fileWatcher: FileWatcherService
-    private let manualOrderService: ManualOrderService
+    private var repository: FileTaskRepository
+    private var fileWatcher: FileWatcherService
+    private var manualOrderService: ManualOrderService
     private let queryEngine = TaskQueryEngine()
     private let dateParser = NaturalLanguageDateParser()
     private let urlRouter = URLRouter()
     private let logger: RuntimeLogging
-    private let rootURL: URL
+    private(set) var rootURL: URL
 
 #if canImport(SwiftData)
     let modelContainer: ModelContainer
@@ -101,23 +108,19 @@ final class AppContainer: ObservableObject {
     private var metadataObserverTokens: [NSObjectProtocol] = []
     private var lifecycleObserverTokens: [NSObjectProtocol] = []
     private var metadataRefreshWorkItem: DispatchWorkItem?
+    private var suppressMetadataRefreshUntil: Date?
 
     private static let settingsNotificationHourKey = "settings_notification_hour"
     private static let settingsNotificationMinuteKey = "settings_notification_minute"
+    private static let settingsArchiveCompletedKey = "settings_archive_completed"
+    private static let settingsCompletedRetentionKey = "settings_completed_retention"
+    private static let settingsDefaultPriorityKey = "settings_default_priority"
+    private static let settingsQuickEntryDefaultViewKey = "settings_quick_entry_default_view"
 
     init(logger: RuntimeLogging = ConsoleRuntimeLogger()) {
         self.logger = logger
 
-        let folderLocator = TaskFolderLocator()
-        let resolvedRoot: URL
-        do {
-            resolvedRoot = try folderLocator.ensureFolderExists()
-        } catch {
-            let fallback = FileManager.default.temporaryDirectory.appendingPathComponent("todo.md", isDirectory: true)
-            try? FileManager.default.createDirectory(at: fallback, withIntermediateDirectories: true)
-            resolvedRoot = fallback
-        }
-
+        let resolvedRoot = Self.resolveRootURL()
         self.rootURL = resolvedRoot
 
 #if canImport(SwiftData)
@@ -139,26 +142,52 @@ final class AppContainer: ObservableObject {
         refresh()
     }
 
+    deinit {
+        metadataRefreshWorkItem?.cancel()
+
+        let center = NotificationCenter.default
+        for token in metadataObserverTokens {
+            center.removeObserver(token)
+        }
+        for token in lifecycleObserverTokens {
+            center.removeObserver(token)
+        }
+    }
+
     var rootFolderPath: String {
         rootURL.path
+    }
+
+    func reloadStorageLocation() {
+        _ = reconfigureStorageIfNeeded(force: true)
+        refresh()
     }
 
     func refresh() {
         do {
             let sync = try fileWatcher.synchronize()
-            let canonicalRecords = try repository.loadAll()
+            let canonicalLoad = try loadCanonicalRecordsBestEffort(timestamp: sync.summary.timestamp)
+            let canonicalRecords = canonicalLoad.records
             canonicalByPath = Dictionary(uniqueKeysWithValues: canonicalRecords.map { ($0.identity.path, $0) })
 
             let indexStart = ContinuousClock.now
 #if canImport(SwiftData)
-            try syncSwiftDataIndex(from: canonicalRecords)
-            allIndexedRecords = try loadAllFromSwiftDataIndex()
+            do {
+                try syncSwiftDataIndex(from: canonicalRecords)
+                allIndexedRecords = try loadAllFromSwiftDataIndex()
+            } catch {
+                logger.error("Index sync failed; using canonical records", metadata: ["error": error.localizedDescription])
+                allIndexedRecords = canonicalRecords
+            }
 #else
             allIndexedRecords = canonicalRecords
 #endif
             let indexMilliseconds = elapsedMilliseconds(since: indexStart)
 
-            diagnostics = fileWatcher.parseDiagnostics
+            diagnostics = mergedParseDiagnostics(
+                watcherDiagnostics: fileWatcher.parseDiagnostics,
+                fullScanDiagnostics: canonicalLoad.failures
+            )
             conflicts = buildConflictSummaries(from: sync.events)
 
             let queryMilliseconds = applyCurrentViewFilter()
@@ -214,6 +243,81 @@ final class AppContainer: ObservableObject {
         }
     }
 
+    private func loadCanonicalRecordsBestEffort(timestamp: Date) throws -> (records: [TaskRecord], failures: [ParseFailureDiagnostic]) {
+        let urls = try TaskFileIO().enumerateMarkdownFiles(rootURL: rootURL)
+        var records: [TaskRecord] = []
+        var failures: [ParseFailureDiagnostic] = []
+        records.reserveCapacity(urls.count)
+
+        for url in urls {
+            do {
+                records.append(try repository.load(path: url.path))
+            } catch {
+                failures.append(ParseFailureDiagnostic(path: url.path, reason: error.localizedDescription, timestamp: timestamp))
+            }
+        }
+
+        return (records, failures)
+    }
+
+    private func mergedParseDiagnostics(
+        watcherDiagnostics: [ParseFailureDiagnostic],
+        fullScanDiagnostics: [ParseFailureDiagnostic]
+    ) -> [ParseFailureDiagnostic] {
+        var byKey: [String: ParseFailureDiagnostic] = [:]
+        for diagnostic in watcherDiagnostics + fullScanDiagnostics {
+            let key = "\(diagnostic.path)|\(diagnostic.reason)"
+            if let existing = byKey[key], existing.timestamp >= diagnostic.timestamp {
+                continue
+            }
+            byKey[key] = diagnostic
+        }
+
+        return byKey.values.sorted { lhs, rhs in
+            if lhs.timestamp != rhs.timestamp {
+                return lhs.timestamp > rhs.timestamp
+            }
+            return lhs.path < rhs.path
+        }
+    }
+
+    @discardableResult
+    private func reconfigureStorageIfNeeded(force: Bool = false) -> Bool {
+        let resolvedRoot = Self.resolveRootURL()
+        let normalizedResolvedRoot = resolvedRoot.standardizedFileURL.resolvingSymlinksInPath()
+        let normalizedCurrentRoot = rootURL.standardizedFileURL.resolvingSymlinksInPath()
+        guard force || normalizedResolvedRoot != normalizedCurrentRoot else {
+            return false
+        }
+
+        stopMetadataQuery()
+
+        rootURL = normalizedResolvedRoot
+        repository = FileTaskRepository(rootURL: rootURL)
+        fileWatcher = FileWatcherService(rootURL: rootURL, repository: repository)
+        manualOrderService = ManualOrderService(rootURL: rootURL)
+
+        canonicalByPath = [:]
+        allIndexedRecords = []
+        records = []
+        diagnostics = []
+        conflicts = []
+
+        startMetadataQuery()
+        return true
+    }
+
+    private static func resolveRootURL() -> URL {
+        let folderLocator = TaskFolderLocator()
+        if let resolved = try? folderLocator.ensureFolderExists() {
+            return resolved.standardizedFileURL.resolvingSymlinksInPath()
+        }
+
+        let fallback = FileManager.default.temporaryDirectory.appendingPathComponent("todo.md", isDirectory: true)
+        try? FileManager.default.createDirectory(at: fallback, withIntermediateDirectories: true)
+        return fallback.standardizedFileURL.resolvingSymlinksInPath()
+    }
+
     func filteredRecords() -> [TaskRecord] {
         records
     }
@@ -234,6 +338,74 @@ final class AppContainer: ObservableObject {
         return groupOrder.compactMap { group in
             guard let records = grouped[group], !records.isEmpty else { return nil }
             return TodaySection(group: group, records: records)
+        }
+    }
+
+    func upcomingSections(today: LocalDate = LocalDate.today(in: .current)) -> [UpcomingSection] {
+        let upcoming = allIndexedRecords.filter {
+            queryEngine.matches($0, view: .builtIn(.upcoming), today: today)
+        }
+        var grouped: [LocalDate: [TaskRecord]] = [:]
+
+        for record in upcoming {
+            guard let groupDate = upcomingGroupDate(for: record, today: today) else { continue }
+            grouped[groupDate, default: []].append(record)
+        }
+
+        return grouped.keys.sorted().map { date in
+            let recordsForDate = grouped[date] ?? []
+            let ordered = manualOrderService.ordered(records: recordsForDate, view: .builtIn(.upcoming))
+                .sorted { lhs, rhs in
+                    let leftDue = lhs.document.frontmatter.due
+                    let rightDue = rhs.document.frontmatter.due
+                    switch (leftDue, rightDue) {
+                    case let (l?, r?):
+                        return l < r
+                    case (.some, .none):
+                        return true
+                    case (.none, .some):
+                        return false
+                    case (.none, .none):
+                        return lhs.document.frontmatter.created < rhs.document.frontmatter.created
+                    }
+                }
+            return UpcomingSection(date: date, records: ordered)
+        }
+    }
+
+    func availableAreas() -> [String] {
+        Set(allIndexedRecords.compactMap { $0.document.frontmatter.area?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty })
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    func availableTags() -> [String] {
+        Set(allIndexedRecords.flatMap { $0.document.frontmatter.tags }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty })
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    func allProjects() -> [String] {
+        Set(allIndexedRecords.compactMap { $0.document.frontmatter.project?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty })
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    func availableProjects(inArea area: String?) -> [String] {
+        let normalizedArea = area?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let projects = allIndexedRecords.filter { record in
+            guard let normalizedArea, !normalizedArea.isEmpty else { return true }
+            return record.document.frontmatter.area == normalizedArea
+        }.compactMap { $0.document.frontmatter.project?.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+        return Set(projects.filter { !$0.isEmpty })
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    func projectsByArea() -> [(area: String, projects: [String])] {
+        availableAreas().map { area in
+            (area: area, projects: availableProjects(inArea: area))
         }
     }
 
@@ -292,37 +464,29 @@ final class AppContainer: ObservableObject {
 
     @discardableResult
     func updateTask(path: String, editState: TaskEditState) -> Bool {
+        let optimisticRecord = record(for: path).map { current in
+            var copy = current
+            apply(editState: editState, to: &copy.document)
+            return copy
+        }
+        if let optimisticRecord {
+            canonicalByPath[path] = optimisticRecord
+            if let index = allIndexedRecords.firstIndex(where: { $0.identity.path == path }) {
+                allIndexedRecords[index] = optimisticRecord
+            }
+            _ = applyCurrentViewFilter()
+        }
+
         do {
             let updated = try repository.update(path: path) { document in
-                let trimmedTitle = editState.title.trimmingCharacters(in: .whitespacesAndNewlines)
-                document.frontmatter.title = trimmedTitle.isEmpty ? document.frontmatter.title : trimmedTitle
-                document.frontmatter.description = editState.subtitle.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-                document.frontmatter.status = editState.status
-                document.frontmatter.flagged = editState.flagged
-                document.frontmatter.priority = editState.priority
-
-                document.frontmatter.due = editState.hasDue ? localDateFromDate(editState.dueDate) : nil
-                document.frontmatter.defer = editState.hasDefer ? localDateFromDate(editState.deferDate) : nil
-                document.frontmatter.scheduled = editState.hasScheduled ? localDateFromDate(editState.scheduledDate) : nil
-
-                document.frontmatter.estimatedMinutes = editState.hasEstimatedMinutes ? max(0, editState.estimatedMinutes) : nil
-
-                document.frontmatter.area = editState.area.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-                document.frontmatter.project = editState.project.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-
-                document.frontmatter.tags = editState.tagsText
-                    .split(separator: ",")
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .filter { !$0.isEmpty }
-
-                document.frontmatter.recurrence = editState.recurrence.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-                document.body = String(editState.body.prefix(TaskValidation.maxBodyLength))
+                apply(editState: editState, to: &document)
             }
 
             markSelfWrite(path: updated.identity.path)
             refresh()
             return true
         } catch {
+            refresh()
             logger.error("Task update failed", metadata: ["path": path, "error": error.localizedDescription])
             return false
         }
@@ -358,6 +522,59 @@ final class AppContainer: ObservableObject {
     }
 
     @discardableResult
+    func setDefer(path: String, date: Date?) -> Bool {
+        do {
+            let updated = try repository.update(path: path) { document in
+                if let date {
+                    document.frontmatter.defer = localDateFromDate(date)
+                } else {
+                    document.frontmatter.defer = nil
+                }
+                document.frontmatter.modified = Date()
+            }
+            markSelfWrite(path: updated.identity.path)
+            refresh()
+            return true
+        } catch {
+            logger.error("Set defer failed", metadata: ["path": path, "error": error.localizedDescription])
+            return false
+        }
+    }
+
+    @discardableResult
+    func setPriority(path: String, priority: TaskPriority) -> Bool {
+        do {
+            let updated = try repository.update(path: path) { document in
+                document.frontmatter.priority = priority
+                document.frontmatter.modified = Date()
+            }
+            markSelfWrite(path: updated.identity.path)
+            refresh()
+            return true
+        } catch {
+            logger.error("Set priority failed", metadata: ["path": path, "error": error.localizedDescription])
+            return false
+        }
+    }
+
+    @discardableResult
+    func moveTask(path: String, area: String?, project: String?) -> Bool {
+        do {
+            let updated = try repository.update(path: path) { document in
+                document.frontmatter.area = area?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                document.frontmatter.project = project?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                document.frontmatter.modified = Date()
+            }
+            markSelfWrite(path: updated.identity.path)
+            refresh()
+            return true
+        } catch {
+            logger.error("Move task failed", metadata: ["path": path, "error": error.localizedDescription])
+            return false
+        }
+    }
+
+    @discardableResult
     func toggleFlag(path: String) -> Bool {
         do {
             let updated = try repository.update(path: path) { document in
@@ -373,31 +590,39 @@ final class AppContainer: ObservableObject {
         }
     }
 
-    func createTask(title: String, naturalDate: String?) {
+    func createTask(
+        title: String,
+        naturalDate: String?,
+        tags: [String] = [],
+        defaultView: BuiltInView? = nil
+    ) {
+        let destinationView = defaultView ?? BuiltInView(rawValue: UserDefaults.standard.string(forKey: Self.settingsQuickEntryDefaultViewKey) ?? "")
+            ?? .inbox
         var due: LocalDate?
         if let naturalDate, !naturalDate.isEmpty {
             due = dateParser.parse(naturalDate)
         }
+        if due == nil, destinationView == .today {
+            due = LocalDate.today(in: .current)
+        }
+
+        let priorityRaw = UserDefaults.standard.string(forKey: Self.settingsDefaultPriorityKey) ?? TaskPriority.none.rawValue
+        let defaultPriority = TaskPriority(rawValue: priorityRaw) ?? .none
 
         let now = Date()
         let frontmatter = TaskFrontmatterV1(
             title: title,
             status: .todo,
             due: due,
+            priority: defaultPriority,
+            tags: tags,
             created: now,
             modified: now,
             source: "user"
         )
 
         let document = TaskDocument(frontmatter: frontmatter, body: "")
-
-        do {
-            let created = try repository.create(document: document, preferredFilename: nil)
-            markSelfWrite(path: created.identity.path)
-            refresh()
-        } catch {
-            logger.error("Task creation failed", metadata: ["error": error.localizedDescription])
-        }
+        persistTaskAsync(document: document, errorContext: "Task creation failed")
     }
 
     func createTask(request: TaskCreateRequest) {
@@ -418,13 +643,7 @@ final class AppContainer: ObservableObject {
         )
 
         let document = TaskDocument(frontmatter: frontmatter, body: "")
-        do {
-            let created = try repository.create(document: document, preferredFilename: nil)
-            markSelfWrite(path: created.identity.path)
-            refresh()
-        } catch {
-            logger.error("Task creation from request failed", metadata: ["error": error.localizedDescription])
-        }
+        persistTaskAsync(document: document, errorContext: "Task creation from request failed")
     }
 
     func complete(path: String) {
@@ -436,10 +655,12 @@ final class AppContainer: ObservableObject {
 
             if shouldRepeat {
                 let result = try repository.completeRepeating(path: path, at: now)
+                archiveCompletedFilesIfEnabled(paths: [result.completed.identity.path])
                 markSelfWrite(path: result.completed.identity.path)
                 markSelfWrite(path: result.next.identity.path)
             } else {
                 let completed = try repository.complete(path: path, at: now)
+                archiveCompletedFilesIfEnabled(paths: [completed.identity.path])
                 markSelfWrite(path: completed.identity.path)
             }
             refresh()
@@ -557,8 +778,87 @@ final class AppContainer: ObservableObject {
     private func applyCurrentViewFilter(today: LocalDate = LocalDate.today(in: .current)) -> Double {
         let start = ContinuousClock.now
         let filtered = allIndexedRecords.filter { queryEngine.matches($0, view: selectedView, today: today) }
-        records = manualOrderService.ordered(records: filtered, view: selectedView)
+        let retentionFiltered = applyCompletionRetention(records: filtered)
+        records = manualOrderService.ordered(records: retentionFiltered, view: selectedView)
         return elapsedMilliseconds(since: start)
+    }
+
+    private func applyCompletionRetention(records: [TaskRecord]) -> [TaskRecord] {
+        let retention = UserDefaults.standard.string(forKey: Self.settingsCompletedRetentionKey) ?? "forever"
+        let cutoffDays: Int?
+        switch retention {
+        case "7d":
+            cutoffDays = 7
+        case "30d":
+            cutoffDays = 30
+        default:
+            cutoffDays = nil
+        }
+
+        guard let cutoffDays else { return records }
+        guard let cutoffDate = Calendar.current.date(byAdding: .day, value: -cutoffDays, to: Date()) else {
+            return records
+        }
+
+        return records.filter { record in
+            let status = record.document.frontmatter.status
+            guard status == .done || status == .cancelled else { return true }
+            guard let completed = record.document.frontmatter.completed else { return false }
+            return completed >= cutoffDate
+        }
+    }
+
+    private func upcomingGroupDate(for record: TaskRecord, today: LocalDate) -> LocalDate? {
+        let frontmatter = record.document.frontmatter
+        let candidates = [frontmatter.scheduled, frontmatter.due]
+            .compactMap { $0 }
+            .filter { $0 > today }
+            .sorted()
+        return candidates.first
+    }
+
+    private func archiveCompletedFilesIfEnabled(paths: [String]) {
+        guard UserDefaults.standard.bool(forKey: Self.settingsArchiveCompletedKey) else { return }
+        let fileManager = FileManager.default
+        let archiveFolder = rootURL.appendingPathComponent("Archive", isDirectory: true)
+        do {
+            try fileManager.createDirectory(at: archiveFolder, withIntermediateDirectories: true)
+        } catch {
+            logger.error("Failed to create archive folder", metadata: ["error": error.localizedDescription])
+            return
+        }
+
+        for path in paths {
+            let sourceURL = URL(fileURLWithPath: path)
+            guard fileManager.fileExists(atPath: sourceURL.path) else { continue }
+            var destinationURL = archiveFolder.appendingPathComponent(sourceURL.lastPathComponent)
+            destinationURL = uniqueDestinationURL(for: destinationURL, fileManager: fileManager)
+            do {
+                try fileManager.moveItem(at: sourceURL, to: destinationURL)
+            } catch {
+                logger.error("Failed to archive completed task", metadata: [
+                    "source": sourceURL.path,
+                    "destination": destinationURL.path,
+                    "error": error.localizedDescription
+                ])
+            }
+        }
+    }
+
+    private func uniqueDestinationURL(for url: URL, fileManager: FileManager) -> URL {
+        guard fileManager.fileExists(atPath: url.path) else { return url }
+        let base = url.deletingPathExtension().lastPathComponent
+        let ext = url.pathExtension
+        let parent = url.deletingLastPathComponent()
+        var suffix = 2
+        while true {
+            let filename = ext.isEmpty ? "\(base)-\(suffix)" : "\(base)-\(suffix).\(ext)"
+            let candidate = parent.appendingPathComponent(filename)
+            if !fileManager.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+            suffix += 1
+        }
     }
 
     private func notificationPlannerForCurrentSettings() -> NotificationPlanner {
@@ -619,10 +919,13 @@ final class AppContainer: ObservableObject {
             forName: .NSMetadataQueryDidFinishGathering,
             object: query,
             queue: .main
-        ) { [weak self] _ in
-            query.disableUpdates()
-            self?.debounceMetadataRefresh()
-            query.enableUpdates()
+        ) { [weak self] notification in
+            guard let metadataQuery = notification.object as? NSMetadataQuery else { return }
+            metadataQuery.disableUpdates()
+            Task { @MainActor [weak self] in
+                self?.debounceMetadataRefresh()
+            }
+            metadataQuery.enableUpdates()
         })
 
         metadataObserverTokens.append(center.addObserver(
@@ -630,7 +933,9 @@ final class AppContainer: ObservableObject {
             object: query,
             queue: .main
         ) { [weak self] _ in
-            self?.debounceMetadataRefresh()
+            Task { @MainActor [weak self] in
+                self?.debounceMetadataRefresh()
+            }
         })
 
         _ = query.start()
@@ -653,10 +958,16 @@ final class AppContainer: ObservableObject {
     }
 
     private func debounceMetadataRefresh() {
+        if isMetadataRefreshSuppressed() {
+            return
+        }
+
         metadataRefreshWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
             Task { @MainActor [weak self] in
-                self?.refresh()
+                guard let self else { return }
+                guard !self.isMetadataRefreshSuppressed() else { return }
+                self.refresh()
             }
         }
         metadataRefreshWorkItem = work
@@ -803,6 +1114,87 @@ final class AppContainer: ObservableObject {
         }
     }
 
+    private func apply(editState: TaskEditState, to document: inout TaskDocument) {
+        let trimmedTitle = editState.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        document.frontmatter.title = trimmedTitle.isEmpty ? document.frontmatter.title : trimmedTitle
+        document.frontmatter.description = editState.subtitle.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        document.frontmatter.status = editState.status
+        document.frontmatter.flagged = editState.flagged
+        document.frontmatter.priority = editState.priority
+
+        document.frontmatter.due = editState.hasDue ? localDateFromDate(editState.dueDate) : nil
+        document.frontmatter.defer = editState.hasDefer ? localDateFromDate(editState.deferDate) : nil
+        document.frontmatter.scheduled = editState.hasScheduled ? localDateFromDate(editState.scheduledDate) : nil
+
+        document.frontmatter.estimatedMinutes = editState.hasEstimatedMinutes ? max(0, editState.estimatedMinutes) : nil
+
+        document.frontmatter.area = editState.area.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        document.frontmatter.project = editState.project.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+
+        document.frontmatter.tags = editState.tagsText
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        document.frontmatter.recurrence = editState.recurrence.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        document.body = String(editState.body.prefix(TaskValidation.maxBodyLength))
+    }
+
+    private func upsertRecordInMemory(_ record: TaskRecord) {
+        canonicalByPath[record.identity.path] = record
+
+        if let existingIndex = allIndexedRecords.firstIndex(where: { $0.identity.path == record.identity.path }) {
+            allIndexedRecords[existingIndex] = record
+        } else {
+            allIndexedRecords.append(record)
+        }
+
+        _ = applyCurrentViewFilter()
+    }
+
+    private func persistTaskAsync(document: TaskDocument, errorContext: String) {
+        suppressMetadataRefresh(for: 3)
+        let rootPath = rootURL.path
+
+        Task { @MainActor [weak self] in
+            let result: Result<TaskRecord, Error> = await Task.detached(priority: .userInitiated) {
+                let repository = FileTaskRepository(rootURL: URL(fileURLWithPath: rootPath, isDirectory: true))
+                return Result {
+                    try repository.create(document: document, preferredFilename: nil)
+                }
+            }.value
+
+            guard let self else { return }
+
+            switch result {
+            case .success(let created):
+                if self.rootURL.path == rootPath {
+                    self.markSelfWrite(path: created.identity.path)
+                    self.upsertRecordInMemory(created)
+                } else {
+                    self.refresh()
+                }
+            case .failure(let error):
+                self.logger.error(errorContext, metadata: ["error": error.localizedDescription])
+            }
+        }
+    }
+
+    private func isMetadataRefreshSuppressed(now: Date = Date()) -> Bool {
+        guard let suppressUntil = suppressMetadataRefreshUntil else { return false }
+        return suppressUntil > now
+    }
+
+    private func suppressMetadataRefresh(for seconds: TimeInterval) {
+        let candidate = Date().addingTimeInterval(seconds)
+        if let existing = suppressMetadataRefreshUntil, existing > candidate {
+            return
+        }
+        suppressMetadataRefreshUntil = candidate
+        metadataRefreshWorkItem?.cancel()
+        metadataRefreshWorkItem = nil
+    }
+
     private func dateFromLocalDate(_ localDate: LocalDate?) -> Date? {
         guard let localDate else { return nil }
         var components = DateComponents()
@@ -825,6 +1217,8 @@ final class AppContainer: ObservableObject {
     }
 
     private func markSelfWrite(path: String) {
+        suppressMetadataRefresh(for: 2)
+
         if let attributes = try? FileManager.default.attributesOfItem(atPath: path),
            let modificationDate = attributes[.modificationDate] as? Date {
             fileWatcher.markSelfWrite(path: path, modificationDate: modificationDate)

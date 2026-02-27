@@ -14,6 +14,24 @@ final class NaturalLanguageDateParserTests: XCTestCase {
         XCTAssertEqual(parser.parse("next friday", relativeTo: reference)?.isoString, "2025-03-07")
     }
 
+    func testBareWeekdayParsing() throws {
+        let parser = NaturalLanguageDateParser(calendar: Calendar(identifier: .gregorian))
+        let reference = ISO8601DateFormatter().date(from: "2025-03-01T12:00:00Z")! // Saturday
+        XCTAssertEqual(parser.parse("friday", relativeTo: reference)?.isoString, "2025-03-07")
+    }
+
+    func testThisWeekdayParsing() throws {
+        let parser = NaturalLanguageDateParser(calendar: Calendar(identifier: .gregorian))
+        let reference = ISO8601DateFormatter().date(from: "2025-03-03T12:00:00Z")! // Monday
+        XCTAssertEqual(parser.parse("this friday", relativeTo: reference)?.isoString, "2025-03-07")
+    }
+
+    func testBareWeekdayCanResolveToToday() throws {
+        let parser = NaturalLanguageDateParser(calendar: Calendar(identifier: .gregorian))
+        let reference = ISO8601DateFormatter().date(from: "2025-03-07T12:00:00Z")! // Friday
+        XCTAssertEqual(parser.parse("friday", relativeTo: reference)?.isoString, "2025-03-07")
+    }
+
     func testInThreeDaysParsing() throws {
         let parser = NaturalLanguageDateParser(calendar: Calendar(identifier: .gregorian))
         let reference = ISO8601DateFormatter().date(from: "2025-03-01T12:00:00Z")!

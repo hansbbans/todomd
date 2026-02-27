@@ -70,14 +70,28 @@ public struct RecurrenceService {
             throw TaskError.recurrenceFailure("BYDAY values are invalid")
         }
 
-        guard let startDate = toDate(date) else {
+        guard
+            let startDate = toDate(date),
+            let anchorWeekStart = calendar.dateInterval(of: .weekOfYear, for: startDate)?.start
+        else {
             throw TaskError.recurrenceFailure("Cannot convert LocalDate")
         }
 
-        for offset in 1...(7 * max(interval, 1) * 2) {
+        let normalizedInterval = max(interval, 1)
+        let maxOffset = (7 * normalizedInterval) + 7
+        for offset in 1...maxOffset {
             guard let candidateDate = calendar.date(byAdding: .day, value: offset, to: startDate) else { continue }
             let weekday = calendar.component(.weekday, from: candidateDate)
-            if targetWeekdays.contains(weekday), let local = toLocalDate(candidateDate) {
+            guard targetWeekdays.contains(weekday) else { continue }
+
+            guard let candidateWeekStart = calendar.dateInterval(of: .weekOfYear, for: candidateDate)?.start else { continue }
+            let dayDelta = calendar.dateComponents([.day], from: anchorWeekStart, to: candidateWeekStart).day ?? 0
+            guard dayDelta >= 0, dayDelta % 7 == 0 else { continue }
+
+            let weeksSinceAnchor = dayDelta / 7
+            guard weeksSinceAnchor % normalizedInterval == 0 else { continue }
+
+            if let local = toLocalDate(candidateDate) {
                 return local
             }
         }

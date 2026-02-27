@@ -50,7 +50,8 @@ public final class FileTaskRepository: TaskRepository {
 
     public func load(path: String) throws -> TaskRecord {
         let raw = try fileIO.read(path: path)
-        let document = try codec.parse(markdown: raw)
+        let fallbackTitle = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        let document = try codec.parse(markdown: raw, fallbackTitle: fallbackTitle)
         return TaskRecord(identity: TaskFileIdentity(path: path), document: document)
     }
 
@@ -58,7 +59,8 @@ public final class FileTaskRepository: TaskRepository {
         let urls = try fileIO.enumerateMarkdownFiles(rootURL: rootURL)
         return try urls.map { url in
             let raw = try fileIO.read(path: url.path)
-            let document = try codec.parse(markdown: raw)
+            let fallbackTitle = url.deletingPathExtension().lastPathComponent
+            let document = try codec.parse(markdown: raw, fallbackTitle: fallbackTitle)
             return TaskRecord(identity: TaskFileIdentity(path: url.path), document: document)
         }
     }

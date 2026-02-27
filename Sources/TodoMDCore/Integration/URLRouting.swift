@@ -67,7 +67,7 @@ public struct URLRouter {
             throw TaskError.invalidURLParameters("Could not parse URL components")
         }
 
-        let queryItems = components.queryItems ?? []
+        let queryItems = components.percentEncodedQueryItems ?? components.queryItems ?? []
         let title = (decodeQueryValue(queryItems.first(where: { $0.name == "title" })?.value) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -120,6 +120,7 @@ public struct URLRouter {
 
     private func decodeQueryValue(_ raw: String?) -> String? {
         guard let raw else { return nil }
-        return raw.replacingOccurrences(of: "+", with: " ")
+        let plusDecoded = raw.replacingOccurrences(of: "+", with: " ")
+        return plusDecoded.removingPercentEncoding ?? plusDecoded
     }
 }

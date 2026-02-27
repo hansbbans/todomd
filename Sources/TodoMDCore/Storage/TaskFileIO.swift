@@ -65,11 +65,45 @@ public struct TaskFileIO {
             throw TaskError.fileNotFound(path)
         }
 
-        do {
-            return try String(contentsOf: url, encoding: .utf8)
-        } catch {
-            throw TaskError.ioFailure("Failed to read file at \(path): \(error.localizedDescription)")
+        try ensureLocalAvailability(for: url)
+
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        var coordinationError: NSError?
+        var readError: Error?
+        var content = ""
+        coordinator.coordinate(readingItemAt: url, options: [], error: &coordinationError) { coordinatedURL in
+            do {
+                content = try String(contentsOf: coordinatedURL, encoding: .utf8)
+            } catch {
+                readError = error
+            }
         }
+
+        if let coordinationError {
+            throw TaskError.ioFailure("Failed to read file at \(path): \(coordinationError.localizedDescription)")
+        }
+
+        if let readError {
+            throw TaskError.ioFailure("Failed to read file at \(path): \(readError.localizedDescription)")
+        }
+
+        return content
+    }
+
+    private func ensureLocalAvailability(for url: URL) throws {
+        let keys: Set<URLResourceKey> = [.isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey]
+        let values = try url.resourceValues(forKeys: keys)
+        guard values.isUbiquitousItem == true else { return }
+
+        if values.ubiquitousItemDownloadingStatus == URLUbiquitousItemDownloadingStatus.current {
+            return
+        }
+
+        if fileManager.fileExists(atPath: url.path) {
+            try? fileManager.startDownloadingUbiquitousItem(at: url)
+        }
+
+        throw TaskError.ioFailure("iCloud file is not downloaded yet: \(url.path)")
     }
 
     public func write(path: String, content: String) throws {

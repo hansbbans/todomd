@@ -512,9 +512,9 @@ EOF
 
 - **Integrated calendar** — native calendar view combining tasks and calendar events in one UI — see detail below
 
-### Security & Agent Abuse Prevention (OPEN — Requires Deep Design Work)
+### Security & Agent Abuse Prevention (v1 Baseline Implemented)
 
-**Status: Unresolved. This needs dedicated architecture time before v1 ships.**
+**Status: Resolved for v1 baseline (2026-02-26).**
 
 The filesystem-as-API model is our biggest strength and our most dangerous attack surface. Any process with iCloud Drive access can create, modify, or delete task files. This is the feature — but it's also the risk.
 

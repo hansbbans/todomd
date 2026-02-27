@@ -7,10 +7,11 @@ public struct TaskMarkdownCodec {
 
     public init() {}
 
-    public func parse(markdown: String) throws -> TaskDocument {
+    public func parse(markdown: String, fallbackTitle: String? = nil) throws -> TaskDocument {
         let split = try splitFrontmatter(from: markdown)
         let frontmatterObject = try decodeYAMLObject(yaml: split.frontmatter)
-        try validateFrontmatterComplexity(frontmatterObject)
+        let normalizedObject = normalizedKnownKeyObject(from: frontmatterObject)
+        try validateFrontmatterComplexity(normalizedObject)
 
         let knownKeys: Set<String> = [
             "title", "status", "due", "defer", "scheduled", "priority", "flagged", "area", "project", "tags",
@@ -18,11 +19,11 @@ public struct TaskMarkdownCodec {
         ]
 
         var unknown: [String: YAMLValue] = [:]
-        for (key, value) in frontmatterObject where !knownKeys.contains(key) {
+        for (key, value) in frontmatterObject where !knownKeys.contains(key.lowercased()) {
             unknown[key] = YAMLValue(any: value)
         }
 
-        let frontmatter = try parseFrontmatter(from: frontmatterObject)
+        let frontmatter = try parseFrontmatter(from: normalizedObject, fallbackTitle: fallbackTitle)
         let document = TaskDocument(frontmatter: frontmatter, body: split.body, unknownFrontmatter: unknown)
         try TaskValidation.validate(document: document)
         return document
@@ -68,17 +69,27 @@ public struct TaskMarkdownCodec {
         }
 
         let startIndex = normalized.index(normalized.startIndex, offsetBy: 4)
-        let remainder = String(normalized[startIndex...])
+        var remainder = String(normalized[startIndex...])
 
-        guard let separatorRange = remainder.range(of: "\n---\n") else {
-            throw TaskError.parseFailure("Document is missing closing frontmatter delimiter")
+        // Some legacy files contain a redundant second delimiter line (`---`).
+        if remainder.hasPrefix("---\n") {
+            remainder.removeFirst(4)
         }
 
-        let frontmatter = String(remainder[..<separatorRange.lowerBound])
-        let bodyStart = separatorRange.upperBound
-        let body = String(remainder[bodyStart...])
+        if let separatorRange = remainder.range(of: "\n---\n") {
+            let frontmatter = String(remainder[..<separatorRange.lowerBound])
+            let bodyStart = separatorRange.upperBound
+            let body = String(remainder[bodyStart...])
+            return (frontmatter, body)
+        }
 
-        return (frontmatter, body)
+        if remainder.hasSuffix("\n---") {
+            let frontmatterEnd = remainder.index(remainder.endIndex, offsetBy: -4)
+            let frontmatter = String(remainder[..<frontmatterEnd])
+            return (frontmatter, "")
+        }
+
+        throw TaskError.parseFailure("Document is missing closing frontmatter delimiter")
     }
 
     private func decodeYAMLObject(yaml: String) throws -> [String: Any] {
@@ -87,6 +98,33 @@ public struct TaskMarkdownCodec {
             throw TaskError.parseFailure("Frontmatter YAML is not an object")
         }
         return object
+    }
+
+    private func normalizedKnownKeyObject(from object: [String: Any]) -> [String: Any] {
+        var normalized: [String: Any] = [:]
+        normalized.reserveCapacity(object.count)
+
+        for (key, value) in object {
+            let canonical = canonicalKnownKey(for: key.lowercased())
+            if normalized[canonical] == nil {
+                normalized[canonical] = value
+            }
+        }
+
+        return normalized
+    }
+
+    private func canonicalKnownKey(for loweredKey: String) -> String {
+        switch loweredKey {
+        case "datecreated":
+            return "created"
+        case "datemodified":
+            return "modified"
+        case "completeddate":
+            return "completed"
+        default:
+            return loweredKey
+        }
     }
 
     private func validateFrontmatterComplexity(_ object: [String: Any]) throws {
@@ -118,21 +156,17 @@ public struct TaskMarkdownCodec {
         }
     }
 
-    private func parseFrontmatter(from object: [String: Any]) throws -> TaskFrontmatterV1 {
-        let title = try requireString("title", in: object)
-        let statusRaw = try requireString("status", in: object)
-        guard let status = TaskStatus(rawValue: statusRaw) else {
-            throw TaskError.parseFailure("Invalid status value: \(statusRaw)")
-        }
+    private func parseFrontmatter(from object: [String: Any], fallbackTitle: String?) throws -> TaskFrontmatterV1 {
+        let title = try resolvedTitle(in: object, fallbackTitle: fallbackTitle)
+        let statusRaw = try optionalString("status", in: object) ?? TaskStatus.todo.rawValue
+        let status = parseStatus(statusRaw)
 
         let due = try optionalDate("due", in: object)
         let deferDate = try optionalDate("defer", in: object)
         let scheduled = try optionalDate("scheduled", in: object)
 
         let priorityRaw = try optionalString("priority", in: object) ?? TaskPriority.none.rawValue
-        guard let priority = TaskPriority(rawValue: priorityRaw) else {
-            throw TaskError.parseFailure("Invalid priority value: \(priorityRaw)")
-        }
+        let priority = parsePriority(priorityRaw)
 
         let flagged = try optionalBool("flagged", in: object) ?? false
         let area = try optionalString("area", in: object)
@@ -143,27 +177,30 @@ public struct TaskMarkdownCodec {
 
         let tags: [String]
         if let rawTags = object["tags"] {
-            guard let tagValues = rawTags as? [Any] else {
-                throw TaskError.parseFailure("Expected array for tags")
-            }
-            tags = try tagValues.map { value in
-                guard let tag = value as? String else {
-                    throw TaskError.parseFailure("Expected string tag value")
+            if let tagValues = rawTags as? [Any] {
+                tags = try tagValues.map { value in
+                    guard let tag = value as? String else {
+                        throw TaskError.parseFailure("Expected string tag value")
+                    }
+                    return tag
                 }
-                return tag
+            } else if let csv = rawTags as? String {
+                tags = csv
+                    .split(separator: ",")
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+            } else {
+                throw TaskError.parseFailure("Expected array or comma-separated string for tags")
             }
         } else {
             tags = []
         }
 
-        let createdRaw = try requireString("created", in: object)
-        guard let created = DateCoding.decode(createdRaw) else {
-            throw TaskError.parseFailure("Invalid created datetime: \(createdRaw)")
-        }
+        let created = try optionalDateTime("created", in: object) ?? Date.distantPast
 
         let modified = try optionalDateTime("modified", in: object)
         let completed = try optionalDateTime("completed", in: object)
-        let source = try requireString("source", in: object)
+        let source = try optionalString("source", in: object) ?? "unknown"
 
         return TaskFrontmatterV1(
             title: title,
@@ -184,6 +221,21 @@ public struct TaskMarkdownCodec {
             completed: completed,
             source: source
         )
+    }
+
+    private func resolvedTitle(in object: [String: Any], fallbackTitle: String?) throws -> String {
+        if let explicit = try optionalString("title", in: object)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !explicit.isEmpty {
+            return explicit
+        }
+
+        if let fallbackTitle = fallbackTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !fallbackTitle.isEmpty {
+            return fallbackTitle
+        }
+
+        throw TaskError.parseFailure("Missing required field: title")
     }
 
     private func requireString(_ key: String, in object: [String: Any]) throws -> String {
@@ -223,19 +275,104 @@ public struct TaskMarkdownCodec {
     }
 
     private func optionalDate(_ key: String, in object: [String: Any]) throws -> LocalDate? {
-        guard let raw = try optionalString(key, in: object) else { return nil }
-        do {
-            return try LocalDate(isoDate: raw)
-        } catch {
-            throw TaskError.parseFailure("Invalid date for \(key): \(raw)")
+        guard let value = object[key] else { return nil }
+        if value is NSNull { return nil }
+
+        if let raw = value as? String {
+            let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if normalized.isEmpty {
+                return nil
+            }
+            do {
+                return try LocalDate(isoDate: normalized)
+            } catch {
+                throw TaskError.parseFailure("Invalid date for \(key): \(normalized)")
+            }
         }
+
+        if let date = value as? Date {
+            var calendar = Calendar(identifier: .gregorian)
+            if let utc = TimeZone(secondsFromGMT: 0) {
+                calendar.timeZone = utc
+            }
+            let components = calendar.dateComponents([.year, .month, .day], from: date)
+            do {
+                return try LocalDate(
+                    year: components.year ?? 1970,
+                    month: components.month ?? 1,
+                    day: components.day ?? 1
+                )
+            } catch {
+                throw TaskError.parseFailure("Invalid date for \(key): \(date)")
+            }
+        }
+
+        throw TaskError.parseFailure("Field \(key) must be a date string")
     }
 
     private func optionalDateTime(_ key: String, in object: [String: Any]) throws -> Date? {
-        guard let raw = try optionalString(key, in: object) else { return nil }
-        guard let date = DateCoding.decode(raw) else {
-            throw TaskError.parseFailure("Invalid datetime for \(key): \(raw)")
+        guard let value = object[key] else { return nil }
+        if value is NSNull { return nil }
+
+        if let date = value as? Date {
+            return date
         }
-        return date
+
+        if let raw = value as? String {
+            let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if normalized.isEmpty {
+                return nil
+            }
+            guard let date = DateCoding.decode(normalized) else {
+                throw TaskError.parseFailure("Invalid datetime for \(key): \(normalized)")
+            }
+            return date
+        }
+
+        if let seconds = value as? TimeInterval {
+            return Date(timeIntervalSince1970: seconds)
+        }
+
+        throw TaskError.parseFailure("Field \(key) must be a datetime string")
+    }
+
+    private func parseStatus(_ raw: String) -> TaskStatus {
+        let normalized = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        switch normalized {
+        case "", "todo", "to-do", "open", "pending":
+            return .todo
+        case "in-progress", "inprogress", "doing":
+            return .inProgress
+        case "done", "complete", "completed":
+            return .done
+        case "cancelled", "canceled":
+            return .cancelled
+        case "someday", "maybe":
+            return .someday
+        default:
+            return .todo
+        }
+    }
+
+    private func parsePriority(_ raw: String) -> TaskPriority {
+        let normalized = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        switch normalized {
+        case "", "none", "p4":
+            return .none
+        case "low", "p3":
+            return .low
+        case "medium", "med", "normal", "p2":
+            return .medium
+        case "high", "p1":
+            return .high
+        default:
+            return .none
+        }
     }
 }
