@@ -125,6 +125,7 @@ final class AppContainer: ObservableObject {
     @Published var lastSyncSummary: SyncSummary?
     @Published var rateLimitAlertMessage: String?
     @Published var urlRoutingErrorMessage: String?
+    @Published var shouldPresentQuickEntry = false
     @Published var conflicts: [ConflictSummary] = []
     @Published var navigationTaskPath: String?
     @Published var perspectives: [PerspectiveDefinition] = []
@@ -751,6 +752,10 @@ final class AppContainer: ObservableObject {
         navigationTaskPath = nil
     }
 
+    func clearQuickEntryRequest() {
+        shouldPresentQuickEntry = false
+    }
+
     func record(for path: String) -> TaskRecord? {
         if let cached = canonicalByPath[path] {
             if cached.document.body.isEmpty, let loaded = try? repository.load(path: path) {
@@ -1105,6 +1110,10 @@ final class AppContainer: ObservableObject {
                 createTask(request: request)
             case .showView(let view):
                 selectedView = view
+            case .showTask(let path):
+                navigationTaskPath = path
+            case .quickAdd:
+                shouldPresentQuickEntry = true
             }
         } catch {
             logger.error("URL routing failed", metadata: ["url": url.absoluteString, "error": error.localizedDescription])

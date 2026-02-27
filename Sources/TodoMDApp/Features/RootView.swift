@@ -247,10 +247,19 @@ struct RootView: View {
                 navigationPath.append(newPath)
                 container.clearPendingNavigationPath()
             }
+            .onChange(of: container.shouldPresentQuickEntry) { _, shouldPresent in
+                guard shouldPresent else { return }
+                showingQuickEntry = true
+                container.clearQuickEntryRequest()
+            }
             .onAppear {
                 if let pending = container.navigationTaskPath {
                     navigationPath.append(pending)
                     container.clearPendingNavigationPath()
+                }
+                if container.shouldPresentQuickEntry {
+                    showingQuickEntry = true
+                    container.clearQuickEntryRequest()
                 }
             }
             .onDisappear {
