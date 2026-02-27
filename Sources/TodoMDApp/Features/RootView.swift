@@ -5,6 +5,11 @@ private struct DeferDateTarget: Identifiable {
     var id: String { path }
 }
 
+private struct BuiltInRulesTarget: Identifiable {
+    let view: BuiltInView
+    var id: String { view.rawValue }
+}
+
 private enum RootScreenPage: Hashable {
     case filters
     case tasks
@@ -66,8 +71,11 @@ struct RootView: View {
     @State private var pathsSlidingOut: Set<String> = []
     @State private var completionAnimationTasks: [String: Task<Void, Never>] = [:]
     @State private var pendingDeletePath: String?
+    @State private var pendingDeletePerspective: PerspectiveDefinition?
     @State private var deferDateTarget: DeferDateTarget?
     @State private var deferDateValue = Date()
+    @State private var editingPerspective: PerspectiveDefinition?
+    @State private var builtInRulesTarget: BuiltInRulesTarget?
 
     var body: some View {
         Group {
@@ -140,6 +148,25 @@ struct RootView: View {
             .sheet(item: $deferDateTarget) { target in
                 deferDateSheet(target: target)
             }
+            .sheet(item: $editingPerspective) { perspective in
+                NavigationStack {
+                    PerspectiveEditorSheet(initialPerspective: perspective) { saved in
+                        container.savePerspective(saved)
+                        editingPerspective = nil
+                    }
+                }
+            }
+            .sheet(item: $builtInRulesTarget) { target in
+                NavigationStack {
+                    BuiltInPerspectiveRulesView(
+                        perspective: container.builtInPerspectiveDefinition(for: target.view),
+                        onDuplicate: {
+                            let duplicate = container.duplicateBuiltInPerspective(target.view)
+                            editingPerspective = duplicate
+                        }
+                    )
+                }
+            }
             .alert(
                 "High Ingestion Volume",
                 isPresented: Binding(
@@ -179,6 +206,29 @@ struct RootView: View {
                 }
             )
             .alert(
+                "Delete Perspective",
+                isPresented: Binding(
+                    get: { pendingDeletePerspective != nil },
+                    set: { isPresented in
+                        if !isPresented { pendingDeletePerspective = nil }
+                    }
+                ),
+                actions: {
+                    Button("Delete", role: .destructive) {
+                        if let pendingDeletePerspective {
+                            container.deletePerspective(id: pendingDeletePerspective.id)
+                            self.pendingDeletePerspective = nil
+                        }
+                    }
+                    Button("Cancel", role: .cancel) {
+                        pendingDeletePerspective = nil
+                    }
+                },
+                message: {
+                    Text("Delete '\(pendingDeletePerspective?.name ?? "")'? This cannot be undone.")
+                }
+            )
+            .alert(
                 "Link Error",
                 isPresented: Binding(
                     get: { container.urlRoutingErrorMessage != nil },
@@ -193,6 +243,23 @@ struct RootView: View {
                 },
                 message: {
                     Text(container.urlRoutingErrorMessage ?? "")
+                }
+            )
+            .alert(
+                "Perspectives Warning",
+                isPresented: Binding(
+                    get: { container.perspectivesWarningMessage != nil },
+                    set: { isPresented in
+                        if !isPresented { container.perspectivesWarningMessage = nil }
+                    }
+                ),
+                actions: {
+                    Button("OK", role: .cancel) {
+                        container.perspectivesWarningMessage = nil
+                    }
+                },
+                message: {
+                    Text(container.perspectivesWarningMessage ?? "")
                 }
             )
             .onChange(of: container.navigationTaskPath) { _, newPath in
@@ -222,12 +289,12 @@ struct RootView: View {
     private var sidebar: some View {
         List {
             Section("Views") {
-                navButton(view: .builtIn(.inbox), label: "Inbox", icon: "tray")
-                navButton(view: .builtIn(.today), label: "Today", icon: "sun.max")
-                navButton(view: .builtIn(.upcoming), label: "Upcoming", icon: "calendar")
-                navButton(view: .builtIn(.anytime), label: "Anytime", icon: "list.bullet")
-                navButton(view: .builtIn(.someday), label: "Someday", icon: "clock")
-                navButton(view: .builtIn(.flagged), label: "Flagged", icon: "flag")
+                builtInNavButton(.inbox, label: "Inbox", icon: "tray")
+                builtInNavButton(.today, label: "Today", icon: "sun.max")
+                builtInNavButton(.upcoming, label: "Upcoming", icon: "calendar")
+                builtInNavButton(.anytime, label: "Anytime", icon: "list.bullet")
+                builtInNavButton(.someday, label: "Someday", icon: "clock")
+                builtInNavButton(.flagged, label: "Flagged", icon: "flag")
             }
 
             if !container.perspectives.isEmpty {
@@ -236,8 +303,20 @@ struct RootView: View {
                         navButton(
                             view: container.perspectiveViewIdentifier(for: perspective.id),
                             label: perspective.name,
-                            icon: "line.3.horizontal.decrease.circle"
+                            icon: perspective.icon,
+                            tintHex: perspective.color
                         )
+                        .contextMenu {
+                            Button("Edit") {
+                                editingPerspective = perspective
+                            }
+                            Button("Duplicate") {
+                                editingPerspective = container.duplicatePerspective(id: perspective.id)
+                            }
+                            Button("Delete", role: .destructive) {
+                                pendingDeletePerspective = perspective
+                            }
+                        }
                     }
                 }
             }
@@ -376,6 +455,7 @@ struct RootView: View {
                                 taskRowItem(record)
                             }
                             .onMove { source, destination in
+                                guard container.canManuallyReorderSelectedView() else { return }
                                 var reordered = records
                                 reordered.move(fromOffsets: source, toOffset: destination)
                                 container.saveManualOrder(filenames: reordered.map { $0.identity.filename })
@@ -394,10 +474,10 @@ struct RootView: View {
     private var filterBrowserScreen: some View {
         List {
             Section("Sections") {
-                browseFilterButton(view: .builtIn(.inbox), label: "Inbox", icon: "tray")
-                browseFilterButton(view: .builtIn(.today), label: "Today", icon: "sun.max")
-                browseFilterButton(view: .builtIn(.upcoming), label: "Upcoming", icon: "calendar")
-                browseFilterButton(view: .builtIn(.anytime), label: "Anytime", icon: "list.bullet")
+                builtInBrowseFilterButton(.inbox, label: "Inbox", icon: "tray")
+                builtInBrowseFilterButton(.today, label: "Today", icon: "sun.max")
+                builtInBrowseFilterButton(.upcoming, label: "Upcoming", icon: "calendar")
+                builtInBrowseFilterButton(.anytime, label: "Anytime", icon: "list.bullet")
             }
 
             if !container.perspectives.isEmpty {
@@ -406,7 +486,8 @@ struct RootView: View {
                         browseFilterButton(
                             view: container.perspectiveViewIdentifier(for: perspective.id),
                             label: perspective.name,
-                            icon: "line.3.horizontal.decrease.circle"
+                            icon: perspective.icon,
+                            tintHex: perspective.color
                         )
                     }
                 }
@@ -465,7 +546,11 @@ struct RootView: View {
                 if !builtInViews.isEmpty {
                     Section("Sections") {
                         ForEach(builtInViews, id: \.view.rawValue) { item in
-                            browseFilterButton(view: item.view, label: item.label, icon: item.icon)
+                            if case .builtIn(let builtInView) = item.view {
+                                builtInBrowseFilterButton(builtInView, label: item.label, icon: item.icon)
+                            } else {
+                                browseFilterButton(view: item.view, label: item.label, icon: item.icon)
+                            }
                         }
                     }
                 }
@@ -476,7 +561,8 @@ struct RootView: View {
                             browseFilterButton(
                                 view: container.perspectiveViewIdentifier(for: perspective.id),
                                 label: perspective.name,
-                                icon: "line.3.horizontal.decrease.circle"
+                                icon: perspective.icon,
+                                tintHex: perspective.color
                             )
                         }
                     }
@@ -519,13 +605,14 @@ struct RootView: View {
         }
     }
 
-    private func browseFilterButton(view: ViewIdentifier, label: String, icon: String) -> some View {
-        Button {
+    private func browseFilterButton(view: ViewIdentifier, label: String, icon: String, tintHex: String? = nil) -> some View {
+        let tint = color(forHex: tintHex)
+        return Button {
             applyFilter(view)
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: icon)
-                    .foregroundStyle(container.selectedView == view ? theme.accentColor : theme.textSecondaryColor)
+                    .foregroundStyle(container.selectedView == view ? (tint ?? theme.accentColor) : (tint ?? theme.textSecondaryColor))
                 Text(label)
                 Spacer()
                 if container.selectedView == view {
@@ -536,6 +623,15 @@ struct RootView: View {
             }
         }
         .buttonStyle(.plain)
+    }
+
+    private func builtInBrowseFilterButton(_ builtInView: BuiltInView, label: String, icon: String) -> some View {
+        browseFilterButton(view: .builtIn(builtInView), label: label, icon: icon)
+            .contextMenu {
+                Button("View Rules") {
+                    builtInRulesTarget = BuiltInRulesTarget(view: builtInView)
+                }
+            }
     }
 
     private var floatingAddButton: some View {
@@ -758,13 +854,20 @@ struct RootView: View {
         .animation(.spring(response: 0.35, dampingFraction: 0.86), value: pathsSlidingOut)
     }
 
-    private func navButton(view: ViewIdentifier, label: String, icon: String, isIndented: Bool = false) -> some View {
-        Button {
+    private func navButton(
+        view: ViewIdentifier,
+        label: String,
+        icon: String,
+        isIndented: Bool = false,
+        tintHex: String? = nil
+    ) -> some View {
+        let tint = color(forHex: tintHex)
+        return Button {
             applyFilter(view)
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: icon)
-                    .foregroundStyle(container.selectedView == view ? theme.accentColor : theme.textSecondaryColor)
+                    .foregroundStyle(container.selectedView == view ? (tint ?? theme.accentColor) : (tint ?? theme.textSecondaryColor))
                 Text(label)
                 Spacer()
                 if container.selectedView == view {
@@ -776,6 +879,25 @@ struct RootView: View {
             .padding(.leading, isIndented ? 20 : 0)
         }
         .buttonStyle(.plain)
+    }
+
+    private func builtInNavButton(_ builtInView: BuiltInView, label: String, icon: String) -> some View {
+        navButton(view: .builtIn(builtInView), label: label, icon: icon)
+            .contextMenu {
+                Button("View Rules") {
+                    builtInRulesTarget = BuiltInRulesTarget(view: builtInView)
+                }
+            }
+    }
+
+    private func color(forHex hex: String?) -> Color? {
+        guard let hex else { return nil }
+        let cleaned = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#")).uppercased()
+        guard cleaned.count == 6, let value = Int(cleaned, radix: 16) else { return nil }
+        let red = Double((value & 0xFF0000) >> 16) / 255.0
+        let green = Double((value & 0x00FF00) >> 8) / 255.0
+        let blue = Double(value & 0x0000FF) / 255.0
+        return Color(red: red, green: green, blue: blue)
     }
 
     private func titleForCurrentView() -> String {

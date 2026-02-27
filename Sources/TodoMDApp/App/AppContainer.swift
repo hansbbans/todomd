@@ -100,6 +100,7 @@ final class AppContainer: ObservableObject {
     @Published var conflicts: [ConflictSummary] = []
     @Published var navigationTaskPath: String?
     @Published var perspectives: [PerspectiveDefinition] = []
+    @Published var perspectivesWarningMessage: String?
     @Published var isCalendarConnected = false
     @Published var isCalendarSyncing = false
     @Published var calendarStatusMessage: String?
@@ -115,6 +116,7 @@ final class AppContainer: ObservableObject {
     private var repository: FileTaskRepository
     private var fileWatcher: FileWatcherService
     private var manualOrderService: ManualOrderService
+    private var perspectivesRepository: PerspectivesRepository
     private let queryEngine = TaskQueryEngine()
     private let perspectiveQueryEngine = PerspectiveQueryEngine()
     private let dateParser = NaturalLanguageDateParser()
@@ -136,6 +138,7 @@ final class AppContainer: ObservableObject {
 
     private var canonicalByPath: [String: TaskRecord] = [:]
     private var allIndexedRecords: [TaskRecord] = []
+    private var cachedPerspectivesDocument = PerspectivesDocument()
 
     private var metadataQuery: NSMetadataQuery?
     private var metadataObserverTokens: [NSObjectProtocol] = []
@@ -181,10 +184,12 @@ final class AppContainer: ObservableObject {
         self.repository = repository
         self.fileWatcher = FileWatcherService(rootURL: rootURL, repository: repository)
         self.manualOrderService = ManualOrderService(rootURL: rootURL)
+        self.perspectivesRepository = PerspectivesRepository()
 
         loadCalendarSourceSelection()
         loadReminderListSelection()
-        loadPerspectivesFromSettings()
+        loadPerspectivesFromDisk()
+        migrateLegacyPerspectivesFromSettingsIfNeeded()
         isCalendarConnected = googleCalendarService.isConnected
         configureLifecycleObservers()
         startMetadataQuery()
@@ -214,6 +219,7 @@ final class AppContainer: ObservableObject {
 
     func refresh() {
         do {
+            loadPerspectivesFromDisk()
             let sync = try fileWatcher.synchronize()
             let canonicalLoad = try loadCanonicalRecordsBestEffort(timestamp: sync.summary.timestamp)
             let canonicalRecords = canonicalLoad.records
@@ -347,12 +353,17 @@ final class AppContainer: ObservableObject {
         repository = FileTaskRepository(rootURL: rootURL)
         fileWatcher = FileWatcherService(rootURL: rootURL, repository: repository)
         manualOrderService = ManualOrderService(rootURL: rootURL)
+        perspectivesRepository = PerspectivesRepository()
 
         canonicalByPath = [:]
         allIndexedRecords = []
         records = []
         diagnostics = []
         conflicts = []
+        cachedPerspectivesDocument = PerspectivesDocument()
+        perspectives = []
+        perspectivesWarningMessage = nil
+        loadPerspectivesFromDisk()
 
         startMetadataQuery()
         return true
@@ -488,27 +499,178 @@ final class AppContainer: ObservableObject {
     }
 
     func savePerspective(_ perspective: PerspectiveDefinition) {
-        let trimmedName = perspective.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedName = perspective.name
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .prefix(100)
         guard !trimmedName.isEmpty else { return }
 
         var updated = perspective
-        updated.name = trimmedName
+        updated.name = String(trimmedName)
+        updated.icon = updated.icon.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "list.bullet" : updated.icon
         if let index = perspectives.firstIndex(where: { $0.id == updated.id }) {
             perspectives[index] = updated
         } else {
             perspectives.append(updated)
         }
-        persistPerspectivesToSettings()
+        persistPerspectivesToDisk()
         _ = applyCurrentViewFilter()
     }
 
     func createPerspective(name: String) -> PerspectiveDefinition {
         let sanitized = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let perspective = PerspectiveDefinition(name: sanitized.isEmpty ? "New Perspective" : sanitized)
+        let perspective = PerspectiveDefinition(name: sanitized.isEmpty ? "Untitled Perspective" : sanitized)
         perspectives.append(perspective)
-        persistPerspectivesToSettings()
+        persistPerspectivesToDisk()
         _ = applyCurrentViewFilter()
         return perspective
+    }
+
+    @discardableResult
+    func duplicatePerspective(id: String) -> PerspectiveDefinition? {
+        guard let index = perspectives.firstIndex(where: { $0.id == id }) else { return nil }
+        let original = perspectives[index]
+        var duplicate = original
+        duplicate.id = UUID().uuidString
+        duplicate.name = "\(original.name) Copy"
+        perspectives.insert(duplicate, at: index + 1)
+        persistPerspectivesToDisk()
+        _ = applyCurrentViewFilter()
+        return duplicate
+    }
+
+    func builtInPerspectiveDefinition(for view: BuiltInView) -> PerspectiveDefinition {
+        let activeStatusesRule = PerspectiveRule(
+            field: .status,
+            operator: .in,
+            jsonValue: .array([.string(TaskStatus.todo.rawValue), .string(TaskStatus.inProgress.rawValue), .string(TaskStatus.someday.rawValue)])
+        )
+        let completedStatusesRule = PerspectiveRule(
+            field: .status,
+            operator: .in,
+            jsonValue: .array([.string(TaskStatus.done.rawValue), .string(TaskStatus.cancelled.rawValue)])
+        )
+
+        switch view {
+        case .inbox:
+            return PerspectiveDefinition(
+                id: "builtin.inbox",
+                name: "Inbox",
+                icon: "tray",
+                rules: PerspectiveRuleGroup(
+                    operator: .and,
+                    conditions: [
+                        .rule(activeStatusesRule),
+                        .rule(PerspectiveRule(field: .area, operator: .isNotSet)),
+                        .rule(PerspectiveRule(field: .project, operator: .isNotSet)),
+                        .group(PerspectiveRuleGroup(operator: .not, conditions: [.rule(completedStatusesRule)]))
+                    ]
+                )
+            )
+        case .today:
+            return PerspectiveDefinition(
+                id: "builtin.today",
+                name: "Today",
+                icon: "sun.max",
+                rules: PerspectiveRuleGroup(
+                    operator: .and,
+                    conditions: [
+                        .group(PerspectiveRuleGroup(
+                            operator: .or,
+                            conditions: [
+                                .rule(PerspectiveRule(field: .due, operator: .onToday)),
+                                .rule(PerspectiveRule(field: .scheduled, operator: .onToday)),
+                                .rule(PerspectiveRule(field: .defer, operator: .onOrBefore, jsonValue: .object(["op": .string("today")]))
+                                )
+                            ]
+                        )),
+                        .group(PerspectiveRuleGroup(operator: .not, conditions: [.rule(completedStatusesRule)]))
+                    ]
+                )
+            )
+        case .upcoming:
+            return PerspectiveDefinition(
+                id: "builtin.upcoming",
+                name: "Upcoming",
+                icon: "calendar",
+                rules: PerspectiveRuleGroup(
+                    operator: .and,
+                    conditions: [
+                        .group(PerspectiveRuleGroup(
+                            operator: .or,
+                            conditions: [
+                                .rule(PerspectiveRule(field: .due, operator: .afterToday)),
+                                .rule(PerspectiveRule(field: .scheduled, operator: .afterToday))
+                            ]
+                        )),
+                        .group(PerspectiveRuleGroup(operator: .not, conditions: [.rule(completedStatusesRule)]))
+                    ]
+                )
+            )
+        case .anytime:
+            return PerspectiveDefinition(
+                id: "builtin.anytime",
+                name: "Anytime",
+                icon: "list.bullet",
+                rules: PerspectiveRuleGroup(
+                    operator: .and,
+                    conditions: [
+                        .group(PerspectiveRuleGroup(
+                            operator: .or,
+                            conditions: [
+                                .rule(PerspectiveRule(field: .status, operator: .equals, value: TaskStatus.todo.rawValue)),
+                                .rule(PerspectiveRule(field: .status, operator: .equals, value: TaskStatus.inProgress.rawValue))
+                            ]
+                        )),
+                        .group(PerspectiveRuleGroup(
+                            operator: .or,
+                            conditions: [
+                                .rule(PerspectiveRule(field: .defer, operator: .isNotSet)),
+                                .rule(PerspectiveRule(field: .defer, operator: .onOrBefore, jsonValue: .object(["op": .string("today")]))
+                                )
+                            ]
+                        ))
+                    ]
+                )
+            )
+        case .someday:
+            return PerspectiveDefinition(
+                id: "builtin.someday",
+                name: "Someday",
+                icon: "clock",
+                rules: PerspectiveRuleGroup(
+                    operator: .and,
+                    conditions: [.rule(PerspectiveRule(field: .status, operator: .equals, value: TaskStatus.someday.rawValue))]
+                )
+            )
+        case .flagged:
+            return PerspectiveDefinition(
+                id: "builtin.flagged",
+                name: "Flagged",
+                icon: "flag",
+                rules: PerspectiveRuleGroup(
+                    operator: .and,
+                    conditions: [
+                        .rule(PerspectiveRule(field: .flagged, operator: .isTrue)),
+                        .group(PerspectiveRuleGroup(operator: .not, conditions: [.rule(completedStatusesRule)]))
+                    ]
+                )
+            )
+        }
+    }
+
+    @discardableResult
+    func duplicateBuiltInPerspective(_ view: BuiltInView) -> PerspectiveDefinition {
+        var duplicate = builtInPerspectiveDefinition(for: view)
+        duplicate.id = UUID().uuidString
+        duplicate.name = "\(duplicate.name) Copy"
+        if let index = perspectives.firstIndex(where: { $0.name == builtInPerspectiveDefinition(for: view).name }) {
+            perspectives.insert(duplicate, at: index + 1)
+        } else {
+            perspectives.append(duplicate)
+        }
+        persistPerspectivesToDisk()
+        _ = applyCurrentViewFilter()
+        return duplicate
     }
 
     func deletePerspective(id: String) {
@@ -516,7 +678,7 @@ final class AppContainer: ObservableObject {
         if perspectiveID(for: selectedView) == id {
             selectedView = .builtIn(.inbox)
         }
-        persistPerspectivesToSettings()
+        persistPerspectivesToDisk()
         _ = applyCurrentViewFilter()
     }
 
@@ -529,7 +691,7 @@ final class AppContainer: ObservableObject {
         let safeDestination = min(max(0, destination), reordered.count)
         reordered.insert(contentsOf: moving, at: safeDestination)
         perspectives = reordered
-        persistPerspectivesToSettings()
+        persistPerspectivesToDisk()
     }
 
     func perspectiveViewIdentifier(for perspectiveID: String) -> ViewIdentifier {
@@ -539,6 +701,14 @@ final class AppContainer: ObservableObject {
     func perspectiveName(for view: ViewIdentifier) -> String? {
         guard let id = perspectiveID(for: view) else { return nil }
         return perspectives.first(where: { $0.id == id })?.name
+    }
+
+    func canManuallyReorderSelectedView() -> Bool {
+        guard let id = perspectiveID(for: selectedView),
+              let perspective = perspectives.first(where: { $0.id == id }) else {
+            return true
+        }
+        return perspective.sort.field == .manual
     }
 
     func clearPendingNavigationPath() {
@@ -824,6 +994,15 @@ final class AppContainer: ObservableObject {
     }
 
     func saveManualOrder(filenames: [String]) {
+        if let perspectiveID = perspectiveID(for: selectedView),
+           let index = perspectives.firstIndex(where: { $0.id == perspectiveID }) {
+            perspectives[index].manualOrder = filenames
+            perspectives[index].sort = PerspectiveSort(field: .manual, direction: .asc)
+            persistPerspectivesToDisk()
+            applyCurrentViewFilter()
+            return
+        }
+
         do {
             try manualOrderService.saveOrder(view: selectedView, filenames: filenames)
             applyCurrentViewFilter()
@@ -1269,20 +1448,35 @@ final class AppContainer: ObservableObject {
         return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
     }
 
-    private func loadPerspectivesFromSettings() {
+    private func migrateLegacyPerspectivesFromSettingsIfNeeded() {
         let defaults = UserDefaults.standard
-        guard let data = defaults.data(forKey: Self.settingsPerspectivesKey) else {
-            perspectives = []
-            if perspectiveID(for: selectedView) != nil {
-                selectedView = .builtIn(.inbox)
-            }
+        guard let data = defaults.data(forKey: Self.settingsPerspectivesKey) else { return }
+        let fileExists = FileManager.default.fileExists(atPath: perspectivesRepository.perspectivesURL(rootURL: rootURL).path)
+
+        defer {
+            defaults.removeObject(forKey: Self.settingsPerspectivesKey)
+        }
+
+        guard !fileExists,
+              let decoded = try? JSONDecoder().decode([PerspectiveDefinition].self, from: data) else {
             return
         }
 
-        if let decoded = try? JSONDecoder().decode([PerspectiveDefinition].self, from: data) {
-            perspectives = decoded
-        } else {
-            perspectives = []
+        perspectives = decoded
+        persistPerspectivesToDisk()
+    }
+
+    private func loadPerspectivesFromDisk() {
+        do {
+            let loaded = try perspectivesRepository.load(rootURL: rootURL)
+            cachedPerspectivesDocument = loaded
+            let orderedIDs = orderedPerspectiveIDs(document: loaded)
+            perspectives = orderedIDs.compactMap { loaded.perspectives[$0] }
+            perspectivesWarningMessage = nil
+        } catch {
+            perspectivesWarningMessage = "Perspectives file has errors - using last valid version."
+            _ = perspectivesRepository.backupCorruptedFile(rootURL: rootURL)
+            logger.error("Failed to load perspectives", metadata: ["error": error.localizedDescription])
         }
 
         if let selectedPerspectiveID = perspectiveID(for: selectedView),
@@ -1291,11 +1485,42 @@ final class AppContainer: ObservableObject {
         }
     }
 
-    private func persistPerspectivesToSettings() {
-        let defaults = UserDefaults.standard
-        if let encoded = try? JSONEncoder().encode(perspectives) {
-            defaults.set(encoded, forKey: Self.settingsPerspectivesKey)
+    private func persistPerspectivesToDisk() {
+        var byID: [String: PerspectiveDefinition] = [:]
+        for perspective in perspectives {
+            byID[perspective.id] = perspective
         }
+
+        cachedPerspectivesDocument.version = max(1, cachedPerspectivesDocument.version)
+        cachedPerspectivesDocument.order = perspectives.map(\.id)
+        cachedPerspectivesDocument.perspectives = byID
+
+        do {
+            try perspectivesRepository.save(cachedPerspectivesDocument, rootURL: rootURL)
+            perspectivesWarningMessage = nil
+        } catch {
+            logger.error("Failed to persist perspectives", metadata: ["error": error.localizedDescription])
+        }
+    }
+
+    private func orderedPerspectiveIDs(document: PerspectivesDocument) -> [String] {
+        var seen: Set<String> = []
+        var ordered: [String] = []
+
+        for id in document.order where document.perspectives[id] != nil {
+            if seen.insert(id).inserted {
+                ordered.append(id)
+            }
+        }
+
+        let extras = document.perspectives.values
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            .map(\.id)
+        for id in extras where seen.insert(id).inserted {
+            ordered.append(id)
+        }
+
+        return ordered
     }
 
     private func perspectiveID(for view: ViewIdentifier) -> String? {
@@ -1310,15 +1535,123 @@ final class AppContainer: ObservableObject {
     private func applyCurrentViewFilter(today: LocalDate = LocalDate.today(in: .current)) -> Double {
         let start = ContinuousClock.now
         let filtered: [TaskRecord]
+        let orderedRecords: [TaskRecord]
         if let perspectiveID = perspectiveID(for: selectedView),
            let perspective = perspectives.first(where: { $0.id == perspectiveID }) {
             filtered = allIndexedRecords.filter { perspectiveQueryEngine.matches($0, perspective: perspective, today: today) }
+            orderedRecords = order(records: filtered, for: perspective, today: today)
         } else {
             filtered = allIndexedRecords.filter { queryEngine.matches($0, view: selectedView, today: today) }
+            orderedRecords = manualOrderService.ordered(records: filtered, view: selectedView)
         }
-        let retentionFiltered = applyCompletionRetention(records: filtered)
-        records = manualOrderService.ordered(records: retentionFiltered, view: selectedView)
+        records = applyCompletionRetention(records: orderedRecords)
         return elapsedMilliseconds(since: start)
+    }
+
+    private func order(records: [TaskRecord], for perspective: PerspectiveDefinition, today: LocalDate) -> [TaskRecord] {
+        switch perspective.sort.field {
+        case .manual:
+            return orderedByManualList(records: records, filenames: perspective.manualOrder)
+        case .due:
+            return records.sorted { compareOptionalDate($0.document.frontmatter.due, $1.document.frontmatter.due, fallback: ($0, $1)) }
+        case .scheduled:
+            return records.sorted { compareOptionalDate($0.document.frontmatter.scheduled, $1.document.frontmatter.scheduled, fallback: ($0, $1)) }
+        case .defer:
+            return records.sorted { compareOptionalDate($0.document.frontmatter.defer, $1.document.frontmatter.defer, fallback: ($0, $1)) }
+        case .priority:
+            return records.sorted { lhs, rhs in
+                let left = priorityRank(lhs.document.frontmatter.priority)
+                let right = priorityRank(rhs.document.frontmatter.priority)
+                if left != right { return left > right }
+                return compareOptionalDate(lhs.document.frontmatter.due, rhs.document.frontmatter.due, fallback: (lhs, rhs))
+            }
+        case .estimatedMinutes:
+            return records.sorted { lhs, rhs in
+                switch (lhs.document.frontmatter.estimatedMinutes, rhs.document.frontmatter.estimatedMinutes) {
+                case let (l?, r?):
+                    if l != r { return l < r }
+                case (.some, .none):
+                    return true
+                case (.none, .some):
+                    return false
+                case (.none, .none):
+                    break
+                }
+                return compareOptionalDate(lhs.document.frontmatter.due, rhs.document.frontmatter.due, fallback: (lhs, rhs))
+            }
+        case .title:
+            return records.sorted {
+                $0.document.frontmatter.title.localizedCaseInsensitiveCompare($1.document.frontmatter.title) == .orderedAscending
+            }
+        case .created:
+            return records.sorted { $0.document.frontmatter.created > $1.document.frontmatter.created }
+        case .modified:
+            return records.sorted { lhs, rhs in
+                let left = lhs.document.frontmatter.modified ?? lhs.document.frontmatter.created
+                let right = rhs.document.frontmatter.modified ?? rhs.document.frontmatter.created
+                if left != right { return left > right }
+                return lhs.document.frontmatter.title.localizedCaseInsensitiveCompare(rhs.document.frontmatter.title) == .orderedAscending
+            }
+        case .completed:
+            return records.sorted { lhs, rhs in
+                let left = lhs.document.frontmatter.completed ?? Date.distantPast
+                let right = rhs.document.frontmatter.completed ?? Date.distantPast
+                if left != right { return left > right }
+                return lhs.document.frontmatter.title.localizedCaseInsensitiveCompare(rhs.document.frontmatter.title) == .orderedAscending
+            }
+        case .flagged:
+            return records.sorted { lhs, rhs in
+                if lhs.document.frontmatter.flagged != rhs.document.frontmatter.flagged {
+                    return lhs.document.frontmatter.flagged && !rhs.document.frontmatter.flagged
+                }
+                return compareOptionalDate(lhs.document.frontmatter.due, rhs.document.frontmatter.due, fallback: (lhs, rhs))
+            }
+        case .unknown:
+            return records
+        }
+    }
+
+    private func orderedByManualList(records: [TaskRecord], filenames: [String]?) -> [TaskRecord] {
+        guard let filenames, !filenames.isEmpty else {
+            return manualOrderService.ordered(records: records, view: selectedView)
+        }
+
+        let byFilename = Dictionary(uniqueKeysWithValues: records.map { ($0.identity.filename, $0) })
+        var ordered: [TaskRecord] = []
+        var seen = Set<String>()
+
+        for filename in filenames {
+            guard let record = byFilename[filename] else { continue }
+            ordered.append(record)
+            seen.insert(record.identity.path)
+        }
+
+        let remaining = records.filter { !seen.contains($0.identity.path) }
+            .sorted { $0.document.frontmatter.created < $1.document.frontmatter.created }
+        return ordered + remaining
+    }
+
+    private func compareOptionalDate(_ lhs: LocalDate?, _ rhs: LocalDate?, fallback: (TaskRecord, TaskRecord)) -> Bool {
+        switch (lhs, rhs) {
+        case let (left?, right?):
+            if left != right { return left < right }
+        case (.some, .none):
+            return true
+        case (.none, .some):
+            return false
+        case (.none, .none):
+            break
+        }
+        return fallback.0.document.frontmatter.title.localizedCaseInsensitiveCompare(fallback.1.document.frontmatter.title) == .orderedAscending
+    }
+
+    private func priorityRank(_ priority: TaskPriority) -> Int {
+        switch priority {
+        case .high: return 4
+        case .medium: return 3
+        case .low: return 2
+        case .none: return 1
+        }
     }
 
     private func applyCompletionRetention(records: [TaskRecord]) -> [TaskRecord] {
@@ -1426,7 +1759,7 @@ final class AppContainer: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.loadPerspectivesFromSettings()
+                self?.loadPerspectivesFromDisk()
                 self?.debounceMetadataRefresh()
                 self?.scheduleCalendarRefresh(force: true)
             }
