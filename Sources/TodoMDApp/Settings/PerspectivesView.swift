@@ -558,17 +558,17 @@ private struct PerspectiveRuleGroupEditor: View {
         switch condition {
         case .rule:
             VStack(alignment: .leading, spacing: 6) {
-                PerspectiveRuleEditor(rule: ruleBinding(at: index))
+                PerspectiveRuleEditor(rule: ruleBinding(for: condition.id))
                 HStack(spacing: 14) {
-                    Button("Up") { moveCondition(from: index, delta: -1) }
-                        .disabled(index == 0)
-                    Button("Down") { moveCondition(from: index, delta: 1) }
-                        .disabled(index >= group.conditions.count - 1)
-                    Button(ruleEnabled(at: index) ? "Turn Off" : "Turn On") {
-                        toggleRuleEnabled(at: index)
+                    Button("Up") { moveCondition(id: condition.id, delta: -1) }
+                        .disabled(!canMoveCondition(id: condition.id, delta: -1))
+                    Button("Down") { moveCondition(id: condition.id, delta: 1) }
+                        .disabled(!canMoveCondition(id: condition.id, delta: 1))
+                    Button(ruleEnabled(id: condition.id) ? "Turn Off" : "Turn On") {
+                        toggleRuleEnabled(id: condition.id)
                     }
                     Button("Delete", role: .destructive) {
-                        group.conditions.remove(at: index)
+                        removeCondition(id: condition.id)
                     }
                 }
                 .font(.caption)
@@ -584,12 +584,12 @@ private struct PerspectiveRuleGroupEditor: View {
                     dragState: dragState
                 )
                 HStack(spacing: 14) {
-                    Button("Up") { moveCondition(from: index, delta: -1) }
-                        .disabled(index == 0)
-                    Button("Down") { moveCondition(from: index, delta: 1) }
-                        .disabled(index >= group.conditions.count - 1)
+                    Button("Up") { moveCondition(id: condition.id, delta: -1) }
+                        .disabled(!canMoveCondition(id: condition.id, delta: -1))
+                    Button("Down") { moveCondition(id: condition.id, delta: 1) }
+                        .disabled(!canMoveCondition(id: condition.id, delta: 1))
                     Button("Delete Group", role: .destructive) {
-                        group.conditions.remove(at: index)
+                        removeCondition(id: condition.id)
                     }
                 }
                 .font(.caption)
@@ -626,6 +626,22 @@ private struct PerspectiveRuleGroupEditor: View {
         )
     }
 
+    private func ruleBinding(for conditionID: String) -> Binding<PerspectiveRule> {
+        Binding(
+            get: {
+                guard let index = indexOfCondition(id: conditionID),
+                      case .rule(let rule) = group.conditions[index] else {
+                    return PerspectiveRule(field: .status, operator: .equals, value: TaskStatus.todo.rawValue)
+                }
+                return rule
+            },
+            set: { newRule in
+                guard let index = indexOfCondition(id: conditionID) else { return }
+                group.conditions[index] = .rule(newRule)
+            }
+        )
+    }
+
     private func groupBinding(at index: Int) -> Binding<PerspectiveRuleGroup> {
         Binding(
             get: {
@@ -642,6 +658,26 @@ private struct PerspectiveRuleGroupEditor: View {
         )
     }
 
+    private func indexOfCondition(id conditionID: String) -> Int? {
+        group.conditions.firstIndex(where: { $0.id == conditionID })
+    }
+
+    private func removeCondition(id conditionID: String) {
+        guard let index = indexOfCondition(id: conditionID) else { return }
+        group.conditions.remove(at: index)
+    }
+
+    private func canMoveCondition(id conditionID: String, delta: Int) -> Bool {
+        guard let index = indexOfCondition(id: conditionID) else { return false }
+        let target = index + delta
+        return target >= 0 && target < group.conditions.count
+    }
+
+    private func moveCondition(id conditionID: String, delta: Int) {
+        guard let index = indexOfCondition(id: conditionID) else { return }
+        moveCondition(from: index, delta: delta)
+    }
+
     private func moveCondition(from index: Int, delta: Int) {
         let target = index + delta
         guard index >= 0, index < group.conditions.count,
@@ -652,16 +688,16 @@ private struct PerspectiveRuleGroupEditor: View {
         group.conditions.insert(item, at: target)
     }
 
-    private func ruleEnabled(at index: Int) -> Bool {
-        guard index < group.conditions.count,
+    private func ruleEnabled(id conditionID: String) -> Bool {
+        guard let index = indexOfCondition(id: conditionID),
               case .rule(let rule) = group.conditions[index] else {
             return true
         }
         return rule.isEnabled
     }
 
-    private func toggleRuleEnabled(at index: Int) {
-        guard index < group.conditions.count,
+    private func toggleRuleEnabled(id conditionID: String) {
+        guard let index = indexOfCondition(id: conditionID),
               case .rule(var rule) = group.conditions[index] else {
             return
         }
