@@ -4,6 +4,7 @@ public struct TaskFrontmatterV1: Equatable, Sendable {
     public var title: String
     public var status: TaskStatus
     public var due: LocalDate?
+    public var dueTime: LocalTime?
     public var `defer`: LocalDate?
     public var scheduled: LocalDate?
     public var priority: TaskPriority
@@ -23,6 +24,7 @@ public struct TaskFrontmatterV1: Equatable, Sendable {
         title: String,
         status: TaskStatus,
         due: LocalDate? = nil,
+        dueTime: LocalTime? = nil,
         defer: LocalDate? = nil,
         scheduled: LocalDate? = nil,
         priority: TaskPriority = .none,
@@ -41,6 +43,7 @@ public struct TaskFrontmatterV1: Equatable, Sendable {
         self.title = title
         self.status = status
         self.due = due
+        self.dueTime = dueTime
         self.defer = `defer`
         self.scheduled = scheduled
         self.priority = priority

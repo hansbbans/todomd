@@ -5,24 +5,35 @@ import UserNotifications
 @MainActor
 final class UserNotificationScheduler {
     private let center: UNUserNotificationCenter
+    private let maxPendingTodoNotifications = 64
 
     init(center: UNUserNotificationCenter = .current()) {
         self.center = center
     }
 
     func synchronize(records: [TaskRecord], planner: NotificationPlanner) async {
-        let allPlans = records.flatMap { planner.planNotifications(for: $0) }
+        let now = Date()
+        let allPlans = records
+            .flatMap { planner.planNotifications(for: $0, referenceDate: now) }
+            .filter { $0.fireDate > now }
+            .sorted { $0.fireDate < $1.fireDate }
+
+        let selectedPlans = Array(allPlans.prefix(maxPendingTodoNotifications))
         let existingIDs = await pendingTodoNotificationIdentifiers()
-        let identifiers = Set(allPlans.map(\.identifier)).union(existingIDs)
+        let identifiers = Set(selectedPlans.map(\.identifier)).union(existingIDs)
 
         center.removePendingNotificationRequests(withIdentifiers: Array(identifiers))
 
-        for plan in allPlans {
+        for plan in selectedPlans {
             let content = UNMutableNotificationContent()
             content.title = plan.title
             content.body = plan.body
             content.sound = .default
             content.categoryIdentifier = NotificationActionIdentifiers.category
+            if #available(iOS 15.0, *) {
+                // Respect Focus mode defaults; do not elevate persistent reminders.
+                content.interruptionLevel = .active
+            }
             content.userInfo = [
                 "task_path": plan.taskPath,
                 "notification_kind": plan.kind.rawValue
@@ -52,7 +63,7 @@ final class UserNotificationScheduler {
             center.getPendingNotificationRequests { requests in
                 let ids = requests
                     .map(\.identifier)
-                    .filter { $0.hasSuffix("#due") || $0.hasSuffix("#defer") }
+                    .filter { $0.hasSuffix("#due") || $0.hasSuffix("#defer") || $0.contains("#nag-") }
                 continuation.resume(returning: ids)
             }
         }

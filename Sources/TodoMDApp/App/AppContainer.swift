@@ -35,6 +35,8 @@ struct TaskEditState: Equatable {
 
     var hasDue: Bool
     var dueDate: Date
+    var hasDueTime: Bool
+    var dueTime: Date
     var hasDefer: Bool
     var deferDate: Date
     var hasScheduled: Bool
@@ -82,13 +84,24 @@ final class AppContainer: ObservableObject {
     @Published var urlRoutingErrorMessage: String?
     @Published var conflicts: [ConflictSummary] = []
     @Published var navigationTaskPath: String?
+    @Published var perspectives: [PerspectiveDefinition] = []
+    @Published var isCalendarConnected = false
+    @Published var isCalendarSyncing = false
+    @Published var calendarStatusMessage: String?
+    @Published private(set) var calendarSources: [CalendarSource] = []
+    @Published private(set) var selectedCalendarSourceIDs: Set<String> = []
+    @Published var calendarTodayEvents: [CalendarEventItem] = []
+    @Published var calendarUpcomingSections: [CalendarDaySection] = []
 
     private var repository: FileTaskRepository
     private var fileWatcher: FileWatcherService
     private var manualOrderService: ManualOrderService
     private let queryEngine = TaskQueryEngine()
+    private let perspectiveQueryEngine = PerspectiveQueryEngine()
     private let dateParser = NaturalLanguageDateParser()
+    private let quickEntryParser = NaturalLanguageTaskParser()
     private let urlRouter = URLRouter()
+    private let googleCalendarService = GoogleCalendarService()
     private let logger: RuntimeLogging
     private(set) var rootURL: URL
 
@@ -109,13 +122,23 @@ final class AppContainer: ObservableObject {
     private var lifecycleObserverTokens: [NSObjectProtocol] = []
     private var metadataRefreshWorkItem: DispatchWorkItem?
     private var suppressMetadataRefreshUntil: Date?
+    private var calendarRefreshTask: Task<Void, Never>?
+    private var lastCalendarSyncAt: Date?
 
     private static let settingsNotificationHourKey = "settings_notification_hour"
     private static let settingsNotificationMinuteKey = "settings_notification_minute"
+    private static let settingsPersistentRemindersEnabledKey = "settings_persistent_reminders_enabled"
+    private static let settingsPersistentReminderIntervalMinutesKey = "settings_persistent_reminder_interval_minutes"
     private static let settingsArchiveCompletedKey = "settings_archive_completed"
     private static let settingsCompletedRetentionKey = "settings_completed_retention"
     private static let settingsDefaultPriorityKey = "settings_default_priority"
     private static let settingsQuickEntryDefaultViewKey = "settings_quick_entry_default_view"
+    private static let settingsPerspectivesKey = "settings_saved_perspectives_v1"
+    private static let settingsGoogleCalendarEnabledKey = "settings_google_calendar_enabled"
+    private static let settingsGoogleCalendarSelectedIDsKey = "settings_google_calendar_selected_ids"
+    private static let infoGoogleCalendarClientIDKey = "GOOGLE_OAUTH_CLIENT_ID"
+    private static let infoGoogleCalendarRedirectURIKey = "GOOGLE_OAUTH_REDIRECT_URI"
+    private static let defaultGoogleCalendarRedirectURI = "todomd://oauth"
 
     init(logger: RuntimeLogging = ConsoleRuntimeLogger()) {
         self.logger = logger
@@ -137,6 +160,9 @@ final class AppContainer: ObservableObject {
         self.fileWatcher = FileWatcherService(rootURL: rootURL, repository: repository)
         self.manualOrderService = ManualOrderService(rootURL: rootURL)
 
+        loadCalendarSourceSelection()
+        loadPerspectivesFromSettings()
+        isCalendarConnected = googleCalendarService.isConnected
         configureLifecycleObservers()
         startMetadataQuery()
         refresh()
@@ -238,6 +264,8 @@ final class AppContainer: ObservableObject {
                 await notificationScheduler.synchronize(records: canonicalRecords, planner: planner)
             }
 #endif
+
+            scheduleCalendarRefresh()
         } catch {
             logger.error("Refresh failed", metadata: ["error": error.localizedDescription])
         }
@@ -386,6 +414,33 @@ final class AppContainer: ObservableObject {
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
+    func searchRecords(query: String, limit: Int = 150) -> [TaskRecord] {
+        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return [] }
+        let lowered = normalized.lowercased()
+
+        let matches = allIndexedRecords.filter { record in
+            let frontmatter = record.document.frontmatter
+            let components: [String] = [
+                frontmatter.title,
+                frontmatter.description ?? "",
+                frontmatter.area ?? "",
+                frontmatter.project ?? "",
+                frontmatter.source,
+                frontmatter.tags.joined(separator: " "),
+                record.identity.filename
+            ]
+
+            return components.contains { $0.lowercased().contains(lowered) }
+        }
+
+        let ordered = manualOrderService.ordered(records: matches, view: selectedView)
+        if ordered.count <= limit {
+            return ordered
+        }
+        return Array(ordered.prefix(limit))
+    }
+
     func allProjects() -> [String] {
         Set(allIndexedRecords.compactMap { $0.document.frontmatter.project?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty })
@@ -407,6 +462,60 @@ final class AppContainer: ObservableObject {
         availableAreas().map { area in
             (area: area, projects: availableProjects(inArea: area))
         }
+    }
+
+    func savePerspective(_ perspective: PerspectiveDefinition) {
+        let trimmedName = perspective.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+
+        var updated = perspective
+        updated.name = trimmedName
+        if let index = perspectives.firstIndex(where: { $0.id == updated.id }) {
+            perspectives[index] = updated
+        } else {
+            perspectives.append(updated)
+        }
+        persistPerspectivesToSettings()
+        _ = applyCurrentViewFilter()
+    }
+
+    func createPerspective(name: String) -> PerspectiveDefinition {
+        let sanitized = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let perspective = PerspectiveDefinition(name: sanitized.isEmpty ? "New Perspective" : sanitized)
+        perspectives.append(perspective)
+        persistPerspectivesToSettings()
+        _ = applyCurrentViewFilter()
+        return perspective
+    }
+
+    func deletePerspective(id: String) {
+        perspectives.removeAll { $0.id == id }
+        if perspectiveID(for: selectedView) == id {
+            selectedView = .builtIn(.inbox)
+        }
+        persistPerspectivesToSettings()
+        _ = applyCurrentViewFilter()
+    }
+
+    func movePerspectives(from source: IndexSet, to destination: Int) {
+        let moving = source.sorted().map { perspectives[$0] }
+        let remaining = perspectives.enumerated()
+            .filter { !source.contains($0.offset) }
+            .map(\.element)
+        var reordered = remaining
+        let safeDestination = min(max(0, destination), reordered.count)
+        reordered.insert(contentsOf: moving, at: safeDestination)
+        perspectives = reordered
+        persistPerspectivesToSettings()
+    }
+
+    func perspectiveViewIdentifier(for perspectiveID: String) -> ViewIdentifier {
+        .custom("perspective:\(perspectiveID)")
+    }
+
+    func perspectiveName(for view: ViewIdentifier) -> String? {
+        guard let id = perspectiveID(for: view) else { return nil }
+        return perspectives.first(where: { $0.id == id })?.name
     }
 
     func clearPendingNavigationPath() {
@@ -444,6 +553,8 @@ final class AppContainer: ObservableObject {
             priority: frontmatter.priority,
             hasDue: frontmatter.due != nil,
             dueDate: dateFromLocalDate(frontmatter.due) ?? Date(),
+            hasDueTime: frontmatter.dueTime != nil,
+            dueTime: dateFromLocalTime(frontmatter.dueTime) ?? Date(),
             hasDefer: frontmatter.defer != nil,
             deferDate: dateFromLocalDate(frontmatter.defer) ?? Date(),
             hasScheduled: frontmatter.scheduled != nil,
@@ -625,12 +736,28 @@ final class AppContainer: ObservableObject {
         persistTaskAsync(document: document, errorContext: "Task creation failed")
     }
 
+    @discardableResult
+    func createTask(fromQuickEntryText text: String, defaultView: BuiltInView? = nil) -> Bool {
+        guard let parsed = quickEntryParser.parse(text) else {
+            return false
+        }
+        let naturalDate = parsed.due?.isoString
+        createTask(
+            title: parsed.title,
+            naturalDate: naturalDate,
+            tags: parsed.tags,
+            defaultView: defaultView
+        )
+        return true
+    }
+
     func createTask(request: TaskCreateRequest) {
         let now = Date()
         let frontmatter = TaskFrontmatterV1(
             title: request.title,
             status: .todo,
             due: request.due,
+            dueTime: request.dueTime,
             defer: request.deferDate,
             scheduled: request.scheduled,
             priority: request.priority ?? .none,
@@ -774,10 +901,263 @@ final class AppContainer: ObservableObject {
         return (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
     }
 
+    var isGoogleCalendarConfigured: Bool {
+        googleCalendarClientID() != nil
+    }
+
+    func isCalendarSourceSelected(_ sourceID: String) -> Bool {
+        selectedCalendarSourceIDs.contains(sourceID)
+    }
+
+    func setCalendarSourceSelected(sourceID: String, isSelected: Bool) {
+        if isSelected {
+            selectedCalendarSourceIDs.insert(sourceID)
+        } else {
+            selectedCalendarSourceIDs.remove(sourceID)
+        }
+        persistCalendarSourceSelection()
+        scheduleCalendarRefresh(force: true)
+    }
+
+    func selectAllCalendarSources() {
+        selectedCalendarSourceIDs = Set(calendarSources.map(\.id))
+        persistCalendarSourceSelection()
+        scheduleCalendarRefresh(force: true)
+    }
+
+    func connectGoogleCalendar() async {
+        guard let clientID = googleCalendarClientID() else {
+            calendarStatusMessage = "Google Calendar is not configured for this app build."
+            return
+        }
+
+        let redirectURI = googleCalendarRedirectURI()
+        isCalendarSyncing = true
+        calendarStatusMessage = nil
+        do {
+            try await googleCalendarService.connect(clientID: clientID, redirectURI: redirectURI)
+            isCalendarConnected = true
+            await refreshCalendar(force: true)
+        } catch {
+            calendarStatusMessage = error.localizedDescription
+        }
+        isCalendarSyncing = false
+    }
+
+    func disconnectGoogleCalendar() {
+        googleCalendarService.disconnect()
+        isCalendarConnected = false
+        calendarStatusMessage = nil
+        calendarSources = []
+        calendarTodayEvents = []
+        calendarUpcomingSections = []
+        lastCalendarSyncAt = nil
+    }
+
+    func refreshCalendar(force: Bool = false) async {
+        let defaults = UserDefaults.standard
+        let calendarEnabled = defaults.object(forKey: Self.settingsGoogleCalendarEnabledKey) as? Bool ?? true
+        guard calendarEnabled else {
+            calendarTodayEvents = []
+            calendarUpcomingSections = []
+            return
+        }
+
+        guard googleCalendarService.isConnected else {
+            isCalendarConnected = false
+            calendarTodayEvents = []
+            calendarUpcomingSections = []
+            return
+        }
+
+        let now = Date()
+        if !force,
+           let lastSync = lastCalendarSyncAt,
+           now.timeIntervalSince(lastSync) < 60 {
+            return
+        }
+
+        guard let clientID = googleCalendarClientID() else {
+            calendarStatusMessage = "Google Calendar is not configured for this app build."
+            return
+        }
+
+        let calendar = Calendar.current
+        let startDate = calendar.startOfDay(for: now)
+        guard let endDate = calendar.date(byAdding: .day, value: 30, to: startDate) else {
+            return
+        }
+
+        let useSavedSelection = hasPersistedCalendarSourceSelection()
+        let allowedCalendarIDs: Set<String>? = useSavedSelection ? selectedCalendarSourceIDs : nil
+
+        isCalendarSyncing = true
+        defer { isCalendarSyncing = false }
+
+        do {
+            let result = try await googleCalendarService.fetchUpcomingEvents(
+                clientID: clientID,
+                redirectURI: googleCalendarRedirectURI(),
+                startDate: startDate,
+                endDate: endDate,
+                allowedCalendarIDs: allowedCalendarIDs
+            )
+            isCalendarConnected = true
+            calendarStatusMessage = nil
+            lastCalendarSyncAt = now
+
+            calendarSources = result.sources.sorted {
+                $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+            }
+
+            let availableSourceIDs = Set(calendarSources.map(\.id))
+            if !useSavedSelection {
+                selectedCalendarSourceIDs = availableSourceIDs
+                persistCalendarSourceSelection()
+            } else {
+                let pruned = selectedCalendarSourceIDs.intersection(availableSourceIDs)
+                if pruned != selectedCalendarSourceIDs {
+                    selectedCalendarSourceIDs = pruned
+                    persistCalendarSourceSelection()
+                }
+            }
+
+            calendarTodayEvents = eventsForToday(result.events, today: startDate)
+            calendarUpcomingSections = groupedUpcomingSections(result.events, today: startDate)
+        } catch {
+            calendarStatusMessage = error.localizedDescription
+            if case GoogleCalendarServiceError.tokenUnavailable = error {
+                isCalendarConnected = false
+            }
+        }
+    }
+
+    private func scheduleCalendarRefresh(force: Bool = false) {
+        if force {
+            calendarRefreshTask?.cancel()
+            calendarRefreshTask = nil
+        } else if calendarRefreshTask != nil {
+            return
+        }
+
+        calendarRefreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.refreshCalendar(force: force)
+            self.calendarRefreshTask = nil
+        }
+    }
+
+    private func googleCalendarRedirectURI() -> String {
+        (Bundle.main.object(forInfoDictionaryKey: Self.infoGoogleCalendarRedirectURIKey) as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty ?? Self.defaultGoogleCalendarRedirectURI
+    }
+
+    private func googleCalendarClientID() -> String? {
+        (Bundle.main.object(forInfoDictionaryKey: Self.infoGoogleCalendarClientIDKey) as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+    }
+
+    private func hasPersistedCalendarSourceSelection() -> Bool {
+        UserDefaults.standard.array(forKey: Self.settingsGoogleCalendarSelectedIDsKey) != nil
+    }
+
+    private func loadCalendarSourceSelection() {
+        let defaults = UserDefaults.standard
+        guard let ids = defaults.array(forKey: Self.settingsGoogleCalendarSelectedIDsKey) as? [String] else {
+            selectedCalendarSourceIDs = []
+            return
+        }
+        selectedCalendarSourceIDs = Set(ids)
+    }
+
+    private func persistCalendarSourceSelection() {
+        let defaults = UserDefaults.standard
+        defaults.set(Array(selectedCalendarSourceIDs).sorted(), forKey: Self.settingsGoogleCalendarSelectedIDsKey)
+    }
+
+    private func eventsForToday(_ events: [CalendarEventItem], today: Date) -> [CalendarEventItem] {
+        let calendar = Calendar.current
+        return events
+            .filter { calendar.isDate($0.startDate, inSameDayAs: today) }
+            .sorted(by: Self.calendarEventSort)
+    }
+
+    private func groupedUpcomingSections(_ events: [CalendarEventItem], today: Date) -> [CalendarDaySection] {
+        let calendar = Calendar.current
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: today)) ?? today
+
+        var grouped: [Date: [CalendarEventItem]] = [:]
+        for event in events {
+            let day = calendar.startOfDay(for: event.startDate)
+            guard day >= tomorrow else { continue }
+            grouped[day, default: []].append(event)
+        }
+
+        return grouped.keys.sorted().map { day in
+            let dayEvents = (grouped[day] ?? []).sorted(by: Self.calendarEventSort)
+            return CalendarDaySection(date: day, events: dayEvents)
+        }
+    }
+
+    private static func calendarEventSort(lhs: CalendarEventItem, rhs: CalendarEventItem) -> Bool {
+        if lhs.startDate != rhs.startDate {
+            return lhs.startDate < rhs.startDate
+        }
+        if lhs.isAllDay != rhs.isAllDay {
+            return lhs.isAllDay && !rhs.isAllDay
+        }
+        return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+    }
+
+    private func loadPerspectivesFromSettings() {
+        let defaults = UserDefaults.standard
+        guard let data = defaults.data(forKey: Self.settingsPerspectivesKey) else {
+            perspectives = []
+            if perspectiveID(for: selectedView) != nil {
+                selectedView = .builtIn(.inbox)
+            }
+            return
+        }
+
+        if let decoded = try? JSONDecoder().decode([PerspectiveDefinition].self, from: data) {
+            perspectives = decoded
+        } else {
+            perspectives = []
+        }
+
+        if let selectedPerspectiveID = perspectiveID(for: selectedView),
+           !perspectives.contains(where: { $0.id == selectedPerspectiveID }) {
+            selectedView = .builtIn(.inbox)
+        }
+    }
+
+    private func persistPerspectivesToSettings() {
+        let defaults = UserDefaults.standard
+        if let encoded = try? JSONEncoder().encode(perspectives) {
+            defaults.set(encoded, forKey: Self.settingsPerspectivesKey)
+        }
+    }
+
+    private func perspectiveID(for view: ViewIdentifier) -> String? {
+        guard case .custom(let rawID) = view else { return nil }
+        let prefix = "perspective:"
+        guard rawID.hasPrefix(prefix) else { return nil }
+        let id = String(rawID.dropFirst(prefix.count))
+        return id.isEmpty ? nil : id
+    }
+
     @discardableResult
     private func applyCurrentViewFilter(today: LocalDate = LocalDate.today(in: .current)) -> Double {
         let start = ContinuousClock.now
-        let filtered = allIndexedRecords.filter { queryEngine.matches($0, view: selectedView, today: today) }
+        let filtered: [TaskRecord]
+        if let perspectiveID = perspectiveID(for: selectedView),
+           let perspective = perspectives.first(where: { $0.id == perspectiveID }) {
+            filtered = allIndexedRecords.filter { perspectiveQueryEngine.matches($0, perspective: perspective, today: today) }
+        } else {
+            filtered = allIndexedRecords.filter { queryEngine.matches($0, view: selectedView, today: today) }
+        }
         let retentionFiltered = applyCompletionRetention(records: filtered)
         records = manualOrderService.ordered(records: retentionFiltered, view: selectedView)
         return elapsedMilliseconds(since: start)
@@ -865,9 +1245,18 @@ final class AppContainer: ObservableObject {
         let defaults = UserDefaults.standard
         let hour = defaults.object(forKey: Self.settingsNotificationHourKey) as? Int ?? 9
         let minute = defaults.object(forKey: Self.settingsNotificationMinuteKey) as? Int ?? 0
+        let persistentEnabled = defaults.object(forKey: Self.settingsPersistentRemindersEnabledKey) as? Bool ?? false
+        let persistentIntervalMinutes = defaults.object(forKey: Self.settingsPersistentReminderIntervalMinutesKey) as? Int ?? 1
         let normalizedHour = min(23, max(0, hour))
         let normalizedMinute = min(59, max(0, minute))
-        return NotificationPlanner(calendar: .current, defaultHour: normalizedHour, defaultMinute: normalizedMinute)
+        let normalizedInterval = max(1, min(240, persistentIntervalMinutes))
+        return NotificationPlanner(
+            calendar: .current,
+            defaultHour: normalizedHour,
+            defaultMinute: normalizedMinute,
+            persistentRemindersEnabled: persistentEnabled,
+            persistentReminderIntervalMinutes: normalizedInterval
+        )
     }
 
     private func configureLifecycleObservers() {
@@ -879,7 +1268,9 @@ final class AppContainer: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
+                self?.loadPerspectivesFromSettings()
                 self?.debounceMetadataRefresh()
+                self?.scheduleCalendarRefresh(force: true)
             }
         })
 
@@ -992,6 +1383,7 @@ final class AppContainer: ObservableObject {
                     subtitle: record.document.frontmatter.description,
                     status: record.document.frontmatter.status.rawValue,
                     dueISODate: record.document.frontmatter.due?.isoString,
+                    dueTime: record.document.frontmatter.dueTime?.isoString,
                     deferISODate: record.document.frontmatter.defer?.isoString,
                     scheduledISODate: record.document.frontmatter.scheduled?.isoString,
                     priority: record.document.frontmatter.priority.rawValue,
@@ -1022,6 +1414,7 @@ final class AppContainer: ObservableObject {
         model.subtitle = record.document.frontmatter.description
         model.status = record.document.frontmatter.status.rawValue
         model.dueISODate = record.document.frontmatter.due?.isoString
+        model.dueTime = record.document.frontmatter.dueTime?.isoString
         model.deferISODate = record.document.frontmatter.defer?.isoString
         model.scheduledISODate = record.document.frontmatter.scheduled?.isoString
         model.priority = record.document.frontmatter.priority.rawValue
@@ -1047,6 +1440,7 @@ final class AppContainer: ObservableObject {
         let status = TaskStatus(rawValue: model.status) ?? .todo
         let priority = TaskPriority(rawValue: model.priority) ?? .none
         let due = model.dueISODate.flatMap { try? LocalDate(isoDate: $0) }
+        let dueTime = model.dueTime.flatMap { try? LocalTime(isoTime: $0) }
         let deferDate = model.deferISODate.flatMap { try? LocalDate(isoDate: $0) }
         let scheduled = model.scheduledISODate.flatMap { try? LocalDate(isoDate: $0) }
 
@@ -1054,6 +1448,7 @@ final class AppContainer: ObservableObject {
             title: model.title,
             status: status,
             due: due,
+            dueTime: dueTime,
             defer: deferDate,
             scheduled: scheduled,
             priority: priority,
@@ -1123,6 +1518,7 @@ final class AppContainer: ObservableObject {
         document.frontmatter.priority = editState.priority
 
         document.frontmatter.due = editState.hasDue ? localDateFromDate(editState.dueDate) : nil
+        document.frontmatter.dueTime = (editState.hasDue && editState.hasDueTime) ? localTimeFromDate(editState.dueTime) : nil
         document.frontmatter.defer = editState.hasDefer ? localDateFromDate(editState.deferDate) : nil
         document.frontmatter.scheduled = editState.hasScheduled ? localDateFromDate(editState.scheduledDate) : nil
 
@@ -1214,6 +1610,24 @@ final class AppContainer: ObservableObject {
             month: components.month ?? 1,
             day: components.day ?? 1
         )) ?? .epoch
+    }
+
+    private func dateFromLocalTime(_ localTime: LocalTime?) -> Date? {
+        guard let localTime else { return nil }
+        var components = DateComponents()
+        components.hour = localTime.hour
+        components.minute = localTime.minute
+        components.second = 0
+        components.calendar = .current
+        return Calendar.current.date(from: components)
+    }
+
+    private func localTimeFromDate(_ date: Date) -> LocalTime {
+        let components = Calendar.current.dateComponents([.hour, .minute], from: date)
+        return (try? LocalTime(
+            hour: components.hour ?? 0,
+            minute: components.minute ?? 0
+        )) ?? .midnight
     }
 
     private func markSelfWrite(path: String) {

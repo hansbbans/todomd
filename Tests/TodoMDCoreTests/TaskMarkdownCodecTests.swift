@@ -156,4 +156,26 @@ final class TaskMarkdownCodecTests: XCTestCase {
         XCTAssertEqual(parsed.frontmatter.scheduled, try LocalDate(isoDate: "2025-12-24"))
         XCTAssertEqual(parsed.frontmatter.tags, ["task"])
     }
+
+    func testDueTimeParsesAndSerializes() throws {
+        let raw = """
+        ---
+        title: "Timed task"
+        status: "todo"
+        due: "2025-12-24"
+        due_time: "08:30"
+        created: "2025-02-26T14:30:00Z"
+        source: "user"
+        ---
+        """
+
+        let codec = TaskMarkdownCodec()
+        let parsed = try codec.parse(markdown: raw)
+        XCTAssertEqual(parsed.frontmatter.due?.isoString, "2025-12-24")
+        XCTAssertEqual(parsed.frontmatter.dueTime?.isoString, "08:30")
+
+        let serialized = try codec.serialize(document: parsed)
+        XCTAssertTrue(serialized.contains("due_time"))
+        XCTAssertTrue(serialized.contains("08:30"))
+    }
 }

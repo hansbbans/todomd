@@ -97,6 +97,7 @@ struct AddTaskIntent: AppIntent {
 
     @Parameter(title: "Title") var title: String
     @Parameter(title: "Due Date", default: "") var dueDate: String
+    @Parameter(title: "Due Time (HH:mm)", default: "") var dueTime: String
     @Parameter(title: "Defer Date", default: "") var deferDate: String
     @Parameter(title: "Priority", default: "") var priority: String
     @Parameter(title: "Area", default: "") var area: String
@@ -108,6 +109,7 @@ struct AddTaskIntent: AppIntent {
         let repository = try services.makeRepository()
 
         let due = dueDate.isEmpty ? nil : try? LocalDate(isoDate: dueDate)
+        let dueTimeValue = (due != nil && !dueTime.isEmpty) ? (try? LocalTime(isoTime: dueTime)) : nil
         let deferred = deferDate.isEmpty ? nil : try? LocalDate(isoDate: deferDate)
         let parsedPriority = TaskPriority(rawValue: priority.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) ?? .none
         let trimmedArea = area.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : area.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -122,6 +124,7 @@ struct AddTaskIntent: AppIntent {
             title: title,
             status: .todo,
             due: due,
+            dueTime: dueTimeValue,
             defer: deferred,
             priority: parsedPriority,
             area: trimmedArea,

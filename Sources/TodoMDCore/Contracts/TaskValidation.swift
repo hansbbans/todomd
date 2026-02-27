@@ -52,5 +52,9 @@ public enum TaskValidation {
         for tag in frontmatter.tags where tag.count > maxTagLength {
             throw TaskValidationError.fieldTooLong(field: "tag", limit: maxTagLength)
         }
+
+        if frontmatter.due == nil, frontmatter.dueTime != nil {
+            throw TaskValidationError.invalidFieldValue(field: "due_time", value: "due_time requires due date")
+        }
     }
 }

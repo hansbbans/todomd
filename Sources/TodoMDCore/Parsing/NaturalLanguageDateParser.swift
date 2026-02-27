@@ -53,12 +53,23 @@ public struct NaturalLanguageDateParser {
 
     private func parseWeekdayPhrase(_ lowered: String, relativeTo date: Date) -> Date? {
         let weekdays: [String: Int] = [
+            "sun": 1,
             "sunday": 1,
+            "mon": 2,
             "monday": 2,
+            "tue": 3,
+            "tues": 3,
             "tuesday": 3,
+            "wed": 4,
+            "weds": 4,
             "wednesday": 4,
+            "thu": 5,
+            "thur": 5,
+            "thurs": 5,
             "thursday": 5,
+            "fri": 6,
             "friday": 6,
+            "sat": 7,
             "saturday": 7
         ]
 
@@ -99,19 +110,20 @@ public struct NaturalLanguageDateParser {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.calendar = calendar
 
-        // month day (e.g., march 1)
-        formatter.dateFormat = "MMMM d"
-        if let date = formatter.date(from: lowered) {
-            var year = calendar.component(.year, from: referenceDate)
-            var components = calendar.dateComponents([.month, .day], from: date)
-            components.year = year
-            guard let candidate = calendar.date(from: components) else { return nil }
-            if candidate < referenceDate {
-                year += 1
+        for format in ["MMMM d", "MMM d"] {
+            formatter.dateFormat = format
+            if let date = formatter.date(from: lowered) {
+                var year = calendar.component(.year, from: referenceDate)
+                var components = calendar.dateComponents([.month, .day], from: date)
                 components.year = year
-                return calendar.date(from: components)
+                guard let candidate = calendar.date(from: components) else { return nil }
+                if candidate < referenceDate {
+                    year += 1
+                    components.year = year
+                    return calendar.date(from: components)
+                }
+                return candidate
             }
-            return candidate
         }
 
         // yyyy-mm-dd

@@ -8,6 +8,7 @@ public enum URLAction: Equatable, Sendable {
 public struct TaskCreateRequest: Equatable, Sendable {
     public var title: String
     public var due: LocalDate?
+    public var dueTime: LocalTime?
     public var deferDate: LocalDate?
     public var scheduled: LocalDate?
     public var priority: TaskPriority?
@@ -19,6 +20,7 @@ public struct TaskCreateRequest: Equatable, Sendable {
     public init(
         title: String,
         due: LocalDate? = nil,
+        dueTime: LocalTime? = nil,
         deferDate: LocalDate? = nil,
         scheduled: LocalDate? = nil,
         priority: TaskPriority? = nil,
@@ -29,6 +31,7 @@ public struct TaskCreateRequest: Equatable, Sendable {
     ) {
         self.title = title
         self.due = due
+        self.dueTime = dueTime
         self.deferDate = deferDate
         self.scheduled = scheduled
         self.priority = priority
@@ -76,6 +79,10 @@ public struct URLRouter {
         }
 
         let due = try parseDate(named: "due", from: queryItems)
+        let dueTime = try parseTime(named: "due_time", from: queryItems)
+        if due == nil, dueTime != nil {
+            throw TaskError.invalidURLParameters("due_time requires due date")
+        }
         let deferDate = try parseDate(named: "defer", from: queryItems)
         let scheduled = try parseDate(named: "scheduled", from: queryItems)
 
@@ -97,6 +104,7 @@ public struct URLRouter {
         return TaskCreateRequest(
             title: title,
             due: due,
+            dueTime: dueTime,
             deferDate: deferDate,
             scheduled: scheduled,
             priority: priority,
@@ -115,6 +123,17 @@ public struct URLRouter {
             return try LocalDate(isoDate: raw)
         } catch {
             throw TaskError.invalidURLParameters("Invalid \(key) date: \(raw)")
+        }
+    }
+
+    private func parseTime(named key: String, from items: [URLQueryItem]) throws -> LocalTime? {
+        guard let raw = decodeQueryValue(items.first(where: { $0.name == key })?.value), !raw.isEmpty else {
+            return nil
+        }
+        do {
+            return try LocalTime(isoTime: raw)
+        } catch {
+            throw TaskError.invalidURLParameters("Invalid \(key) time: \(raw)")
         }
     }
 

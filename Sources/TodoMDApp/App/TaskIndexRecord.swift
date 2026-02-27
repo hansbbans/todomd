@@ -10,6 +10,7 @@ public final class TaskIndexRecord {
     public var subtitle: String?
     public var status: String
     public var dueISODate: String?
+    public var dueTime: String?
     public var deferISODate: String?
     public var scheduledISODate: String?
     public var priority: String
@@ -31,6 +32,7 @@ public final class TaskIndexRecord {
         subtitle: String?,
         status: String,
         dueISODate: String?,
+        dueTime: String?,
         deferISODate: String?,
         scheduledISODate: String?,
         priority: String,
@@ -51,6 +53,7 @@ public final class TaskIndexRecord {
         self.subtitle = subtitle
         self.status = status
         self.dueISODate = dueISODate
+        self.dueTime = dueTime
         self.deferISODate = deferISODate
         self.scheduledISODate = scheduledISODate
         self.priority = priority

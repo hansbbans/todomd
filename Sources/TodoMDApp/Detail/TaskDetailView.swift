@@ -128,7 +128,14 @@ struct TaskDetailView: View {
                 }
 
                 Group {
-                    detailRow("Due", value: dateText(binding(\.hasDue).wrappedValue ? binding(\.dueDate).wrappedValue : nil))
+                    detailRow(
+                        "Due",
+                        value: dueText(
+                            date: binding(\.hasDue).wrappedValue ? binding(\.dueDate).wrappedValue : nil,
+                            hasTime: binding(\.hasDue).wrappedValue && binding(\.hasDueTime).wrappedValue,
+                            time: binding(\.dueTime).wrappedValue
+                        )
+                    )
                     detailRow("Scheduled", value: dateText(binding(\.hasScheduled).wrappedValue ? binding(\.scheduledDate).wrappedValue : nil))
                     detailRow("Defer", value: dateText(binding(\.hasDefer).wrappedValue ? binding(\.deferDate).wrappedValue : nil))
                     detailRow("Area", value: binding(\.area).wrappedValue)
@@ -218,9 +225,24 @@ struct TaskDetailView: View {
             }
 
             Section("Dates") {
-                Toggle("Due", isOn: binding(\.hasDue))
+                Toggle(
+                    "Due",
+                    isOn: Binding(
+                        get: { binding(\.hasDue).wrappedValue },
+                        set: { isEnabled in
+                            binding(\.hasDue).wrappedValue = isEnabled
+                            if !isEnabled {
+                                binding(\.hasDueTime).wrappedValue = false
+                            }
+                        }
+                    )
+                )
                 if binding(\.hasDue).wrappedValue {
                     DatePicker("Due date", selection: binding(\.dueDate), displayedComponents: .date)
+                    Toggle("Specific due time", isOn: binding(\.hasDueTime))
+                    if binding(\.hasDueTime).wrappedValue {
+                        DatePicker("Due time", selection: binding(\.dueTime), displayedComponents: .hourAndMinute)
+                    }
                 }
 
                 Toggle("Defer", isOn: binding(\.hasDefer))
@@ -477,6 +499,14 @@ struct TaskDetailView: View {
     private func dateText(_ value: Date?) -> String {
         guard let value else { return "" }
         return value.formatted(date: .abbreviated, time: .omitted)
+    }
+
+    private func dueText(date: Date?, hasTime: Bool, time: Date) -> String {
+        guard let date else { return "" }
+        if !hasTime {
+            return date.formatted(date: .abbreviated, time: .omitted)
+        }
+        return "\(date.formatted(date: .abbreviated, time: .omitted)) at \(time.formatted(date: .omitted, time: .shortened))"
     }
 
     private func save() {

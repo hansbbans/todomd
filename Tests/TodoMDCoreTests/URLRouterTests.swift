@@ -4,13 +4,14 @@ import XCTest
 final class URLRouterTests: XCTestCase {
     func testAddTaskURL() throws {
         let router = URLRouter()
-        let url = URL(string: "todomd://add?title=Buy+milk&due=2025-03-01&tags=errands,food")!
+        let url = URL(string: "todomd://add?title=Buy+milk&due=2025-03-01&due_time=17:45&tags=errands,food")!
         let action = try router.parse(url: url)
 
         switch action {
         case .addTask(let request):
             XCTAssertEqual(request.title, "Buy milk")
             XCTAssertEqual(request.due?.isoString, "2025-03-01")
+            XCTAssertEqual(request.dueTime?.isoString, "17:45")
             XCTAssertEqual(request.tags, ["errands", "food"])
         default:
             XCTFail("Expected addTask action")

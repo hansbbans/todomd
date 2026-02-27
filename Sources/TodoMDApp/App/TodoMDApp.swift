@@ -11,6 +11,7 @@ struct TodoMDApp: App {
     @StateObject private var container = AppContainer()
     @StateObject private var theme = ThemeManager()
     @AppStorage("did_complete_onboarding") private var didCompleteOnboarding = false
+    @AppStorage("settings_appearance_mode") private var appearanceMode = "system"
     @State private var forceOnboardingForUITest: Bool
 
     init() {
@@ -36,9 +37,21 @@ struct TodoMDApp: App {
             .environmentObject(container)
             .environmentObject(theme)
             .tint(theme.accentColor)
+            .preferredColorScheme(preferredColorScheme)
 #if canImport(SwiftData)
             .modelContainer(container.modelContainer)
 #endif
+        }
+    }
+
+    private var preferredColorScheme: ColorScheme? {
+        switch appearanceMode {
+        case "light":
+            return .light
+        case "dark":
+            return .dark
+        default:
+            return nil
         }
     }
 

@@ -83,6 +83,52 @@ public enum LocalDateError: Error, Equatable, Sendable {
     case invalidCombination(year: Int, month: Int, day: Int)
 }
 
+public struct LocalTime: Codable, Hashable, Sendable, Comparable {
+    public let hour: Int
+    public let minute: Int
+
+    private init(uncheckedHour: Int, minute: Int) {
+        self.hour = uncheckedHour
+        self.minute = minute
+    }
+
+    public static let midnight = LocalTime(uncheckedHour: 0, minute: 0)
+
+    public init(hour: Int, minute: Int) throws {
+        guard (0...23).contains(hour) else { throw LocalTimeError.invalidHour(hour) }
+        guard (0...59).contains(minute) else { throw LocalTimeError.invalidMinute(minute) }
+        self.hour = hour
+        self.minute = minute
+    }
+
+    public init(isoTime: String) throws {
+        let pieces = isoTime.split(separator: ":")
+        guard pieces.count == 2,
+              let hour = Int(pieces[0]),
+              let minute = Int(pieces[1]) else {
+            throw LocalTimeError.invalidFormat(isoTime)
+        }
+        try self.init(hour: hour, minute: minute)
+    }
+
+    public var isoString: String {
+        String(format: "%02d:%02d", hour, minute)
+    }
+
+    public static func < (lhs: LocalTime, rhs: LocalTime) -> Bool {
+        if lhs.hour != rhs.hour {
+            return lhs.hour < rhs.hour
+        }
+        return lhs.minute < rhs.minute
+    }
+}
+
+public enum LocalTimeError: Error, Equatable, Sendable {
+    case invalidFormat(String)
+    case invalidHour(Int)
+    case invalidMinute(Int)
+}
+
 public struct DateCoding {
     private static func makeFractionalFormatter() -> ISO8601DateFormatter {
         let formatter = ISO8601DateFormatter()

@@ -14,7 +14,7 @@ public struct TaskMarkdownCodec {
         try validateFrontmatterComplexity(normalizedObject)
 
         let knownKeys: Set<String> = [
-            "title", "status", "due", "defer", "scheduled", "priority", "flagged", "area", "project", "tags",
+            "title", "status", "due", "due_time", "defer", "scheduled", "priority", "flagged", "area", "project", "tags",
             "recurrence", "estimated_minutes", "description", "created", "modified", "completed", "source"
         ]
 
@@ -42,6 +42,7 @@ public struct TaskMarkdownCodec {
         ]
 
         if let due = document.frontmatter.due { object["due"] = due.isoString }
+        if let dueTime = document.frontmatter.dueTime { object["due_time"] = dueTime.isoString }
         if let deferDate = document.frontmatter.defer { object["defer"] = deferDate.isoString }
         if let scheduled = document.frontmatter.scheduled { object["scheduled"] = scheduled.isoString }
         if let area = document.frontmatter.area { object["area"] = area }
@@ -162,6 +163,7 @@ public struct TaskMarkdownCodec {
         let status = parseStatus(statusRaw)
 
         let due = try optionalDate("due", in: object)
+        let dueTime = try optionalTime("due_time", in: object)
         let deferDate = try optionalDate("defer", in: object)
         let scheduled = try optionalDate("scheduled", in: object)
 
@@ -206,6 +208,7 @@ public struct TaskMarkdownCodec {
             title: title,
             status: status,
             due: due,
+            dueTime: dueTime,
             defer: deferDate,
             scheduled: scheduled,
             priority: priority,
@@ -334,6 +337,26 @@ public struct TaskMarkdownCodec {
         }
 
         throw TaskError.parseFailure("Field \(key) must be a datetime string")
+    }
+
+    private func optionalTime(_ key: String, in object: [String: Any]) throws -> LocalTime? {
+        guard let value = object[key] else { return nil }
+        if value is NSNull { return nil }
+
+        guard let raw = value as? String else {
+            throw TaskError.parseFailure("Field \(key) must be a time string")
+        }
+
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalized.isEmpty {
+            return nil
+        }
+
+        do {
+            return try LocalTime(isoTime: normalized)
+        } catch {
+            throw TaskError.parseFailure("Invalid time for \(key): \(normalized)")
+        }
     }
 
     private func parseStatus(_ raw: String) -> TaskStatus {
