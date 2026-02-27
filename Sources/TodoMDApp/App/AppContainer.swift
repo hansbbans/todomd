@@ -71,6 +71,21 @@ struct UpcomingSection: Identifiable, Equatable {
     var id: String { date.isoString }
 }
 
+private struct ReminderImportCandidate: Sendable {
+    let reminderID: String
+    let document: TaskDocument
+}
+
+private struct ReminderImportCreateResult: Sendable {
+    struct CreatedRecord: Sendable {
+        let path: String
+        let reminderID: String
+    }
+
+    let created: [CreatedRecord]
+    let failedCount: Int
+}
+
 @MainActor
 final class AppContainer: ObservableObject {
     @Published var selectedView: ViewIdentifier = .builtIn(.inbox) {
@@ -92,6 +107,10 @@ final class AppContainer: ObservableObject {
     @Published private(set) var selectedCalendarSourceIDs: Set<String> = []
     @Published var calendarTodayEvents: [CalendarEventItem] = []
     @Published var calendarUpcomingSections: [CalendarDaySection] = []
+    @Published private(set) var reminderLists: [ReminderList] = []
+    @Published private(set) var selectedReminderListID: String?
+    @Published var remindersImportStatusMessage: String?
+    @Published var isRemindersImporting = false
 
     private var repository: FileTaskRepository
     private var fileWatcher: FileWatcherService
@@ -102,6 +121,7 @@ final class AppContainer: ObservableObject {
     private let quickEntryParser = NaturalLanguageTaskParser()
     private let urlRouter = URLRouter()
     private let googleCalendarService = GoogleCalendarService()
+    private let remindersImportService = RemindersImportService()
     private let logger: RuntimeLogging
     private(set) var rootURL: URL
 
@@ -136,9 +156,11 @@ final class AppContainer: ObservableObject {
     private static let settingsPerspectivesKey = "settings_saved_perspectives_v1"
     private static let settingsGoogleCalendarEnabledKey = "settings_google_calendar_enabled"
     private static let settingsGoogleCalendarSelectedIDsKey = "settings_google_calendar_selected_ids"
+    private static let settingsRemindersImportListIDKey = "settings_reminders_import_list_id"
     private static let infoGoogleCalendarClientIDKey = "GOOGLE_OAUTH_CLIENT_ID"
     private static let infoGoogleCalendarRedirectURIKey = "GOOGLE_OAUTH_REDIRECT_URI"
     private static let defaultGoogleCalendarRedirectURI = "todomd://oauth"
+    private static let hashtagRegex = try? NSRegularExpression(pattern: "#([A-Za-z0-9_-]+)")
 
     init(logger: RuntimeLogging = ConsoleRuntimeLogger()) {
         self.logger = logger
@@ -161,6 +183,7 @@ final class AppContainer: ObservableObject {
         self.manualOrderService = ManualOrderService(rootURL: rootURL)
 
         loadCalendarSourceSelection()
+        loadReminderListSelection()
         loadPerspectivesFromSettings()
         isCalendarConnected = googleCalendarService.isConnected
         configureLifecycleObservers()
@@ -901,6 +924,117 @@ final class AppContainer: ObservableObject {
         return (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
     }
 
+    func refreshReminderListsIfNeeded() async {
+        guard reminderLists.isEmpty else { return }
+        await refreshReminderLists()
+    }
+
+    func refreshReminderLists() async {
+        do {
+            let lists = try await remindersImportService.fetchLists()
+            reminderLists = lists
+            syncSelectedReminderList(with: lists)
+            if lists.isEmpty {
+                remindersImportStatusMessage = "No Reminders lists are available to import from."
+            } else if remindersImportStatusMessage == RemindersImportServiceError.accessDenied.localizedDescription {
+                remindersImportStatusMessage = nil
+            }
+        } catch {
+            reminderLists = []
+            selectedReminderListID = nil
+            remindersImportStatusMessage = error.localizedDescription
+            persistReminderListSelection()
+        }
+    }
+
+    func setReminderListSelected(id: String) {
+        guard reminderLists.contains(where: { $0.id == id }) else { return }
+        selectedReminderListID = id
+        persistReminderListSelection()
+    }
+
+    func importFromReminders() async {
+        guard !isRemindersImporting else { return }
+        isRemindersImporting = true
+        defer { isRemindersImporting = false }
+
+        if reminderLists.isEmpty {
+            await refreshReminderLists()
+        }
+
+        do {
+            let reminders = try await remindersImportService.fetchIncompleteReminders(
+                calendarID: selectedReminderListID
+            )
+            guard !reminders.isEmpty else {
+                remindersImportStatusMessage = "No incomplete reminders found in the selected list."
+                return
+            }
+
+            let candidates = reminders.compactMap(makeReminderImportCandidate(from:))
+            let skippedCount = max(0, reminders.count - candidates.count)
+            guard !candidates.isEmpty else {
+                remindersImportStatusMessage = "No reminders could be converted into valid tasks."
+                return
+            }
+
+            suppressMetadataRefresh(for: 3)
+            let createResult = await createReminderTasks(candidates: candidates, rootPath: rootURL.path)
+
+            for created in createResult.created {
+                markSelfWrite(path: created.path)
+            }
+
+            if !createResult.created.isEmpty {
+                refresh()
+            }
+
+            let importedReminderIDs = createResult.created.map(\.reminderID)
+            var deletionResult: ReminderDeletionResult?
+            var deletionError: String?
+            if !importedReminderIDs.isEmpty {
+                do {
+                    deletionResult = try remindersImportService.removeReminders(withIDs: importedReminderIDs)
+                } catch {
+                    deletionError = error.localizedDescription
+                }
+            }
+
+            var summary: [String] = []
+            let importedCount = createResult.created.count
+            if importedCount > 0 {
+                summary.append("Imported \(importedCount) reminder\(importedCount == 1 ? "" : "s") as tasks.")
+            }
+            if let deletionResult {
+                if deletionResult.removedCount == importedCount {
+                    summary.append("Removed imported reminders from Apple Reminders.")
+                } else {
+                    summary.append(
+                        "Removed \(deletionResult.removedCount) reminder\(deletionResult.removedCount == 1 ? "" : "s") from Apple Reminders."
+                    )
+                }
+                if deletionResult.missingCount > 0 {
+                    summary.append(
+                        "\(deletionResult.missingCount) reminder\(deletionResult.missingCount == 1 ? "" : "s") could not be found for deletion."
+                    )
+                }
+            } else if let deletionError {
+                summary.append("Imported tasks but failed to remove reminders: \(deletionError)")
+            }
+
+            let failedCount = createResult.failedCount + skippedCount
+            if failedCount > 0 {
+                summary.append(
+                    "\(failedCount) reminder\(failedCount == 1 ? "" : "s") were left in Reminders due to import errors."
+                )
+            }
+
+            remindersImportStatusMessage = summary.joined(separator: " ")
+        } catch {
+            remindersImportStatusMessage = error.localizedDescription
+        }
+    }
+
     var isGoogleCalendarConfigured: Bool {
         googleCalendarClientID() != nil
     }
@@ -1075,6 +1209,30 @@ final class AppContainer: ObservableObject {
     private func persistCalendarSourceSelection() {
         let defaults = UserDefaults.standard
         defaults.set(Array(selectedCalendarSourceIDs).sorted(), forKey: Self.settingsGoogleCalendarSelectedIDsKey)
+    }
+
+    private func loadReminderListSelection() {
+        selectedReminderListID = UserDefaults.standard.string(forKey: Self.settingsRemindersImportListIDKey)
+    }
+
+    private func syncSelectedReminderList(with lists: [ReminderList]) {
+        guard !lists.isEmpty else {
+            selectedReminderListID = nil
+            persistReminderListSelection()
+            return
+        }
+
+        if let selectedReminderListID, lists.contains(where: { $0.id == selectedReminderListID }) {
+            return
+        }
+
+        selectedReminderListID = lists.first?.id
+        persistReminderListSelection()
+    }
+
+    private func persistReminderListSelection() {
+        let defaults = UserDefaults.standard
+        defaults.set(selectedReminderListID, forKey: Self.settingsRemindersImportListIDKey)
     }
 
     private func eventsForToday(_ events: [CalendarEventItem], today: Date) -> [CalendarEventItem] {
@@ -1546,6 +1704,166 @@ final class AppContainer: ObservableObject {
         }
 
         _ = applyCurrentViewFilter()
+    }
+
+    private func makeReminderImportCandidate(from reminder: ReminderImportItem) -> ReminderImportCandidate? {
+        let titleInput = reminder.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !titleInput.isEmpty else { return nil }
+
+        let parsedTitle = quickEntryParser.parse(titleInput)
+        let parsedNotes = reminder.notes.flatMap { quickEntryParser.parse($0) }
+
+        let resolvedTitle = (parsedTitle?.title ?? titleInput).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !resolvedTitle.isEmpty else { return nil }
+
+        var due = parsedTitle?.due ?? parsedNotes?.due
+        var dueTime: LocalTime?
+        if let dueDateComponents = reminder.dueDateComponents {
+            let dueParts = localDateAndTime(from: dueDateComponents)
+            if let mappedDue = dueParts.date {
+                due = mappedDue
+            }
+            dueTime = dueParts.time
+        }
+        if due == nil {
+            dueTime = nil
+        }
+
+        let scheduled = reminder.startDateComponents.flatMap { localDateAndTime(from: $0).date }
+
+        let parserTags = (parsedTitle?.tags ?? []) + (parsedNotes?.tags ?? [])
+        let tags = mergedReminderTags(
+            parserTags: parserTags,
+            textSources: [titleInput, reminder.notes ?? ""]
+        )
+
+        let createdAt = reminder.createdAt ?? Date()
+        let modifiedAt = reminder.modifiedAt ?? createdAt
+        let title = String(resolvedTitle.prefix(TaskValidation.maxTitleLength))
+        let body = String((reminder.notes ?? "").prefix(TaskValidation.maxBodyLength))
+
+        let frontmatter = TaskFrontmatterV1(
+            title: title,
+            status: .todo,
+            due: due,
+            dueTime: dueTime,
+            scheduled: scheduled,
+            priority: taskPriority(fromReminderPriority: reminder.priority),
+            tags: tags,
+            created: createdAt,
+            modified: modifiedAt,
+            source: "import-reminders"
+        )
+
+        return ReminderImportCandidate(
+            reminderID: reminder.id,
+            document: TaskDocument(frontmatter: frontmatter, body: body)
+        )
+    }
+
+    private func createReminderTasks(
+        candidates: [ReminderImportCandidate],
+        rootPath: String
+    ) async -> ReminderImportCreateResult {
+        await Task.detached(priority: .userInitiated) {
+            let repository = FileTaskRepository(rootURL: URL(fileURLWithPath: rootPath, isDirectory: true))
+            var created: [ReminderImportCreateResult.CreatedRecord] = []
+            var failedCount = 0
+
+            for candidate in candidates {
+                do {
+                    let record = try repository.create(document: candidate.document, preferredFilename: nil)
+                    created.append(
+                        ReminderImportCreateResult.CreatedRecord(
+                            path: record.identity.path,
+                            reminderID: candidate.reminderID
+                        )
+                    )
+                } catch {
+                    failedCount += 1
+                }
+            }
+
+            return ReminderImportCreateResult(created: created, failedCount: failedCount)
+        }.value
+    }
+
+    private func mergedReminderTags(parserTags: [String], textSources: [String]) -> [String] {
+        var seen: Set<String> = []
+        var merged: [String] = []
+        let discoveredTags = textSources.flatMap(reminderTags(in:))
+
+        for candidate in parserTags + discoveredTags {
+            guard let normalizedTag = normalizeReminderTag(candidate) else { continue }
+            let dedupeKey = normalizedTag.lowercased()
+            guard !seen.contains(dedupeKey) else { continue }
+
+            seen.insert(dedupeKey)
+            merged.append(normalizedTag)
+
+            if merged.count >= TaskValidation.maxTagsCount {
+                break
+            }
+        }
+
+        return merged
+    }
+
+    private func reminderTags(in text: String) -> [String] {
+        guard let regex = Self.hashtagRegex else { return [] }
+        let range = NSRange(text.startIndex..., in: text)
+        return regex.matches(in: text, range: range).compactMap { match -> String? in
+            guard match.numberOfRanges > 1,
+                  let tagRange = Range(match.range(at: 1), in: text) else {
+                return nil
+            }
+            return String(text[tagRange])
+        }
+    }
+
+    private func normalizeReminderTag(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard trimmed.count <= TaskValidation.maxTagLength else { return nil }
+        let allowedCharacterSet = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-"))
+        guard trimmed.rangeOfCharacter(from: allowedCharacterSet.inverted) == nil else { return nil }
+        return trimmed
+    }
+
+    private func localDateAndTime(from components: DateComponents) -> (date: LocalDate?, time: LocalTime?) {
+        let date: LocalDate?
+        if let year = components.year, let month = components.month, let day = components.day {
+            date = try? LocalDate(year: year, month: month, day: day)
+        } else if let resolvedDate = components.date {
+            date = localDateFromDate(resolvedDate)
+        } else {
+            date = nil
+        }
+
+        let hasExplicitTime = components.hour != nil || components.minute != nil
+        let time: LocalTime?
+        if hasExplicitTime {
+            let hour = components.hour ?? 0
+            let minute = components.minute ?? 0
+            time = try? LocalTime(hour: hour, minute: minute)
+        } else {
+            time = nil
+        }
+
+        return (date, time)
+    }
+
+    private func taskPriority(fromReminderPriority priority: Int) -> TaskPriority {
+        switch priority {
+        case 1...4:
+            return .high
+        case 5:
+            return .medium
+        case 6...9:
+            return .low
+        default:
+            return .none
+        }
     }
 
     private func persistTaskAsync(document: TaskDocument, errorContext: String) {

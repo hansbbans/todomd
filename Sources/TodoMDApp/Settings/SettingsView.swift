@@ -93,6 +93,48 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Reminders Import") {
+                Text(
+                    "Import incomplete reminders using natural-language parsing, then delete them from Reminders."
+                )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if container.reminderLists.isEmpty {
+                    Text("No Reminders lists available. Tap Refresh Lists to load them.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Picker("Import from list", selection: reminderListSelection) {
+                        ForEach(container.reminderLists) { list in
+                            Text(list.displayName).tag(list.id)
+                        }
+                    }
+                    .disabled(container.isRemindersImporting)
+                }
+
+                Button("Refresh Lists") {
+                    Task {
+                        await container.refreshReminderLists()
+                    }
+                }
+                .disabled(container.isRemindersImporting)
+
+                Button(container.isRemindersImporting ? "Importing..." : "Import Now") {
+                    Task {
+                        await container.importFromReminders()
+                    }
+                }
+                .disabled(container.isRemindersImporting || container.reminderLists.isEmpty)
+
+                if let remindersImportStatusMessage = container.remindersImportStatusMessage,
+                   !remindersImportStatusMessage.isEmpty {
+                    Text(remindersImportStatusMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             Section("Appearance") {
                 Picker("Color mode", selection: $appearanceMode) {
                     Text("System").tag("system")
@@ -238,6 +280,21 @@ struct SettingsView: View {
                 await container.refreshCalendar(force: true)
             }
         }
+        .task {
+            await container.refreshReminderListsIfNeeded()
+        }
+    }
+
+    private var reminderListSelection: Binding<String> {
+        Binding(
+            get: {
+                container.selectedReminderListID ?? container.reminderLists.first?.id ?? ""
+            },
+            set: { selectedID in
+                guard !selectedID.isEmpty else { return }
+                container.setReminderListSelected(id: selectedID)
+            }
+        )
     }
 
     private func color(for hex: String) -> Color {
