@@ -14,6 +14,8 @@ struct SettingsView: View {
     @AppStorage("settings_completed_retention") private var completedRetention = "forever"
     @AppStorage("settings_default_priority") private var defaultPriority = TaskPriority.none.rawValue
     @AppStorage("settings_quick_entry_default_view") private var quickEntryDefaultView = BuiltInView.inbox.rawValue
+    @AppStorage(QuickEntrySettings.fieldsKey) private var quickEntryFieldsRawValue = QuickEntrySettings.defaultFieldsRawValue
+    @AppStorage(QuickEntrySettings.defaultDateModeKey) private var quickEntryDefaultDateModeRawValue = QuickEntryDefaultDateMode.today.rawValue
     @AppStorage("settings_icloud_folder_name") private var iCloudFolderName = "todo.md"
     @State private var selectedFolderPath = UserDefaults.standard.string(forKey: TaskFolderPreferences.selectedFolderPathKey)
     @State private var showingFolderPicker = false
@@ -196,6 +198,31 @@ struct SettingsView: View {
                     Text("Today").tag(BuiltInView.today.rawValue)
                     Text("Anytime").tag(BuiltInView.anytime.rawValue)
                 }
+
+                Picker("Quick entry default date", selection: $quickEntryDefaultDateModeRawValue) {
+                    ForEach(QuickEntryDefaultDateMode.allCases) { mode in
+                        Text(mode.title).tag(mode.rawValue)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Quick entry visible fields")
+                        .font(.subheadline.weight(.semibold))
+
+                    ForEach(QuickEntryField.allCases, id: \.self) { field in
+                        Toggle(field.title, isOn: quickEntryFieldBinding(field))
+                    }
+                }
+
+                if !selectedQuickEntryFields.isEmpty {
+                    Text("Quick entry field order (drag to reorder)")
+                        .font(.subheadline.weight(.semibold))
+
+                    ForEach(selectedQuickEntryFields, id: \.self) { field in
+                        Label(field.title, systemImage: field.systemImage)
+                    }
+                    .onMove(perform: moveQuickEntryFields)
+                }
             }
 
             Section("Storage") {
@@ -283,6 +310,11 @@ struct SettingsView: View {
         .task {
             await container.refreshReminderListsIfNeeded()
         }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                EditButton()
+            }
+        }
     }
 
     private var reminderListSelection: Binding<String> {
@@ -321,5 +353,34 @@ struct SettingsView: View {
         case .failure(let error):
             folderSelectionErrorMessage = error.localizedDescription
         }
+    }
+
+    private func quickEntryFieldBinding(_ field: QuickEntryField) -> Binding<Bool> {
+        Binding(
+            get: {
+                selectedQuickEntryFields.contains(field)
+            },
+            set: { isOn in
+                var fields = selectedQuickEntryFields
+                if isOn {
+                    if !fields.contains(field) {
+                        fields.append(field)
+                    }
+                } else {
+                    fields.removeAll { $0 == field }
+                }
+                quickEntryFieldsRawValue = QuickEntrySettings.encodeFields(fields)
+            }
+        )
+    }
+
+    private var selectedQuickEntryFields: [QuickEntryField] {
+        QuickEntrySettings.decodeFields(quickEntryFieldsRawValue)
+    }
+
+    private func moveQuickEntryFields(from source: IndexSet, to destination: Int) {
+        var fields = selectedQuickEntryFields
+        fields.move(fromOffsets: source, toOffset: destination)
+        quickEntryFieldsRawValue = QuickEntrySettings.encodeFields(fields)
     }
 }

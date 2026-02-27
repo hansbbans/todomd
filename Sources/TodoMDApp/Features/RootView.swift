@@ -15,48 +15,6 @@ private enum RootScreenPage: Hashable {
     case tasks
 }
 
-private struct QuickEntrySheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var container: AppContainer
-    @AppStorage("settings_quick_entry_default_view") private var quickEntryDefaultView = BuiltInView.inbox.rawValue
-
-    @State private var quickEntryText = ""
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                TextField("Add a task (e.g. pay rent by tomorrow #finance)", text: $quickEntryText)
-                    .accessibilityIdentifier("quickEntry.titleField")
-                    .textInputAutocapitalization(.sentences)
-                    .autocorrectionDisabled(false)
-            }
-            .accessibilityIdentifier("quickEntry.form")
-            .navigationTitle("Quick Entry")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                    .accessibilityIdentifier("quickEntry.cancelButton")
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") {
-                        let trimmedEntry = quickEntryText.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !trimmedEntry.isEmpty else { return }
-                        let defaultView = BuiltInView(rawValue: quickEntryDefaultView)
-                        guard container.createTask(fromQuickEntryText: trimmedEntry, defaultView: defaultView) else { return }
-                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                        dismiss()
-                    }
-                    .disabled(quickEntryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .accessibilityIdentifier("quickEntry.addButton")
-                }
-            }
-        }
-        .presentationDetents([.medium])
-    }
-}
-
 struct RootView: View {
     @EnvironmentObject private var container: AppContainer
     @EnvironmentObject private var theme: ThemeManager

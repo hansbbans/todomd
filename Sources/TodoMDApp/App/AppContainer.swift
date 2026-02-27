@@ -941,12 +941,18 @@ final class AppContainer: ObservableObject {
         title: String,
         naturalDate: String?,
         tags: [String] = [],
+        explicitDue: LocalDate? = nil,
+        explicitDueTime: LocalTime? = nil,
+        priorityOverride: TaskPriority? = nil,
+        flagged: Bool = false,
+        area: String? = nil,
+        project: String? = nil,
         defaultView: BuiltInView? = nil
     ) {
         let destinationView = defaultView ?? BuiltInView(rawValue: UserDefaults.standard.string(forKey: Self.settingsQuickEntryDefaultViewKey) ?? "")
             ?? .inbox
-        var due: LocalDate?
-        if let naturalDate, !naturalDate.isEmpty {
+        var due = explicitDue
+        if due == nil, let naturalDate, !naturalDate.isEmpty {
             due = dateParser.parse(naturalDate)
         }
         if due == nil, destinationView == .today {
@@ -955,14 +961,22 @@ final class AppContainer: ObservableObject {
 
         let priorityRaw = UserDefaults.standard.string(forKey: Self.settingsDefaultPriorityKey) ?? TaskPriority.none.rawValue
         let defaultPriority = TaskPriority(rawValue: priorityRaw) ?? .none
+        let resolvedPriority = priorityOverride ?? defaultPriority
+        let normalizedTags = normalizeTags(tags)
+        let normalizedArea = area?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        let normalizedProject = project?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
 
         let now = Date()
         let frontmatter = TaskFrontmatterV1(
             title: title,
             status: .todo,
             due: due,
-            priority: defaultPriority,
-            tags: tags,
+            dueTime: due == nil ? nil : explicitDueTime,
+            priority: resolvedPriority,
+            flagged: flagged,
+            area: normalizedArea,
+            project: normalizedProject,
+            tags: normalizedTags,
             created: now,
             modified: now,
             source: "user"
@@ -973,15 +987,32 @@ final class AppContainer: ObservableObject {
     }
 
     @discardableResult
-    func createTask(fromQuickEntryText text: String, defaultView: BuiltInView? = nil) -> Bool {
+    func createTask(
+        fromQuickEntryText text: String,
+        explicitDue: LocalDate? = nil,
+        explicitDueTime: LocalTime? = nil,
+        priority: TaskPriority? = nil,
+        flagged: Bool = false,
+        tags: [String] = [],
+        area: String? = nil,
+        project: String? = nil,
+        defaultView: BuiltInView? = nil
+    ) -> Bool {
         guard let parsed = quickEntryParser.parse(text) else {
             return false
         }
-        let naturalDate = parsed.due?.isoString
+
+        let mergedTags = normalizeTags(parsed.tags + tags)
         createTask(
             title: parsed.title,
-            naturalDate: naturalDate,
-            tags: parsed.tags,
+            naturalDate: nil,
+            tags: mergedTags,
+            explicitDue: explicitDue ?? parsed.due,
+            explicitDueTime: explicitDueTime,
+            priorityOverride: priority,
+            flagged: flagged,
+            area: area,
+            project: project,
             defaultView: defaultView
         )
         return true
@@ -1007,6 +1038,18 @@ final class AppContainer: ObservableObject {
 
         let document = TaskDocument(frontmatter: frontmatter, body: "")
         persistTaskAsync(document: document, errorContext: "Task creation from request failed")
+    }
+
+    private func normalizeTags(_ tags: [String]) -> [String] {
+        var seen = Set<String>()
+        return tags.compactMap { rawTag in
+            let normalized = rawTag
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            guard !normalized.isEmpty, !seen.contains(normalized) else { return nil }
+            seen.insert(normalized)
+            return normalized
+        }
     }
 
     func complete(path: String) {
