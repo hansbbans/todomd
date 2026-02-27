@@ -10,9 +10,9 @@ private struct BuiltInRulesTarget: Identifiable {
     var id: String { view.rawValue }
 }
 
-private enum RootScreenPage: Hashable {
-    case filters
-    case tasks
+private struct ResolvedBottomNavigationSection: Identifiable {
+    let id: String
+    let view: ViewIdentifier
 }
 
 struct RootView: View {
@@ -22,8 +22,8 @@ struct RootView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var showingQuickEntry = false
+    @State private var showingFilterBrowser = false
     @State private var navigationPath = NavigationPath()
-    @State private var rootScreenPage: RootScreenPage = .tasks
     @State private var universalSearchText = ""
     @State private var pathsCompleting: Set<String> = []
     @State private var pathsSlidingOut: Set<String> = []
@@ -34,6 +34,7 @@ struct RootView: View {
     @State private var deferDateValue = Date()
     @State private var editingPerspective: PerspectiveDefinition?
     @State private var builtInRulesTarget: BuiltInRulesTarget?
+    @AppStorage(BottomNavigationSettings.sectionsKey) private var bottomNavigationSectionsRawValue = BottomNavigationSettings.defaultSectionsRawValue
 
     var body: some View {
         Group {
@@ -53,19 +54,27 @@ struct RootView: View {
 
     private var detailPane: some View {
         NavigationStack(path: $navigationPath) {
-            TabView(selection: $rootScreenPage) {
-                filterBrowserScreen
-                    .tag(RootScreenPage.filters)
-
-                mainContent
-                    .tag(RootScreenPage.tasks)
-            }
-            .tabViewStyle(.page(indexDisplayMode: .never))
+            mainContent
+                .safeAreaInset(edge: .bottom) {
+                    if shouldShowBottomNavigationBar {
+                        compactBottomNavigationBar
+                    }
+                }
             .navigationDestination(for: String.self) { path in
                 TaskDetailView(path: path)
             }
             .navigationTitle(navigationTitle())
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    if horizontalSizeClass == .compact {
+                        Button {
+                            showingFilterBrowser = true
+                        } label: {
+                            Image(systemName: "line.3.horizontal.decrease.circle")
+                        }
+                    }
+                }
+
                 ToolbarItem(placement: .topBarLeading) {
                     EditButton()
                 }
@@ -102,6 +111,19 @@ struct RootView: View {
             }
             .sheet(isPresented: $showingQuickEntry) {
                 QuickEntrySheet()
+            }
+            .sheet(isPresented: $showingFilterBrowser) {
+                NavigationStack {
+                    filterBrowserScreen
+                        .navigationTitle("Browse")
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") {
+                                    showingFilterBrowser = false
+                                }
+                            }
+                        }
+                }
             }
             .sheet(item: $deferDateTarget) { target in
                 deferDateSheet(target: target)
@@ -225,13 +247,7 @@ struct RootView: View {
                 navigationPath.append(newPath)
                 container.clearPendingNavigationPath()
             }
-            .onChange(of: universalSearchText) { _, newValue in
-                if !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    rootScreenPage = .tasks
-                }
-            }
             .onAppear {
-                rootScreenPage = .tasks
                 if let pending = container.navigationTaskPath {
                     navigationPath.append(pending)
                     container.clearPendingNavigationPath()
@@ -472,6 +488,20 @@ struct RootView: View {
                     }
                 }
             }
+
+            let projects = container.allProjects()
+            if projects.isEmpty {
+                Section("Projects") {
+                    Text("No projects yet")
+                        .foregroundStyle(theme.textSecondaryColor)
+                }
+            } else {
+                Section("Projects") {
+                    ForEach(projects, id: \.self) { project in
+                        browseFilterButton(view: .project(project), label: project, icon: "folder")
+                    }
+                }
+            }
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
@@ -592,6 +622,95 @@ struct RootView: View {
             }
     }
 
+    private var shouldShowBottomNavigationBar: Bool {
+        horizontalSizeClass == .compact && !resolvedBottomNavigationSections.isEmpty
+    }
+
+    private var resolvedBottomNavigationSections: [ResolvedBottomNavigationSection] {
+        BottomNavigationSettings.decodeSections(bottomNavigationSectionsRawValue)
+            .compactMap { section in
+                let view = section.viewIdentifier
+                if case .custom = view, perspective(for: view) == nil {
+                    return nil
+                }
+                return ResolvedBottomNavigationSection(id: section.id, view: view)
+            }
+    }
+
+    private var compactBottomNavigationBar: some View {
+        HStack(spacing: 4) {
+            ForEach(resolvedBottomNavigationSections) { section in
+                let item = bottomNavigationItem(for: section.view)
+                Button {
+                    applyFilter(section.view)
+                } label: {
+                    VStack(spacing: 2) {
+                        Image(systemName: item.icon)
+                            .font(.system(size: 15, weight: .semibold))
+                        Text(item.title)
+                            .font(.caption2.weight(.semibold))
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                    .foregroundStyle(
+                        container.selectedView == section.view
+                            ? (color(forHex: item.tintHex) ?? theme.accentColor)
+                            : theme.textSecondaryColor
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+        .padding(.bottom, 10)
+        .background(theme.surfaceColor.opacity(0.96))
+        .overlay(alignment: .top) {
+            Divider()
+        }
+    }
+
+    private func bottomNavigationItem(for view: ViewIdentifier) -> (title: String, icon: String, tintHex: String?) {
+        switch view {
+        case .builtIn(let builtIn):
+            switch builtIn {
+            case .inbox:
+                return ("Inbox", "tray", nil)
+            case .today:
+                return ("Today", "sun.max", nil)
+            case .upcoming:
+                return ("Upcoming", "calendar", nil)
+            case .anytime:
+                return ("Anytime", "list.bullet", nil)
+            case .someday:
+                return ("Someday", "clock", nil)
+            case .flagged:
+                return ("Flagged", "flag", nil)
+            }
+        case .area(let area):
+            return (area, "square.grid.2x2", nil)
+        case .project(let project):
+            return (project, "folder", nil)
+        case .tag(let tag):
+            return ("#\(tag)", "number", nil)
+        case .custom(let rawValue):
+            if let perspective = perspective(for: view) {
+                return (perspective.name, perspective.icon, perspective.color)
+            }
+            return (rawValue, "square.grid.2x2", nil)
+        }
+    }
+
+    private func perspective(for view: ViewIdentifier) -> PerspectiveDefinition? {
+        guard case .custom(let rawID) = view else { return nil }
+        let prefix = "perspective:"
+        guard rawID.hasPrefix(prefix) else { return nil }
+        let id = String(rawID.dropFirst(prefix.count))
+        guard !id.isEmpty else { return nil }
+        return container.perspectives.first(where: { $0.id == id })
+    }
+
     private var floatingAddButton: some View {
         Button {
             showingQuickEntry = true
@@ -605,20 +724,17 @@ struct RootView: View {
         }
         .accessibilityIdentifier("root.quickAddButton")
         .padding(.trailing, 20)
-        .padding(.bottom, 16)
+        .padding(.bottom, shouldShowBottomNavigationBar ? 76 : 16)
     }
 
     private var shouldShowFloatingAddButton: Bool {
-        navigationPath.isEmpty && rootScreenPage == .tasks
+        navigationPath.isEmpty
     }
 
     private func navigationTitle() -> String {
         let query = universalSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !query.isEmpty {
             return "Search"
-        }
-        if rootScreenPage == .filters {
-            return "Browse"
         }
         return titleForCurrentView()
     }
@@ -630,9 +746,9 @@ struct RootView: View {
     private func applyFilter(_ view: ViewIdentifier) {
         withAnimation(.easeInOut(duration: 0.2)) {
             container.selectedView = view
-            rootScreenPage = .tasks
         }
         universalSearchText = ""
+        showingFilterBrowser = false
 #if canImport(UIKit)
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
 #endif
