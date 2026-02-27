@@ -45,4 +45,35 @@ final class URLRouterTests: XCTestCase {
             XCTFail("Expected addTask action")
         }
     }
+
+    func testTaskURL() throws {
+        let router = URLRouter()
+        let path = "/Users/hans/Library/Mobile Documents/com~apple~CloudDocs/todo.md/Task.md"
+        var components = URLComponents()
+        components.scheme = "todomd"
+        components.host = "task"
+        components.queryItems = [URLQueryItem(name: "path", value: path)]
+        let url = try XCTUnwrap(components.url)
+        let action = try router.parse(url: url)
+
+        switch action {
+        case .showTask(let resolvedPath):
+            XCTAssertEqual(resolvedPath, path)
+        default:
+            XCTFail("Expected showTask action")
+        }
+    }
+
+    func testQuickAddURL() throws {
+        let router = URLRouter()
+        let url = URL(string: "todomd://quick-add")!
+        let action = try router.parse(url: url)
+
+        switch action {
+        case .quickAdd:
+            break
+        default:
+            XCTFail("Expected quickAdd action")
+        }
+    }
 }

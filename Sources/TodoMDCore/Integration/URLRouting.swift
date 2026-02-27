@@ -3,6 +3,8 @@ import Foundation
 public enum URLAction: Equatable, Sendable {
     case addTask(TaskCreateRequest)
     case showView(ViewIdentifier)
+    case showTask(path: String)
+    case quickAdd
 }
 
 public struct TaskCreateRequest: Equatable, Sendable {
@@ -60,6 +62,14 @@ public struct URLRouter {
                 throw TaskError.invalidURLParameters("Missing view identifier")
             }
             return .showView(ViewIdentifier(rawValue: path))
+        }
+
+        if url.host == "task" {
+            return try .showTask(path: parseTaskPath(url: url))
+        }
+
+        if url.host == "quick-add" || url.host == "quickadd" {
+            return .quickAdd
         }
 
         throw TaskError.unsupportedURLAction("Unsupported action host: \(url.host ?? "<none>")")
@@ -135,6 +145,22 @@ public struct URLRouter {
         } catch {
             throw TaskError.invalidURLParameters("Invalid \(key) time: \(raw)")
         }
+    }
+
+    private func parseTaskPath(url: URL) throws -> String {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            throw TaskError.invalidURLParameters("Could not parse URL components")
+        }
+
+        let queryItems = components.percentEncodedQueryItems ?? components.queryItems ?? []
+        let path = (decodeQueryValue(queryItems.first(where: { $0.name == "path" })?.value) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !path.isEmpty else {
+            throw TaskError.invalidURLParameters("Missing path parameter")
+        }
+
+        return path
     }
 
     private func decodeQueryValue(_ raw: String?) -> String? {
