@@ -36,6 +36,8 @@ struct TaskDetailView: View {
     @State private var errorMessage: String?
     @State private var showNotesEditor = false
     @State private var newTagText = ""
+    @State private var locationPresetName = ""
+    @State private var selectedLocationFavoriteID = ""
 
     @State private var recurrenceFrequency: RecurrenceFrequencyOption = .none
     @State private var recurrenceInterval = 1
@@ -72,6 +74,13 @@ struct TaskDetailView: View {
         .onAppear {
             editState = container.makeEditState(path: path)
             syncRecurrenceBuilderFromEditState()
+            if let editState {
+                locationPresetName = editState.locationName
+            }
+            syncSelectedLocationFavorite()
+        }
+        .onChange(of: container.locationFavorites.map(\.id), initial: false) { _, _ in
+            syncSelectedLocationFavorite()
         }
         .fullScreenCover(isPresented: $showNotesEditor) {
             notesEditorView
@@ -138,6 +147,7 @@ struct TaskDetailView: View {
                     )
                     detailRow("Scheduled", value: dateText(binding(\.hasScheduled).wrappedValue ? binding(\.scheduledDate).wrappedValue : nil))
                     detailRow("Defer", value: dateText(binding(\.hasDefer).wrappedValue ? binding(\.deferDate).wrappedValue : nil))
+                    detailRow("Location", value: locationSummary())
                     detailRow("Area", value: binding(\.area).wrappedValue)
                     detailRow("Project", value: binding(\.project).wrappedValue)
                     detailRow("Tags", value: currentTags().joined(separator: ", "))
@@ -253,6 +263,68 @@ struct TaskDetailView: View {
                 Toggle("Scheduled", isOn: binding(\.hasScheduled))
                 if binding(\.hasScheduled).wrappedValue {
                     DatePicker("Scheduled date", selection: binding(\.scheduledDate), displayedComponents: .date)
+                }
+            }
+
+            Section("Location Reminder") {
+                Toggle("Enable location reminder", isOn: binding(\.hasLocationReminder))
+                if binding(\.hasLocationReminder).wrappedValue {
+                    if container.locationFavorites.isEmpty {
+                        Text("No saved presets yet.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Picker("Preset", selection: $selectedLocationFavoriteID) {
+                            Text("Choose preset").tag("")
+                            ForEach(container.locationFavorites) { favorite in
+                                Text(favorite.name).tag(favorite.id)
+                            }
+                        }
+
+                        HStack {
+                            Button("Use Preset") {
+                                applySelectedLocationFavorite()
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(selectedLocationFavorite == nil)
+
+                            Button("Delete Preset", role: .destructive) {
+                                deleteSelectedLocationFavorite()
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(selectedLocationFavorite == nil)
+                        }
+                    }
+
+                    TextField("Location name (optional)", text: binding(\.locationName))
+
+                    TextField("Latitude", text: binding(\.locationLatitude))
+                        .keyboardType(.decimalPad)
+                        .textInputAutocapitalization(.never)
+                    TextField("Longitude", text: binding(\.locationLongitude))
+                        .keyboardType(.decimalPad)
+                        .textInputAutocapitalization(.never)
+
+                    Stepper(value: binding(\.locationRadiusMeters), in: 50...1_000, step: 25) {
+                        Text("Radius: \(binding(\.locationRadiusMeters).wrappedValue) m")
+                    }
+
+                    Picker("Notify when", selection: binding(\.locationTrigger)) {
+                        Text("Arriving").tag(TaskLocationReminderTrigger.onArrival)
+                        Text("Leaving").tag(TaskLocationReminderTrigger.onDeparture)
+                    }
+
+                    HStack {
+                        TextField("Preset name (Home, Work)", text: $locationPresetName)
+                        Button("Save Preset") {
+                            saveCurrentLocationAsPreset()
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+
+                    Text("The app will ask for location permission when this reminder is saved.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -511,6 +583,10 @@ struct TaskDetailView: View {
 
     private func save() {
         guard let editState else { return }
+        if let locationError = validateLocationReminder(editState) {
+            errorMessage = locationError
+            return
+        }
         let didSave = container.updateTask(path: path, editState: editState)
         if didSave {
             self.editState = container.makeEditState(path: path)
@@ -518,6 +594,103 @@ struct TaskDetailView: View {
         } else {
             errorMessage = "Could not save this task. Please check required fields and try again."
         }
+    }
+
+    private func locationSummary() -> String {
+        guard binding(\.hasLocationReminder).wrappedValue else { return "" }
+        let trigger = binding(\.locationTrigger).wrappedValue == .onArrival ? "Arrive" : "Leave"
+        let latitude = binding(\.locationLatitude).wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let longitude = binding(\.locationLongitude).wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let locationName = binding(\.locationName).wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let radius = binding(\.locationRadiusMeters).wrappedValue
+
+        let namePrefix = locationName.isEmpty ? "" : "\(locationName) • "
+        return "\(namePrefix)\(trigger) (\(latitude), \(longitude), \(radius)m)"
+    }
+
+    private func validateLocationReminder(_ editState: TaskEditState) -> String? {
+        guard editState.hasLocationReminder else { return nil }
+
+        let latitudeText = editState.locationLatitude.trimmingCharacters(in: .whitespacesAndNewlines)
+        let longitudeText = editState.locationLongitude.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let latitude = Double(latitudeText), let longitude = Double(longitudeText) else {
+            return "Location reminder requires numeric latitude and longitude."
+        }
+        guard (-90.0...90.0).contains(latitude) else {
+            return "Latitude must be between -90 and 90."
+        }
+        guard (-180.0...180.0).contains(longitude) else {
+            return "Longitude must be between -180 and 180."
+        }
+        guard (50...1_000).contains(editState.locationRadiusMeters) else {
+            return "Location radius must be between 50 and 1000 meters."
+        }
+
+        let locationName = editState.locationName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if locationName.count > TaskValidation.maxLocationNameLength {
+            return "Location name must be \(TaskValidation.maxLocationNameLength) characters or fewer."
+        }
+
+        return nil
+    }
+
+    private var selectedLocationFavorite: LocationFavorite? {
+        guard !selectedLocationFavoriteID.isEmpty else { return nil }
+        return container.locationFavorites.first(where: { $0.id == selectedLocationFavoriteID })
+    }
+
+    private func syncSelectedLocationFavorite() {
+        if let selectedLocationFavorite,
+           container.locationFavorites.contains(where: { $0.id == selectedLocationFavorite.id }) {
+            return
+        }
+        selectedLocationFavoriteID = container.locationFavorites.first?.id ?? ""
+    }
+
+    private func applySelectedLocationFavorite() {
+        guard let favorite = selectedLocationFavorite else { return }
+        binding(\.hasLocationReminder).wrappedValue = true
+        binding(\.locationName).wrappedValue = favorite.name
+        binding(\.locationLatitude).wrappedValue = String(format: "%.6f", favorite.latitude)
+        binding(\.locationLongitude).wrappedValue = String(format: "%.6f", favorite.longitude)
+        binding(\.locationRadiusMeters).wrappedValue = favorite.radiusMeters
+    }
+
+    private func deleteSelectedLocationFavorite() {
+        guard let favorite = selectedLocationFavorite else { return }
+        container.deleteLocationFavorite(id: favorite.id)
+        selectedLocationFavoriteID = container.locationFavorites.first?.id ?? ""
+    }
+
+    private func saveCurrentLocationAsPreset() {
+        let preferredName = locationPresetName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let locationName = binding(\.locationName).wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nameToSave = preferredName.isEmpty ? locationName : preferredName
+        guard !nameToSave.isEmpty else {
+            errorMessage = "Preset name is required."
+            return
+        }
+
+        let latitudeText = binding(\.locationLatitude).wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let longitudeText = binding(\.locationLongitude).wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let latitude = Double(latitudeText), let longitude = Double(longitudeText) else {
+            errorMessage = "Enter valid latitude and longitude before saving a preset."
+            return
+        }
+
+        let radius = binding(\.locationRadiusMeters).wrappedValue
+        guard let saved = container.saveLocationFavorite(
+            name: nameToSave,
+            latitude: latitude,
+            longitude: longitude,
+            radiusMeters: radius
+        ) else {
+            errorMessage = "Could not save location preset. Check name and coordinates."
+            return
+        }
+
+        selectedLocationFavoriteID = saved.id
+        locationPresetName = saved.name
     }
 
     private func binding<T>(_ keyPath: WritableKeyPath<TaskEditState, T>) -> Binding<T> {

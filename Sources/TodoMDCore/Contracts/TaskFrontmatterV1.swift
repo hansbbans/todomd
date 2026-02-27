@@ -1,5 +1,34 @@
 import Foundation
 
+public enum TaskLocationReminderTrigger: String, CaseIterable, Equatable, Sendable {
+    case onArrival = "arrive"
+    case onDeparture = "leave"
+}
+
+public struct TaskLocationReminder: Equatable, Sendable {
+    public static let defaultRadiusMeters: Double = 200
+
+    public var name: String?
+    public var latitude: Double
+    public var longitude: Double
+    public var radiusMeters: Double
+    public var trigger: TaskLocationReminderTrigger
+
+    public init(
+        name: String? = nil,
+        latitude: Double,
+        longitude: Double,
+        radiusMeters: Double = TaskLocationReminder.defaultRadiusMeters,
+        trigger: TaskLocationReminderTrigger
+    ) {
+        self.name = name
+        self.latitude = latitude
+        self.longitude = longitude
+        self.radiusMeters = radiusMeters
+        self.trigger = trigger
+    }
+}
+
 public struct TaskFrontmatterV1: Equatable, Sendable {
     public var title: String
     public var status: TaskStatus
@@ -15,6 +44,7 @@ public struct TaskFrontmatterV1: Equatable, Sendable {
     public var recurrence: String?
     public var estimatedMinutes: Int?
     public var description: String?
+    public var locationReminder: TaskLocationReminder?
     public var created: Date
     public var modified: Date?
     public var completed: Date?
@@ -35,6 +65,7 @@ public struct TaskFrontmatterV1: Equatable, Sendable {
         recurrence: String? = nil,
         estimatedMinutes: Int? = nil,
         description: String? = nil,
+        locationReminder: TaskLocationReminder? = nil,
         created: Date,
         modified: Date? = nil,
         completed: Date? = nil,
@@ -54,6 +85,7 @@ public struct TaskFrontmatterV1: Equatable, Sendable {
         self.recurrence = recurrence
         self.estimatedMinutes = estimatedMinutes
         self.description = description
+        self.locationReminder = locationReminder
         self.created = created
         self.modified = modified
         self.completed = completed

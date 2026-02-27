@@ -10,6 +10,7 @@ public enum TaskValidationError: Error, Equatable, Sendable {
 public enum TaskValidation {
     public static let maxTitleLength = 500
     public static let maxDescriptionLength = 2_000
+    public static let maxLocationNameLength = 200
     public static let maxBodyLength = 100_000
     public static let maxTagsCount = 100
     public static let maxTagLength = 80
@@ -55,6 +56,25 @@ public enum TaskValidation {
 
         if frontmatter.due == nil, frontmatter.dueTime != nil {
             throw TaskValidationError.invalidFieldValue(field: "due_time", value: "due_time requires due date")
+        }
+
+        if let locationReminder = frontmatter.locationReminder {
+            if let name = locationReminder.name,
+               name.trimmingCharacters(in: .whitespacesAndNewlines).count > maxLocationNameLength {
+                throw TaskValidationError.fieldTooLong(field: "location_name", limit: maxLocationNameLength)
+            }
+
+            if !(-90.0...90.0).contains(locationReminder.latitude) {
+                throw TaskValidationError.invalidRange(field: "location_latitude", min: -90, max: 90)
+            }
+
+            if !(-180.0...180.0).contains(locationReminder.longitude) {
+                throw TaskValidationError.invalidRange(field: "location_longitude", min: -180, max: 180)
+            }
+
+            if !(50.0...1_000.0).contains(locationReminder.radiusMeters) {
+                throw TaskValidationError.invalidRange(field: "location_radius_meters", min: 50, max: 1_000)
+            }
         }
     }
 }
