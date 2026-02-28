@@ -24,7 +24,7 @@ enum GoogleCalendarServiceError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingClientID:
-            return "Missing Google OAuth Client ID."
+            return "Google Calendar sign-in is unavailable right now."
         case .unavailableOnPlatform:
             return "Google sign-in is unavailable on this platform."
         case .cancelled:

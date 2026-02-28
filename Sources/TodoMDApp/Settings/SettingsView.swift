@@ -16,7 +16,6 @@ struct SettingsView: View {
     @AppStorage("settings_persistent_reminders_enabled") private var persistentRemindersEnabled = false
     @AppStorage("settings_persistent_reminder_interval_minutes") private var persistentReminderIntervalMinutes = 1
     @AppStorage("settings_google_calendar_enabled") private var googleCalendarEnabled = true
-    @AppStorage("settings_google_calendar_client_id") private var googleCalendarClientID = ""
     @AppStorage("settings_appearance_mode") private var appearanceMode = "system"
     @AppStorage("settings_archive_completed") private var archiveCompleted = false
     @AppStorage("settings_completed_retention") private var completedRetention = "forever"
@@ -36,16 +35,8 @@ struct SettingsView: View {
                 Toggle("Enable Google Calendar", isOn: $googleCalendarEnabled)
 
                 if googleCalendarEnabled {
-                    Text("Sign in with your Google account to sync events.")
+                    Text("Sign in with Google to sync your calendar events.")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    TextField("Google OAuth Client ID", text: $googleCalendarClientID)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-
-                    Text("Leave blank to use the client ID baked into this app build.")
-                        .font(.caption2)
                         .foregroundStyle(.secondary)
 
                     if container.isCalendarConnected {
@@ -53,7 +44,7 @@ struct SettingsView: View {
                             .foregroundStyle(.green)
                     }
 
-                    Button(container.isCalendarConnected ? "Reconnect Google Calendar" : "Connect Google Calendar") {
+                    Button(container.isCalendarConnected ? "Reconnect Google Calendar" : "Sign in with Google") {
                         Task {
                             await container.connectGoogleCalendar()
                         }
@@ -105,7 +96,7 @@ struct SettingsView: View {
                     }
 
                     if !container.isGoogleCalendarConfigured {
-                        Text("This app build is missing Google OAuth configuration.")
+                        Text("Google Calendar sign-in is unavailable in this version.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

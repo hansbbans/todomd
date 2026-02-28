@@ -369,7 +369,16 @@ struct RootView: View {
         if !searchQuery.isEmpty {
             universalSearchContent(query: searchQuery)
         } else if container.selectedView == .builtIn(.upcoming) {
-            UpcomingCalendarView(sections: container.calendarUpcomingSections)
+            UpcomingCalendarView(
+                sections: container.calendarUpcomingSections,
+                isCalendarConnected: container.isCalendarConnected,
+                isCalendarSyncing: container.isCalendarSyncing,
+                onConnectGoogleCalendar: {
+                    Task {
+                        await container.connectGoogleCalendar()
+                    }
+                }
+            )
         } else {
             let records = container.filteredRecords()
 

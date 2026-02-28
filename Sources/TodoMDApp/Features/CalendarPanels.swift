@@ -84,6 +84,9 @@ private struct TodayCalendarEventLine: View {
 
 struct UpcomingCalendarView: View {
     let sections: [CalendarDaySection]
+    let isCalendarConnected: Bool
+    let isCalendarSyncing: Bool
+    let onConnectGoogleCalendar: (() -> Void)?
     @EnvironmentObject private var theme: ThemeManager
 
     var body: some View {
@@ -104,8 +107,22 @@ struct UpcomingCalendarView: View {
                     ContentUnavailableView(
                         "No Upcoming Events",
                         systemImage: "calendar",
-                        description: Text("Connect Google Calendar in Settings to view events.")
+                        description: Text(
+                            isCalendarConnected
+                                ? "No events scheduled in the next 30 days."
+                                : "Sign in with Google to view your calendar events."
+                        )
                     )
+                    .overlay(alignment: .top) {
+                        if !isCalendarConnected {
+                            Button("Sign in with Google") {
+                                onConnectGoogleCalendar?()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(isCalendarSyncing)
+                            .padding(.top, 140)
+                        }
+                    }
                     .frame(maxWidth: .infinity)
                     .padding(.top, 80)
                 } else {

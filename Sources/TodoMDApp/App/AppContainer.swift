@@ -1657,7 +1657,7 @@ final class AppContainer: ObservableObject {
 
     func connectGoogleCalendar() async {
         guard let clientID = googleCalendarClientID() else {
-            calendarStatusMessage = "Google Calendar is not configured for this app build."
+            calendarStatusMessage = "Google Calendar sign-in is unavailable right now."
             return
         }
 
@@ -1708,7 +1708,7 @@ final class AppContainer: ObservableObject {
         }
 
         guard let clientID = googleCalendarClientID() else {
-            calendarStatusMessage = "Google Calendar is not configured for this app build."
+            calendarStatusMessage = "Google Calendar sign-in is unavailable right now."
             return
         }
 
