@@ -1541,6 +1541,11 @@ final class AppContainer: ObservableObject {
     }
 
     func setReminderListSelected(id: String) {
+        if id.isEmpty {
+            selectedReminderListID = nil
+            persistReminderListSelection()
+            return
+        }
         guard reminderLists.contains(where: { $0.id == id }) else { return }
         selectedReminderListID = id
         persistReminderListSelection()
@@ -1600,7 +1605,11 @@ final class AppContainer: ObservableObject {
                 calendarID: selectedReminderListID
             )
             guard !reminders.isEmpty else {
-                remindersImportStatusMessage = "No incomplete reminders found in the selected list."
+                if selectedReminderListID == nil {
+                    remindersImportStatusMessage = "No incomplete reminders found in any list."
+                } else {
+                    remindersImportStatusMessage = "No incomplete reminders found in the selected list."
+                }
                 return
             }
 
@@ -1846,7 +1855,8 @@ final class AppContainer: ObservableObject {
             return
         }
 
-        selectedReminderListID = lists.first?.id
+        // Default to all lists when selection is missing/invalid.
+        selectedReminderListID = nil
         persistReminderListSelection()
     }
 
