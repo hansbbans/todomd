@@ -256,6 +256,7 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     Picker("Import from list", selection: reminderListSelection) {
+                        Text("All Lists").tag("")
                         ForEach(container.reminderLists) { list in
                             Text(list.displayName).tag(list.id)
                         }
@@ -526,10 +527,9 @@ struct SettingsView: View {
     private var reminderListSelection: Binding<String> {
         Binding(
             get: {
-                container.selectedReminderListID ?? container.reminderLists.first?.id ?? ""
+                container.selectedReminderListID ?? ""
             },
             set: { selectedID in
-                guard !selectedID.isEmpty else { return }
                 container.setReminderListSelected(id: selectedID)
             }
         )
