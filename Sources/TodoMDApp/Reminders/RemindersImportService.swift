@@ -67,10 +67,11 @@ final class RemindersImportService: RemindersImportServicing {
 
         return eventStore.calendars(for: .reminder)
             .map { calendar in
-                ReminderList(
+                let name = Self.trimmedText(calendar.title) ?? "Reminders"
+                return ReminderList(
                     id: calendar.calendarIdentifier,
-                    name: calendar.title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? "Reminders",
-                    sourceName: calendar.source.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                    name: name,
+                    sourceName: Self.trimmedText(calendar.source.title) ?? ""
                 )
             }
             .sorted(by: Self.listSort)
@@ -98,11 +99,17 @@ final class RemindersImportService: RemindersImportServicing {
         return await withCheckedContinuation { continuation in
             eventStore.fetchReminders(matching: predicate) { reminders in
                 let reminderItems = (reminders ?? [])
-                    .map { reminder in
-                        ReminderImportItem(
-                            id: reminder.calendarItemIdentifier,
-                            title: reminder.title.trimmingCharacters(in: .whitespacesAndNewlines),
-                            notes: reminder.notes?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+                    .compactMap { reminder -> ReminderImportItem? in
+                        guard let reminderID = Self.trimmedText(reminder.calendarItemIdentifier), !reminderID.isEmpty else {
+                            return nil
+                        }
+                        guard let title = Self.trimmedText(reminder.title), !title.isEmpty else {
+                            return nil
+                        }
+                        return ReminderImportItem(
+                            id: reminderID,
+                            title: title,
+                            notes: Self.trimmedText(reminder.notes),
                             dueDateComponents: reminder.dueDateComponents,
                             startDateComponents: reminder.startDateComponents,
                             priority: reminder.priority,
@@ -110,7 +117,6 @@ final class RemindersImportService: RemindersImportServicing {
                             modifiedAt: reminder.lastModifiedDate
                         )
                     }
-                    .filter { !$0.title.isEmpty }
                     .sorted(by: Self.reminderSort)
 
                 continuation.resume(returning: reminderItems)
@@ -125,6 +131,10 @@ final class RemindersImportService: RemindersImportServicing {
 
         for reminderID in uniqueIDs {
             guard let reminder = eventStore.calendarItem(withIdentifier: reminderID) as? EKReminder else {
+                missing += 1
+                continue
+            }
+            guard reminder.calendar.allowsContentModifications else {
                 missing += 1
                 continue
             }
@@ -184,6 +194,10 @@ final class RemindersImportService: RemindersImportServicing {
         default:
             return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
         }
+    }
+
+    private static func trimmedText(_ value: String?) -> String? {
+        value?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
     }
 }
 
