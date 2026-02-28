@@ -194,6 +194,7 @@ final class AppContainer: ObservableObject {
     private static let settingsQuickEntryDefaultViewKey = "settings_quick_entry_default_view"
     private static let settingsPerspectivesKey = "settings_saved_perspectives_v1"
     private static let settingsGoogleCalendarEnabledKey = "settings_google_calendar_enabled"
+    private static let settingsGoogleCalendarClientIDKey = "settings_google_calendar_client_id"
     private static let settingsGoogleCalendarSelectedIDsKey = "settings_google_calendar_selected_ids"
     private static let settingsRemindersImportListIDKey = "settings_reminders_import_list_id"
     private static let settingsLocationFavoritesKey = "settings_location_favorites_v1"
@@ -1783,7 +1784,14 @@ final class AppContainer: ObservableObject {
     }
 
     private func googleCalendarClientID() -> String? {
-        (Bundle.main.object(forInfoDictionaryKey: Self.infoGoogleCalendarClientIDKey) as? String)?
+        let defaults = UserDefaults.standard
+        if let override = defaults.string(forKey: Self.settingsGoogleCalendarClientIDKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty {
+            return override
+        }
+
+        return (Bundle.main.object(forInfoDictionaryKey: Self.infoGoogleCalendarClientIDKey) as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .nilIfEmpty
     }
