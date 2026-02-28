@@ -23,6 +23,7 @@ struct ReminderList: Identifiable, Equatable, Sendable {
 
 struct ReminderImportItem: Identifiable, Equatable, Sendable {
     let id: String
+    let calendarID: String
     let title: String
     let notes: String?
     let dueDateComponents: DateComponents?
@@ -83,26 +84,25 @@ final class RemindersImportService: RemindersImportServicing {
     func fetchIncompleteReminders(calendarID: String?) async throws -> [ReminderImportItem] {
         try await ensureAccess()
 
-        let calendars: [EKCalendar]?
-        if let calendarID {
-            guard let calendar = eventStore.calendar(withIdentifier: calendarID) else {
-                throw RemindersImportServiceError.listNotFound
-            }
-            calendars = [calendar]
-        } else {
-            calendars = nil
+        let selectedCalendarID = Self.trimmedText(calendarID)
+        if let selectedCalendarID, eventStore.calendar(withIdentifier: selectedCalendarID) == nil {
+            throw RemindersImportServiceError.listNotFound
         }
 
         let predicate = eventStore.predicateForIncompleteReminders(
             withDueDateStarting: nil,
             ending: nil,
-            calendars: calendars
+            calendars: nil
         )
 
         return await withCheckedContinuation { continuation in
             eventStore.fetchReminders(matching: predicate) { reminders in
                 let reminderItems = (reminders ?? [])
                     .compactMap(Self.makeReminderItem)
+                    .filter { item in
+                        guard let selectedCalendarID else { return true }
+                        return item.calendarID == selectedCalendarID
+                    }
                     .sorted(by: Self.reminderSort)
 
                 continuation.resume(returning: reminderItems)
@@ -190,11 +190,15 @@ final class RemindersImportService: RemindersImportServicing {
         guard let reminderID = Self.trimmedText(reminder.calendarItemIdentifier), !reminderID.isEmpty else {
             return nil
         }
+        guard let calendarID = Self.trimmedText(reminder.calendar?.calendarIdentifier), !calendarID.isEmpty else {
+            return nil
+        }
         guard let title = Self.trimmedText(reminder.title), !title.isEmpty else {
             return nil
         }
         return ReminderImportItem(
             id: reminderID,
+            calendarID: calendarID,
             title: title,
             notes: Self.trimmedText(reminder.notes),
             dueDateComponents: reminder.dueDateComponents,
@@ -241,6 +245,7 @@ final class FakeRemindersImportService: RemindersImportServicing {
         return [
             ReminderImportItem(
                 id: Self.reminderID,
+                calendarID: Self.defaultListID,
                 title: "from reminders e2e",
                 notes: "created by ui test",
                 dueDateComponents: nil,
