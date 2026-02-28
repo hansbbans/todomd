@@ -126,13 +126,13 @@ struct QuickEntrySheet: View {
             HStack(alignment: .top, spacing: 12) {
                 RoundedRectangle(cornerRadius: 3)
                     .fill(theme.accentColor)
-                    .frame(width: 4, height: 64)
+                    .frame(width: 4, height: 56)
 
                 TextField("Description", text: $quickEntryText)
-                    .font(.system(size: 34, weight: .regular, design: .rounded))
+                    .font(.system(.title2, design: .rounded).weight(.regular))
                     .textInputAutocapitalization(.sentences)
                     .autocorrectionDisabled(false)
-                    .frame(maxWidth: .infinity, minHeight: 64, alignment: .bottomLeading)
+                    .frame(maxWidth: .infinity, minHeight: 56, alignment: .bottomLeading)
                     .accessibilityIdentifier("quickEntry.titleField")
             }
             .accessibilityIdentifier("quickEntry.titleField")
@@ -273,7 +273,7 @@ struct QuickEntrySheet: View {
                 destinationMenuActions
             } label: {
                 Label(destinationLabel, systemImage: "tray")
-                    .font(.system(.headline, design: .rounded))
+                    .font(.system(.body, design: .rounded).weight(.semibold))
                     .foregroundStyle(theme.textPrimaryColor)
             }
 
@@ -283,9 +283,9 @@ struct QuickEntrySheet: View {
                 // Placeholder button for future voice capture.
             } label: {
                 Image(systemName: "waveform")
-                    .font(.system(size: 20, weight: .bold))
+                    .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(.white)
-                    .frame(width: 52, height: 52)
+                    .frame(width: 48, height: 48)
                     .background(Circle().fill(theme.accentColor))
             }
             .disabled(true)
@@ -296,9 +296,9 @@ struct QuickEntrySheet: View {
     private func chipLabel(title: String, systemImage: String, isActive: Bool) -> some View {
         HStack(spacing: 8) {
             Image(systemName: systemImage)
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
             Text(title)
-                .font(.system(.headline, design: .rounded))
+                .font(.system(.subheadline, design: .rounded).weight(.semibold))
                 .lineLimit(1)
         }
         .foregroundStyle(isActive ? theme.accentColor : theme.textPrimaryColor)

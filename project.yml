@@ -39,7 +39,7 @@ targets:
         GOOGLE_OAUTH_REDIRECT_URI: "todomd://oauth"
         INFOPLIST_KEY_GOOGLE_OAUTH_CLIENT_ID: $(GOOGLE_OAUTH_CLIENT_ID)
         INFOPLIST_KEY_GOOGLE_OAUTH_REDIRECT_URI: $(GOOGLE_OAUTH_REDIRECT_URI)
-        INFOPLIST_KEY_NSRemindersUsageDescription: "todo.md imports tasks from Apple Reminders when you run the import."
+        INFOPLIST_KEY_NSRemindersFullAccessUsageDescription: "todo.md imports tasks from Apple Reminders when you run the import."
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "todo.md uses your location to trigger reminders when you arrive at or leave saved places."
         INFOPLIST_KEY_CFBundleURLTypes:
           - CFBundleURLName: com.hans.todomd
