@@ -83,8 +83,8 @@ struct QuickEntrySheet: View {
             VStack(alignment: .leading, spacing: 16) {
                 descriptionField
                 configurableFieldsRow
-                destinationRow
                 Spacer(minLength: 0)
+                destinationRow
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
@@ -95,13 +95,6 @@ struct QuickEntrySheet: View {
                         dismiss()
                     }
                     .accessibilityIdentifier("quickEntry.cancelButton")
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") {
-                        addTask()
-                    }
-                    .disabled(!canSubmit)
-                    .accessibilityIdentifier("quickEntry.addButton")
                 }
             }
         }
@@ -279,17 +272,35 @@ struct QuickEntrySheet: View {
 
             Spacer()
 
-            Button {
-                // Placeholder button for future voice capture.
-            } label: {
-                Image(systemName: "waveform")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 48, height: 48)
-                    .background(Circle().fill(theme.accentColor))
+            HStack(spacing: 10) {
+                Button {
+                    // Placeholder button for future voice capture.
+                } label: {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 48, height: 48)
+                        .background(Circle().fill(theme.accentColor))
+                }
+                .disabled(true)
+                .opacity(0.7)
+
+                Button {
+                    addTask()
+                } label: {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 48, height: 48)
+                        .background(
+                            Circle()
+                                .fill(canSubmit ? theme.accentColor : theme.textSecondaryColor.opacity(0.5))
+                        )
+                }
+                .disabled(!canSubmit)
+                .accessibilityIdentifier("quickEntry.addButton")
+                .accessibilityLabel("Add task")
             }
-            .disabled(true)
-            .opacity(0.7)
         }
     }
 
