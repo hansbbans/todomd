@@ -12,6 +12,7 @@ struct SettingsView: View {
 
     @AppStorage("settings_notification_hour") private var notificationHour = 9
     @AppStorage("settings_notification_minute") private var notificationMinute = 0
+    @AppStorage("settings_notify_auto_unblocked") private var notifyAutoUnblocked = true
     @AppStorage("settings_persistent_reminders_enabled") private var persistentRemindersEnabled = false
     @AppStorage("settings_persistent_reminder_interval_minutes") private var persistentReminderIntervalMinutes = 1
     @AppStorage("settings_google_calendar_enabled") private var googleCalendarEnabled = true
@@ -172,6 +173,7 @@ struct SettingsView: View {
                 )
 
                 Toggle("Persistent reminders", isOn: $persistentRemindersEnabled)
+                Toggle("Notify when blocked tasks are unblocked", isOn: $notifyAutoUnblocked)
 
                 if persistentRemindersEnabled {
                     Stepper(value: $persistentReminderIntervalMinutes, in: 1...240, step: 1) {
@@ -404,6 +406,12 @@ struct SettingsView: View {
             case .inbox:
                 label = "Inbox"
                 icon = "tray"
+            case .myTasks:
+                label = "My Tasks"
+                icon = "person"
+            case .delegated:
+                label = "Delegated"
+                icon = "person.2"
             case .today:
                 label = "Today"
                 icon = "sun.max"

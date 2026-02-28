@@ -16,7 +16,11 @@ private struct DynamicCodingKey: CodingKey {
 }
 
 public enum PerspectiveField: Hashable, Sendable, Codable, CaseIterable {
+    case ref
     case status
+    case assignee
+    case completedBy
+    case blockedBy
     case due
     case scheduled
     case `defer`
@@ -37,14 +41,19 @@ public enum PerspectiveField: Hashable, Sendable, Codable, CaseIterable {
 
     public static var allCases: [PerspectiveField] {
         [
-            .status, .due, .scheduled, .defer, .priority, .flagged, .area, .project, .tags, .source,
+            .ref, .status, .assignee, .completedBy, .blockedBy,
+            .due, .scheduled, .defer, .priority, .flagged, .area, .project, .tags, .source,
             .title, .body, .created, .completed, .modified, .estimatedMinutes, .recurrence
         ]
     }
 
     public init(rawValue: String) {
         switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "ref": self = .ref
         case "status": self = .status
+        case "assignee": self = .assignee
+        case "completed_by", "completedby": self = .completedBy
+        case "blocked_by", "blockedby", "blocked": self = .blockedBy
         case "due": self = .due
         case "scheduled": self = .scheduled
         case "defer": self = .defer
@@ -67,7 +76,11 @@ public enum PerspectiveField: Hashable, Sendable, Codable, CaseIterable {
 
     public var rawValue: String {
         switch self {
+        case .ref: return "ref"
         case .status: return "status"
+        case .assignee: return "assignee"
+        case .completedBy: return "completed_by"
+        case .blockedBy: return "blocked_by"
         case .due: return "due"
         case .scheduled: return "scheduled"
         case .defer: return "defer"
@@ -647,6 +660,7 @@ public struct PerspectiveDefinition: Codable, Equatable, Identifiable, Sendable 
     public var anyRules: [PerspectiveRule]
     public var noneRules: [PerspectiveRule]
     public var rules: PerspectiveRuleGroup?
+    public var sourceQuery: String?
     public var unknown: [String: JSONValue]
 
     public init(
@@ -666,6 +680,7 @@ public struct PerspectiveDefinition: Codable, Equatable, Identifiable, Sendable 
         anyRules: [PerspectiveRule] = [],
         noneRules: [PerspectiveRule] = [],
         rules: PerspectiveRuleGroup? = nil,
+        sourceQuery: String? = nil,
         unknown: [String: JSONValue] = [:]
     ) {
         self.id = id
@@ -680,6 +695,7 @@ public struct PerspectiveDefinition: Codable, Equatable, Identifiable, Sendable 
         self.anyRules = anyRules
         self.noneRules = noneRules
         self.rules = rules
+        self.sourceQuery = sourceQuery
         self.unknown = unknown
     }
 
@@ -764,6 +780,7 @@ public struct PerspectiveDefinition: Codable, Equatable, Identifiable, Sendable 
         let allRulesKey = DynamicCodingKey(stringValue: "allRules")!
         let anyRulesKey = DynamicCodingKey(stringValue: "anyRules")!
         let noneRulesKey = DynamicCodingKey(stringValue: "noneRules")!
+        let sourceQueryKey = DynamicCodingKey(stringValue: "source_query")!
 
         id = try container.decodeIfPresent(String.self, forKey: idKey) ?? UUID().uuidString
         name = try container.decodeIfPresent(String.self, forKey: nameKey) ?? "Untitled Perspective"
@@ -800,10 +817,11 @@ public struct PerspectiveDefinition: Codable, Equatable, Identifiable, Sendable 
             noneRules = try container.decodeIfPresent([PerspectiveRule].self, forKey: noneRulesKey) ?? []
             rules = nil
         }
+        sourceQuery = try container.decodeIfPresent(String.self, forKey: sourceQueryKey)
 
         let known = Set([
             "id", "name", "icon", "color", "sort", "group_by", "groupBy", "layout", "manual_order", "manualOrder",
-            "rules", "allRules", "anyRules", "noneRules"
+            "rules", "allRules", "anyRules", "noneRules", "source_query"
         ])
         var unknown: [String: JSONValue] = [:]
         for key in container.allKeys where !known.contains(key.stringValue) {
@@ -829,6 +847,7 @@ public struct PerspectiveDefinition: Codable, Equatable, Identifiable, Sendable 
             try container.encodeNil(forKey: DynamicCodingKey(stringValue: "manual_order")!)
         }
         try container.encode(effectiveRules, forKey: DynamicCodingKey(stringValue: "rules")!)
+        try container.encodeIfPresent(sourceQuery, forKey: DynamicCodingKey(stringValue: "source_query")!)
         for (key, value) in unknown {
             try container.encode(value, forKey: DynamicCodingKey(stringValue: key)!)
         }
@@ -877,8 +896,16 @@ public struct PerspectiveQueryEngine {
         let frontmatter = record.document.frontmatter
 
         switch rule.field {
+        case .ref:
+            return compareOptionalString(frontmatter.ref, rule: rule)
         case .status:
             return compareString(frontmatter.status.rawValue, rule: rule)
+        case .assignee:
+            return compareOptionalString(frontmatter.assignee, rule: rule)
+        case .completedBy:
+            return compareOptionalString(frontmatter.completedBy, rule: rule)
+        case .blockedBy:
+            return compareBlockedBy(frontmatter.blockedBy, rule: rule)
         case .priority:
             return compareString(frontmatter.priority.rawValue, rule: rule)
         case .area:
@@ -912,6 +939,32 @@ public struct PerspectiveQueryEngine {
         case .estimatedMinutes:
             return compareNumber(frontmatter.estimatedMinutes, rule: rule)
         case .unknown:
+            return nil
+        }
+    }
+
+    private func compareBlockedBy(_ value: TaskBlockedBy?, rule: PerspectiveRule) -> Bool? {
+        switch rule.operator {
+        case .isSet, .isNotNil:
+            return value != nil
+        case .isNotSet, .isNil:
+            return value == nil
+        case .isTrue:
+            return value != nil
+        case .isFalse:
+            return value == nil
+        case .contains, .containsAny, .equals:
+            guard case .refs(let refs) = value else { return false }
+            let probes = Set(normalizedStrings(from: rule.value).map { $0.lowercased() })
+            if probes.isEmpty { return false }
+            return refs.contains { probes.contains($0.lowercased()) }
+        case .containsAll:
+            guard case .refs(let refs) = value else { return false }
+            let probes = Set(normalizedStrings(from: rule.value).map { $0.lowercased() })
+            if probes.isEmpty { return false }
+            let refSet = Set(refs.map { $0.lowercased() })
+            return probes.isSubset(of: refSet)
+        default:
             return nil
         }
     }

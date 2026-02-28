@@ -137,6 +137,9 @@ struct TaskDetailView: View {
                 }
 
                 Group {
+                    detailRow("Ref", value: binding(\.ref).wrappedValue)
+                    detailRow("Assignee", value: binding(\.assignee).wrappedValue)
+                    detailRow("Blocked By", value: blockedBySummary())
                     detailRow(
                         "Due",
                         value: dueText(
@@ -181,6 +184,9 @@ struct TaskDetailView: View {
                     if let completed = binding(\.completedAt).wrappedValue {
                         detailRow("Completed", value: DateCoding.encode(completed))
                     }
+                    if !binding(\.completedBy).wrappedValue.isEmpty {
+                        detailRow("Completed By", value: binding(\.completedBy).wrappedValue)
+                    }
                 }
 
                 HStack {
@@ -203,6 +209,21 @@ struct TaskDetailView: View {
 
     private var editForm: some View {
         Form {
+            Section {
+                TextField("Ref (t-xxxx)", text: binding(\.ref))
+                    .textInputAutocapitalization(.never)
+                TextField("Assignee (blank = user)", text: binding(\.assignee))
+                    .textInputAutocapitalization(.never)
+                Toggle("Blocked (no specific dependency)", isOn: binding(\.blockedByManual))
+                TextField("Blocked by refs (comma-separated)", text: binding(\.blockedByRefsText))
+                    .textInputAutocapitalization(.never)
+                    .disabled(binding(\.blockedByManual).wrappedValue)
+            } header: {
+                Text("Assignment & Dependencies")
+            } footer: {
+                Text("Use task refs like t-3f8a for dependency links.")
+            }
+
             Section {
                 TextField("Title", text: binding(\.title), axis: .vertical)
                     .font(.title2.weight(.semibold))
@@ -571,6 +592,14 @@ struct TaskDetailView: View {
     private func dateText(_ value: Date?) -> String {
         guard let value else { return "" }
         return value.formatted(date: .abbreviated, time: .omitted)
+    }
+
+    private func blockedBySummary() -> String {
+        if binding(\.blockedByManual).wrappedValue {
+            return "Blocked (manual)"
+        }
+        let refs = binding(\.blockedByRefsText).wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return refs.isEmpty ? "" : refs
     }
 
     private func dueText(date: Date?, hasTime: Bool, time: Date) -> String {

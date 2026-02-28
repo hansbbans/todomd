@@ -151,7 +151,11 @@ struct PerspectiveEditorSheet: View {
     @State private var groupBy: PerspectiveGroupBy
     @State private var layout: PerspectiveLayout
     @State private var rootRules: PerspectiveRuleGroup
+    @State private var naturalLanguageQuery: String
+    @State private var naturalLanguageSummary: String
+    @State private var naturalLanguageNeedsFallback: Bool
     @StateObject private var dragState = PerspectiveRuleDragState()
+    private let nlParser = NaturalLanguagePerspectiveParser()
 
     private let iconChoices = ["list.bullet", "briefcase", "house", "star", "heart", "bolt", "clock", "tag", "flag", "checkmark.circle"]
     private let colorChoices: [(name: String, hex: String?)] = [
@@ -178,10 +182,34 @@ struct PerspectiveEditorSheet: View {
         _groupBy = State(initialValue: initialPerspective.groupBy)
         _layout = State(initialValue: initialPerspective.layout)
         _rootRules = State(initialValue: initialPerspective.effectiveRules)
+        _naturalLanguageQuery = State(initialValue: initialPerspective.sourceQuery ?? "")
+        _naturalLanguageSummary = State(initialValue: RulesNaturalizer().naturalize(group: initialPerspective.effectiveRules))
+        _naturalLanguageNeedsFallback = State(initialValue: false)
     }
 
     var body: some View {
         Form {
+            Section("Natural Language") {
+                TextField("Describe what you want to see...", text: $naturalLanguageQuery, axis: .vertical)
+                    .textInputAutocapitalization(.never)
+
+                Button("Parse Query") {
+                    applyNaturalLanguageQuery()
+                }
+                .disabled(naturalLanguageQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                if !naturalLanguageSummary.isEmpty {
+                    Text(naturalLanguageSummary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if naturalLanguageNeedsFallback {
+                    Text("This query is ambiguous; cloud parsing may improve results.")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+            }
+
             Section("General") {
                 TextField("Perspective name", text: $name)
                     .onChange(of: name) { _, newValue in
@@ -255,6 +283,8 @@ struct PerspectiveEditorSheet: View {
                     updated.groupBy = groupBy
                     updated.layout = layout
                     updated.rules = rootRules
+                    let trimmedQuery = naturalLanguageQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+                    updated.sourceQuery = trimmedQuery.isEmpty ? nil : trimmedQuery
                     let legacy = extractLegacyRules(from: rootRules)
                     updated.allRules = legacy.all
                     updated.anyRules = legacy.any
@@ -268,6 +298,18 @@ struct PerspectiveEditorSheet: View {
 
     private var canSave: Bool {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func applyNaturalLanguageQuery() {
+        let query = naturalLanguageQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return }
+        let parsed = nlParser.parse(query)
+        rootRules = parsed.rules
+        naturalLanguageSummary = parsed.summary
+        naturalLanguageNeedsFallback = parsed.requiresCloudFallback
+        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || name == initialPerspective.name {
+            name = parsed.suggestedName
+        }
     }
 
     private func extractLegacyRules(from group: PerspectiveRuleGroup) -> (all: [PerspectiveRule], any: [PerspectiveRule], none: [PerspectiveRule]) {
@@ -421,7 +463,11 @@ private struct PerspectiveRuleGroupReadonlyView: View {
 
     private func fieldLabel(_ field: PerspectiveField) -> String {
         switch field {
+        case .ref: return "ref"
         case .status: return "status"
+        case .assignee: return "assignee"
+        case .completedBy: return "completed by"
+        case .blockedBy: return "blocked by"
         case .due: return "due date"
         case .scheduled: return "scheduled date"
         case .defer: return "defer date"
@@ -884,6 +930,10 @@ private struct PerspectiveRuleEditor: View {
         switch field {
         case .status, .priority:
             return [.equals, .in, .isSet, .isNotSet]
+        case .ref, .assignee, .completedBy:
+            return [.equals, .notEquals, .in, .contains, .isSet, .isNotSet]
+        case .blockedBy:
+            return [.isSet, .isNotSet, .contains, .containsAny, .containsAll, .isTrue, .isFalse]
         case .area, .project, .source, .title, .body, .recurrence:
             return [.equals, .contains, .stringContains, .isSet, .isNotSet]
         case .tags:
@@ -910,7 +960,11 @@ private struct PerspectiveRuleEditor: View {
 
     private func fieldLabel(_ field: PerspectiveField) -> String {
         switch field {
+        case .ref: return "Ref"
         case .status: return "Status"
+        case .assignee: return "Assignee"
+        case .completedBy: return "Completed By"
+        case .blockedBy: return "Blocked By"
         case .due: return "Due"
         case .scheduled: return "Scheduled"
         case .defer: return "Defer"
@@ -964,7 +1018,11 @@ private struct PerspectiveRuleEditor: View {
 
     private func valuePlaceholder(for field: PerspectiveField) -> String {
         switch field {
+        case .ref: return "t-3f8a"
         case .status: return "todo,in-progress"
+        case .assignee: return "user"
+        case .completedBy: return "codex"
+        case .blockedBy: return "t-3f8a"
         case .priority: return "high"
         case .area: return "Work"
         case .project: return "Roadmap"

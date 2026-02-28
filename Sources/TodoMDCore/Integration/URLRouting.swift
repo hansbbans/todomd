@@ -4,6 +4,7 @@ public enum URLAction: Equatable, Sendable {
     case addTask(TaskCreateRequest)
     case showView(ViewIdentifier)
     case showTask(path: String)
+    case showTaskRef(ref: String)
     case quickAdd
 }
 
@@ -65,6 +66,9 @@ public struct URLRouter {
         }
 
         if url.host == "task" {
+            if let ref = parseTaskRef(url: url) {
+                return .showTaskRef(ref: ref)
+            }
             return try .showTask(path: parseTaskPath(url: url))
         }
 
@@ -161,6 +165,24 @@ public struct URLRouter {
         }
 
         return path
+    }
+
+    private func parseTaskRef(url: URL) -> String? {
+        let pathCandidate = decodeQueryValue(url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))) ?? ""
+        if TaskRefGenerator.isValid(ref: pathCandidate) {
+            return pathCandidate
+        }
+
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        let queryItems = components.percentEncodedQueryItems ?? components.queryItems ?? []
+        let queryRef = (decodeQueryValue(queryItems.first(where: { $0.name == "ref" })?.value) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if TaskRefGenerator.isValid(ref: queryRef) {
+            return queryRef
+        }
+        return nil
     }
 
     private func decodeQueryValue(_ raw: String?) -> String? {

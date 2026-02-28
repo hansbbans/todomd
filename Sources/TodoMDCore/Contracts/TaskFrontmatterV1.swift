@@ -1,5 +1,17 @@
 import Foundation
 
+public enum TaskBlockedBy: Equatable, Sendable {
+    case manual
+    case refs([String])
+
+    public var refs: [String] {
+        if case .refs(let refs) = self {
+            return refs
+        }
+        return []
+    }
+}
+
 public enum TaskLocationReminderTrigger: String, CaseIterable, Equatable, Sendable {
     case onArrival = "arrive"
     case onDeparture = "leave"
@@ -30,6 +42,7 @@ public struct TaskLocationReminder: Equatable, Sendable {
 }
 
 public struct TaskFrontmatterV1: Equatable, Sendable {
+    public var ref: String?
     public var title: String
     public var status: TaskStatus
     public var due: LocalDate?
@@ -48,9 +61,13 @@ public struct TaskFrontmatterV1: Equatable, Sendable {
     public var created: Date
     public var modified: Date?
     public var completed: Date?
+    public var assignee: String?
+    public var completedBy: String?
+    public var blockedBy: TaskBlockedBy?
     public var source: String
 
     public init(
+        ref: String? = nil,
         title: String,
         status: TaskStatus,
         due: LocalDate? = nil,
@@ -69,8 +86,12 @@ public struct TaskFrontmatterV1: Equatable, Sendable {
         created: Date,
         modified: Date? = nil,
         completed: Date? = nil,
+        assignee: String? = nil,
+        completedBy: String? = nil,
+        blockedBy: TaskBlockedBy? = nil,
         source: String
     ) {
+        self.ref = ref
         self.title = title
         self.status = status
         self.due = due
@@ -89,7 +110,18 @@ public struct TaskFrontmatterV1: Equatable, Sendable {
         self.created = created
         self.modified = modified
         self.completed = completed
+        self.assignee = assignee
+        self.completedBy = completedBy
+        self.blockedBy = blockedBy
         self.source = source
+    }
+
+    public var isBlocked: Bool {
+        blockedBy != nil
+    }
+
+    public var blockedByRefs: [String] {
+        blockedBy?.refs ?? []
     }
 }
 

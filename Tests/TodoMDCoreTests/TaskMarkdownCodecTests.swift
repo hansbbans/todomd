@@ -223,4 +223,51 @@ final class TaskMarkdownCodecTests: XCTestCase {
         let codec = TaskMarkdownCodec()
         XCTAssertThrowsError(try codec.parse(markdown: raw))
     }
+
+    func testAssigneeCompletedByRefAndBlockedByParseAndSerialize() throws {
+        let raw = """
+        ---
+        ref: t-3f8a
+        title: "Deploy"
+        status: "todo"
+        created: "2025-02-26T14:30:00Z"
+        source: "user"
+        assignee: "codex"
+        completed_by: "codex"
+        blocked_by:
+          - t-00a1
+          - t-00a2
+        ---
+        """
+
+        let codec = TaskMarkdownCodec()
+        let parsed = try codec.parse(markdown: raw)
+        XCTAssertEqual(parsed.frontmatter.ref, "t-3f8a")
+        XCTAssertEqual(parsed.frontmatter.assignee, "codex")
+        XCTAssertEqual(parsed.frontmatter.completedBy, "codex")
+        XCTAssertEqual(parsed.frontmatter.blockedByRefs, ["t-00a1", "t-00a2"])
+        XCTAssertTrue(parsed.frontmatter.isBlocked)
+
+        let serialized = try codec.serialize(document: parsed)
+        XCTAssertTrue(serialized.contains("blocked_by"))
+        XCTAssertTrue(serialized.contains("completed_by"))
+        XCTAssertTrue(serialized.contains("assignee"))
+        XCTAssertTrue(serialized.contains("ref: t-3f8a"))
+    }
+
+    func testBlockedByBooleanTrueParsesAsManualBlock() throws {
+        let raw = """
+        ---
+        title: "Waiting"
+        status: "todo"
+        created: "2025-02-26T14:30:00Z"
+        source: "user"
+        blocked_by: true
+        ---
+        """
+
+        let codec = TaskMarkdownCodec()
+        let parsed = try codec.parse(markdown: raw)
+        XCTAssertEqual(parsed.frontmatter.blockedBy, .manual)
+    }
 }

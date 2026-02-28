@@ -14,10 +14,11 @@ public struct TaskMarkdownCodec {
         try validateFrontmatterComplexity(normalizedObject)
 
         let knownKeys: Set<String> = [
+            "ref",
             "title", "status", "due", "due_time", "defer", "scheduled", "priority", "flagged", "area", "project", "tags",
             "recurrence", "estimated_minutes", "description",
             "location_name", "location_latitude", "location_longitude", "location_radius_meters", "location_trigger",
-            "created", "modified", "completed", "source"
+            "created", "modified", "completed", "assignee", "completed_by", "blocked_by", "source"
         ]
 
         var unknown: [String: YAMLValue] = [:]
@@ -43,6 +44,7 @@ public struct TaskMarkdownCodec {
             "source": document.frontmatter.source
         ]
 
+        if let ref = document.frontmatter.ref { object["ref"] = ref }
         if let due = document.frontmatter.due { object["due"] = due.isoString }
         if let dueTime = document.frontmatter.dueTime { object["due_time"] = dueTime.isoString }
         if let deferDate = document.frontmatter.defer { object["defer"] = deferDate.isoString }
@@ -62,6 +64,20 @@ public struct TaskMarkdownCodec {
         }
         if let modified = document.frontmatter.modified { object["modified"] = DateCoding.encode(modified) }
         if let completed = document.frontmatter.completed { object["completed"] = DateCoding.encode(completed) }
+        if let assignee = document.frontmatter.assignee { object["assignee"] = assignee }
+        if let completedBy = document.frontmatter.completedBy { object["completed_by"] = completedBy }
+        if let blockedBy = document.frontmatter.blockedBy {
+            switch blockedBy {
+            case .manual:
+                object["blocked_by"] = true
+            case .refs(let refs):
+                if refs.count == 1, let first = refs.first {
+                    object["blocked_by"] = first
+                } else {
+                    object["blocked_by"] = refs
+                }
+            }
+        }
 
         for (key, value) in document.unknownFrontmatter {
             object[key] = value.anyValue
@@ -132,6 +148,10 @@ public struct TaskMarkdownCodec {
             return "modified"
         case "completeddate":
             return "completed"
+        case "completedby":
+            return "completed_by"
+        case "blockedby":
+            return "blocked_by"
         default:
             return loweredKey
         }
@@ -212,9 +232,14 @@ public struct TaskMarkdownCodec {
 
         let modified = try optionalDateTime("modified", in: object)
         let completed = try optionalDateTime("completed", in: object)
+        let ref = try optionalString("ref", in: object)
+        let assignee = try optionalString("assignee", in: object)
+        let completedBy = try optionalString("completed_by", in: object)
+        let blockedBy = try parseBlockedBy(in: object)
         let source = try optionalString("source", in: object) ?? "unknown"
 
         return TaskFrontmatterV1(
+            ref: ref,
             title: title,
             status: status,
             due: due,
@@ -233,6 +258,9 @@ public struct TaskMarkdownCodec {
             created: created,
             modified: modified,
             completed: completed,
+            assignee: assignee,
+            completedBy: completedBy,
+            blockedBy: blockedBy,
             source: source
         )
     }
@@ -269,6 +297,47 @@ public struct TaskMarkdownCodec {
             throw TaskError.parseFailure("Field \(key) must be a string")
         }
         return string
+    }
+
+    private func parseBlockedBy(in object: [String: Any]) throws -> TaskBlockedBy? {
+        guard let raw = object["blocked_by"] else { return nil }
+        if raw is NSNull { return nil }
+
+        if let bool = raw as? Bool {
+            return bool ? .manual : nil
+        }
+
+        if let string = raw as? String {
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : .refs([trimmed])
+        }
+
+        if let values = raw as? [Any] {
+            let refs = try values.map { value -> String in
+                guard let string = value as? String else {
+                    throw TaskError.parseFailure("blocked_by array must contain only strings")
+                }
+                return string
+            }
+            let normalized = normalizeRefs(refs)
+            return normalized.isEmpty ? nil : .refs(normalized)
+        }
+
+        throw TaskError.parseFailure("Field blocked_by must be boolean, string, string array, or null")
+    }
+
+    private func normalizeRefs(_ refs: [String]) -> [String] {
+        var seen: Set<String> = []
+        var normalized: [String] = []
+        normalized.reserveCapacity(refs.count)
+        for ref in refs {
+            let trimmed = ref.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            guard !seen.contains(trimmed) else { continue }
+            seen.insert(trimmed)
+            normalized.append(trimmed)
+        }
+        return normalized
     }
 
     private func optionalBool(_ key: String, in object: [String: Any]) throws -> Bool? {

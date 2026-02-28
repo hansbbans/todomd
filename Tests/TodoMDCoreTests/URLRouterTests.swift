@@ -76,4 +76,16 @@ final class URLRouterTests: XCTestCase {
             XCTFail("Expected quickAdd action")
         }
     }
+
+    func testTaskRefURL() throws {
+        let router = URLRouter()
+        let action = try router.parse(url: URL(string: "todomd://task/t-3f8a")!)
+
+        switch action {
+        case .showTaskRef(let ref):
+            XCTAssertEqual(ref, "t-3f8a")
+        default:
+            XCTFail("Expected showTaskRef action")
+        }
+    }
 }

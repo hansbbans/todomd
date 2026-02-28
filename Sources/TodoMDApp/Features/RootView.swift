@@ -273,6 +273,8 @@ struct RootView: View {
         List {
             Section("Views") {
                 builtInNavButton(.inbox, label: "Inbox", icon: "tray")
+                builtInNavButton(.myTasks, label: "My Tasks", icon: "person")
+                builtInNavButton(.delegated, label: "Delegated", icon: "person.2")
                 builtInNavButton(.today, label: "Today", icon: "sun.max")
                 builtInNavButton(.upcoming, label: "Upcoming", icon: "calendar")
                 builtInNavButton(.anytime, label: "Anytime", icon: "list.bullet")
@@ -458,6 +460,8 @@ struct RootView: View {
         List {
             Section("Sections") {
                 builtInBrowseFilterButton(.inbox, label: "Inbox", icon: "tray")
+                builtInBrowseFilterButton(.myTasks, label: "My Tasks", icon: "person")
+                builtInBrowseFilterButton(.delegated, label: "Delegated", icon: "person.2")
                 builtInBrowseFilterButton(.today, label: "Today", icon: "sun.max")
                 builtInBrowseFilterButton(.upcoming, label: "Upcoming", icon: "calendar")
                 builtInBrowseFilterButton(.anytime, label: "Anytime", icon: "list.bullet")
@@ -525,6 +529,8 @@ struct RootView: View {
         let perspectives = container.perspectives.filter { matchesQuery($0.name, query: query) }
         let builtInViews: [(label: String, view: ViewIdentifier, icon: String)] = [
             ("Inbox", .builtIn(.inbox), "tray"),
+            ("My Tasks", .builtIn(.myTasks), "person"),
+            ("Delegated", .builtIn(.delegated), "person.2"),
             ("Today", .builtIn(.today), "sun.max"),
             ("Upcoming", .builtIn(.upcoming), "calendar"),
             ("Anytime", .builtIn(.anytime), "list.bullet"),
@@ -686,6 +692,10 @@ struct RootView: View {
             switch builtIn {
             case .inbox:
                 return ("Inbox", "tray", nil)
+            case .myTasks:
+                return ("My Tasks", "person", nil)
+            case .delegated:
+                return ("Delegated", "person.2", nil)
             case .today:
                 return ("Today", "sun.max", nil)
             case .upcoming:
@@ -865,6 +875,10 @@ struct RootView: View {
                 deferDateTarget = DeferDateTarget(path: record.identity.path)
             }
 
+            Button(record.document.frontmatter.isBlocked ? "Unblock" : "Block") {
+                _ = container.setBlocked(path: record.identity.path, blockedBy: record.document.frontmatter.isBlocked ? nil : .manual)
+            }
+
             Menu("Priority") {
                 ForEach(TaskPriority.allCases, id: \.self) { priority in
                     Button(priority.rawValue.capitalized) {
@@ -908,6 +922,13 @@ struct RootView: View {
             .tint(.green)
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button {
+                _ = container.setBlocked(path: record.identity.path, blockedBy: .manual)
+            } label: {
+                Label("Block", systemImage: "lock.fill")
+            }
+            .tint(.orange)
+
             Button {
                 deferDateValue = dateValue(for: record.document.frontmatter.defer) ?? Date()
                 deferDateTarget = DeferDateTarget(path: record.identity.path)
@@ -989,6 +1010,10 @@ struct RootView: View {
             switch view {
             case .inbox:
                 return "Inbox"
+            case .myTasks:
+                return "My Tasks"
+            case .delegated:
+                return "Delegated"
             case .today:
                 return "Today"
             case .upcoming:
@@ -1049,10 +1074,16 @@ private struct TaskRow: View {
                 completionIndicator(isDone: frontmatter.status == .done)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(frontmatter.title)
-                        .font(.system(.body, design: .rounded).weight(.medium))
-                        .foregroundStyle(theme.textPrimaryColor)
-                        .lineLimit(1)
+                    HStack(spacing: 6) {
+                        if frontmatter.isBlocked {
+                            Image(systemName: "lock.fill")
+                                .foregroundStyle(.orange)
+                        }
+                        Text(frontmatter.title)
+                            .font(.system(.body, design: .rounded).weight(.medium))
+                            .foregroundStyle(theme.textPrimaryColor)
+                            .lineLimit(1)
+                    }
 
                     if let description = frontmatter.description, !description.isEmpty {
                         Text(description)
@@ -1126,6 +1157,11 @@ private struct TaskRow: View {
                     .foregroundStyle(theme.textPrimaryColor)
             }
 
+            if let assignee = frontmatter.assignee, !assignee.isEmpty {
+                Label(assignee, systemImage: assignee.lowercased() == "user" ? "person.fill" : "cpu")
+                    .foregroundStyle(theme.textSecondaryColor)
+            }
+
             if frontmatter.priority != .none {
                 Text(frontmatter.priority.rawValue.uppercased())
                     .font(.caption2.weight(.semibold))
@@ -1148,6 +1184,11 @@ private struct TaskRow: View {
 
             if frontmatter.source != "user" {
                 Label(frontmatter.source, systemImage: "tray.and.arrow.down")
+                    .foregroundStyle(theme.textSecondaryColor)
+            }
+
+            if let ref = frontmatter.ref {
+                Label(ref, systemImage: "number")
                     .foregroundStyle(theme.textSecondaryColor)
             }
         }

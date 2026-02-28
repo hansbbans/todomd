@@ -15,7 +15,8 @@ final class PerspectivesRepositoryTests: XCTestCase {
             groupBy: .project,
             layout: .comfortable,
             manualOrder: ["a.md", "b.md"],
-            allRules: [PerspectiveRule(field: .area, operator: .equals, value: "Work")]
+            allRules: [PerspectiveRule(field: .area, operator: .equals, value: "Work")],
+            sourceQuery: "work tasks due this week"
         )
 
         var document = PerspectivesDocument(
@@ -34,6 +35,7 @@ final class PerspectivesRepositoryTests: XCTestCase {
         XCTAssertEqual(loaded.perspectives["work"]?.name, "Work - Available")
         XCTAssertEqual(loaded.perspectives["work"]?.icon, "briefcase")
         XCTAssertEqual(loaded.perspectives["work"]?.groupBy, .project)
+        XCTAssertEqual(loaded.perspectives["work"]?.sourceQuery, "work tasks due this week")
     }
 
     func testLoadMissingFileReturnsEmptyDocument() throws {

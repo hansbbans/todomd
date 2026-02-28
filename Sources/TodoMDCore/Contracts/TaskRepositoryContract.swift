@@ -6,6 +6,6 @@ public protocol TaskRepository {
     func delete(path: String) throws
     func load(path: String) throws -> TaskRecord
     func loadAll() throws -> [TaskRecord]
-    func complete(path: String, at completionTime: Date) throws -> TaskRecord
-    func completeRepeating(path: String, at completionTime: Date) throws -> (completed: TaskRecord, next: TaskRecord)
+    func complete(path: String, at completionTime: Date, completedBy: String?) throws -> TaskRecord
+    func completeRepeating(path: String, at completionTime: Date, completedBy: String?) throws -> (completed: TaskRecord, next: TaskRecord)
 }

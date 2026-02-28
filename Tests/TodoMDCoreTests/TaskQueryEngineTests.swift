@@ -43,4 +43,27 @@ final class TaskQueryEngineTests: XCTestCase {
         let today = try LocalDate(isoDate: "2025-03-01")
         XCTAssertTrue(engine.matches(record, view: .builtIn(.flagged), today: today))
     }
+
+    func testBlockedTaskExcludedFromAnytime() throws {
+        var frontmatter = TestSupport.sampleFrontmatter()
+        frontmatter.blockedBy = .manual
+        let record = TaskRecord(identity: TaskFileIdentity(path: "/tmp/e.md"), document: .init(frontmatter: frontmatter, body: ""))
+        let today = try LocalDate(isoDate: "2025-03-01")
+
+        XCTAssertFalse(engine.matches(record, view: .builtIn(.anytime), today: today))
+    }
+
+    func testDelegatedAndMyTasksViews() throws {
+        var delegated = TestSupport.sampleFrontmatter(title: "Delegated")
+        delegated.assignee = "codex"
+        let delegatedRecord = TaskRecord(identity: TaskFileIdentity(path: "/tmp/f.md"), document: .init(frontmatter: delegated, body: ""))
+
+        let myRecord = TaskRecord(identity: TaskFileIdentity(path: "/tmp/g.md"), document: .init(frontmatter: TestSupport.sampleFrontmatter(title: "Mine"), body: ""))
+
+        let today = try LocalDate(isoDate: "2025-03-01")
+        XCTAssertTrue(engine.matches(myRecord, view: .builtIn(.myTasks), today: today))
+        XCTAssertFalse(engine.matches(myRecord, view: .builtIn(.delegated), today: today))
+        XCTAssertTrue(engine.matches(delegatedRecord, view: .builtIn(.delegated), today: today))
+        XCTAssertFalse(engine.matches(delegatedRecord, view: .builtIn(.myTasks), today: today))
+    }
 }

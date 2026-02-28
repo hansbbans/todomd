@@ -13,6 +13,7 @@ final class FileTaskRepositoryAndWatcherTests: XCTestCase {
 
         let loaded = try repository.load(path: created.identity.path)
         XCTAssertEqual(loaded.document.frontmatter.title, "Task A")
+        XCTAssertNotNil(loaded.document.frontmatter.ref)
 
         let updated = try repository.update(path: created.identity.path) { doc in
             doc.frontmatter.title = "Task B"
@@ -30,11 +31,13 @@ final class FileTaskRepositoryAndWatcherTests: XCTestCase {
         frontmatter.recurrence = "FREQ=DAILY"
 
         let created = try repository.create(document: .init(frontmatter: frontmatter, body: ""), preferredFilename: nil)
-        let result = try repository.completeRepeating(path: created.identity.path, at: Date(timeIntervalSince1970: 1_700_000_100))
+        let result = try repository.completeRepeating(path: created.identity.path, at: Date(timeIntervalSince1970: 1_700_000_100), completedBy: "codex")
 
         XCTAssertEqual(result.completed.document.frontmatter.status, .done)
+        XCTAssertEqual(result.completed.document.frontmatter.completedBy, "codex")
         XCTAssertNil(result.completed.document.frontmatter.recurrence)
         XCTAssertEqual(result.next.document.frontmatter.status, .todo)
+        XCTAssertNil(result.next.document.frontmatter.completedBy)
         XCTAssertEqual(result.next.document.frontmatter.due?.isoString, "2025-03-02")
     }
 

@@ -12,6 +12,8 @@ public enum TaskValidation {
     public static let maxDescriptionLength = 2_000
     public static let maxLocationNameLength = 200
     public static let maxBodyLength = 100_000
+    public static let maxIdentityLength = 120
+    public static let maxBlockedRefsCount = 50
     public static let maxTagsCount = 100
     public static let maxTagLength = 80
 
@@ -24,6 +26,19 @@ public enum TaskValidation {
     }
 
     public static func validate(frontmatter: TaskFrontmatterV1) throws {
+        if let ref = frontmatter.ref {
+            let trimmed = ref.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                throw TaskValidationError.invalidFieldValue(field: "ref", value: "ref must not be empty")
+            }
+            if trimmed.count > maxIdentityLength {
+                throw TaskValidationError.fieldTooLong(field: "ref", limit: maxIdentityLength)
+            }
+            if !isValidTaskRef(trimmed) {
+                throw TaskValidationError.invalidFieldValue(field: "ref", value: "ref must match t-[0-9a-f]{4,6}")
+            }
+        }
+
         let title = frontmatter.title.trimmingCharacters(in: .whitespacesAndNewlines)
         if title.isEmpty {
             throw TaskValidationError.requiredFieldMissing("title")
@@ -39,6 +54,36 @@ public enum TaskValidation {
 
         if frontmatter.source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             throw TaskValidationError.requiredFieldMissing("source")
+        }
+
+        if let assignee = frontmatter.assignee,
+           assignee.trimmingCharacters(in: .whitespacesAndNewlines).count > maxIdentityLength {
+            throw TaskValidationError.fieldTooLong(field: "assignee", limit: maxIdentityLength)
+        }
+
+        if let completedBy = frontmatter.completedBy,
+           completedBy.trimmingCharacters(in: .whitespacesAndNewlines).count > maxIdentityLength {
+            throw TaskValidationError.fieldTooLong(field: "completed_by", limit: maxIdentityLength)
+        }
+
+        if let blockedBy = frontmatter.blockedBy {
+            switch blockedBy {
+            case .manual:
+                break
+            case .refs(let refs):
+                if refs.count > maxBlockedRefsCount {
+                    throw TaskValidationError.invalidRange(field: "blocked_by", min: 0, max: maxBlockedRefsCount)
+                }
+                for ref in refs {
+                    let trimmed = ref.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if trimmed.isEmpty {
+                        throw TaskValidationError.invalidFieldValue(field: "blocked_by", value: "blocked reference must not be empty")
+                    }
+                    if trimmed.count > maxIdentityLength {
+                        throw TaskValidationError.fieldTooLong(field: "blocked_by_ref", limit: maxIdentityLength)
+                    }
+                }
+            }
         }
 
         if let estimatedMinutes = frontmatter.estimatedMinutes,
@@ -76,5 +121,9 @@ public enum TaskValidation {
                 throw TaskValidationError.invalidRange(field: "location_radius_meters", min: 50, max: 1_000)
             }
         }
+    }
+
+    private static func isValidTaskRef(_ ref: String) -> Bool {
+        ref.range(of: #"^t-[0-9a-f]{4,6}$"#, options: .regularExpression) != nil
     }
 }
