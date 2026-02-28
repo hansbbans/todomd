@@ -1,8 +1,7 @@
-import EventKit
+@preconcurrency import EventKit
 import Foundation
 
-@MainActor
-protocol RemindersImportServicing {
+protocol RemindersImportServicing: Sendable {
     func fetchLists() async throws -> [ReminderList]
     func fetchIncompleteReminders(calendarID: String?) async throws -> [ReminderImportItem]
     func removeReminders(withIDs reminderIDs: [String]) throws -> ReminderDeletionResult
@@ -55,8 +54,7 @@ enum RemindersImportServiceError: LocalizedError {
     }
 }
 
-@MainActor
-final class RemindersImportService: RemindersImportServicing {
+final class RemindersImportService: RemindersImportServicing, @unchecked Sendable {
     private let eventStore: EKEventStore
 
     init(eventStore: EKEventStore = EKEventStore()) {
@@ -95,19 +93,11 @@ final class RemindersImportService: RemindersImportServicing {
             calendars: nil
         )
 
-        return await withCheckedContinuation { continuation in
-            eventStore.fetchReminders(matching: predicate) { reminders in
-                let reminderItems = (reminders ?? [])
-                    .compactMap(Self.makeReminderItem)
-                    .filter { item in
-                        guard let selectedCalendarID else { return true }
-                        return item.calendarID == selectedCalendarID
-                    }
-                    .sorted(by: Self.reminderSort)
-
-                continuation.resume(returning: reminderItems)
-            }
-        }
+        return await ReminderFetchPipeline.fetchIncompleteReminders(
+            eventStore: eventStore,
+            predicate: predicate,
+            selectedCalendarID: selectedCalendarID
+        )
     }
 
     func removeReminders(withIDs reminderIDs: [String]) throws -> ReminderDeletionResult {
@@ -166,7 +156,7 @@ final class RemindersImportService: RemindersImportServicing {
         return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
     }
 
-    nonisolated private static func reminderSort(lhs: ReminderImportItem, rhs: ReminderImportItem) -> Bool {
+    nonisolated fileprivate static func reminderSort(lhs: ReminderImportItem, rhs: ReminderImportItem) -> Bool {
         let lhsDue = lhs.dueDateComponents?.date
         let rhsDue = rhs.dueDateComponents?.date
 
@@ -186,7 +176,7 @@ final class RemindersImportService: RemindersImportServicing {
         value?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
     }
 
-    nonisolated private static func makeReminderItem(from reminder: EKReminder) -> ReminderImportItem? {
+    nonisolated fileprivate static func makeReminderItem(from reminder: EKReminder) -> ReminderImportItem? {
         guard let reminderID = Self.trimmedText(reminder.calendarItemIdentifier), !reminderID.isEmpty else {
             return nil
         }
@@ -210,14 +200,35 @@ final class RemindersImportService: RemindersImportServicing {
     }
 }
 
+private enum ReminderFetchPipeline {
+    static func fetchIncompleteReminders(
+        eventStore: EKEventStore,
+        predicate: NSPredicate,
+        selectedCalendarID: String?
+    ) async -> [ReminderImportItem] {
+        await withCheckedContinuation { continuation in
+            eventStore.fetchReminders(matching: predicate) { reminders in
+                let reminderItems = (reminders ?? [])
+                    .compactMap(RemindersImportService.makeReminderItem)
+                    .filter { item in
+                        guard let selectedCalendarID else { return true }
+                        return item.calendarID == selectedCalendarID
+                    }
+                    .sorted(by: RemindersImportService.reminderSort)
+
+                continuation.resume(returning: reminderItems)
+            }
+        }
+    }
+}
+
 private extension String {
     var nilIfEmpty: String? {
         isEmpty ? nil : self
     }
 }
 
-@MainActor
-final class FakeRemindersImportService: RemindersImportServicing {
+final class FakeRemindersImportService: RemindersImportServicing, @unchecked Sendable {
     private static let defaultListID = "ui-test-reminders-list"
     private static let reminderID = "ui-test-reminder-1"
 
