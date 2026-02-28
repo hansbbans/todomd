@@ -104,7 +104,7 @@ struct UpcomingCalendarView: View {
                     ContentUnavailableView(
                         "No Upcoming Events",
                         systemImage: "calendar",
-                        description: Text("Connect Google Calendar in Settings to view events.")
+                        description: Text("Allow Calendar access in Settings to view events.")
                     )
                     .frame(maxWidth: .infinity)
                     .padding(.top, 80)

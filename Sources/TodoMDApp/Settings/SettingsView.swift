@@ -7,6 +7,61 @@ private struct BottomNavigationOption: Identifiable, Hashable {
     let icon: String
 }
 
+private enum SettingsSection: String, CaseIterable, Identifiable {
+    case calendar
+    case remindersImport
+    case appearance
+    case notifications
+    case taskBehavior
+    case bottomNavigation
+    case storage
+    case maintenance
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .calendar:
+            return "Calendar"
+        case .remindersImport:
+            return "Reminders Import"
+        case .appearance:
+            return "Appearance"
+        case .notifications:
+            return "Notifications"
+        case .taskBehavior:
+            return "Task Behavior"
+        case .bottomNavigation:
+            return "Bottom Navigation"
+        case .storage:
+            return "Storage"
+        case .maintenance:
+            return "Maintenance"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .calendar:
+            return "calendar"
+        case .remindersImport:
+            return "checklist"
+        case .appearance:
+            return "paintpalette"
+        case .notifications:
+            return "bell.badge"
+        case .taskBehavior:
+            return "checkmark.circle"
+        case .bottomNavigation:
+            return "dock.rectangle"
+        case .storage:
+            return "externaldrive"
+        case .maintenance:
+            return "wrench.and.screwdriver"
+        }
+    }
+}
+
 struct SettingsView: View {
     @EnvironmentObject private var container: AppContainer
 
@@ -15,7 +70,7 @@ struct SettingsView: View {
     @AppStorage("settings_notify_auto_unblocked") private var notifyAutoUnblocked = true
     @AppStorage("settings_persistent_reminders_enabled") private var persistentRemindersEnabled = false
     @AppStorage("settings_persistent_reminder_interval_minutes") private var persistentReminderIntervalMinutes = 1
-    @AppStorage("settings_google_calendar_enabled") private var googleCalendarEnabled = true
+    @AppStorage("settings_google_calendar_enabled") private var calendarEnabled = true
     @AppStorage("settings_appearance_mode") private var appearanceMode = "system"
     @AppStorage("settings_archive_completed") private var archiveCompleted = false
     @AppStorage("settings_completed_retention") private var completedRetention = "forever"
@@ -30,26 +85,113 @@ struct SettingsView: View {
     @State private var folderSelectionErrorMessage: String?
 
     var body: some View {
-        Form {
-            Section("Calendar") {
-                Toggle("Enable Google Calendar", isOn: $googleCalendarEnabled)
+        List {
+            NavigationLink {
+                calendarSettingsView
+            } label: {
+                Label(SettingsSection.calendar.title, systemImage: SettingsSection.calendar.systemImage)
+            }
+            .accessibilityIdentifier("settings.section.\(SettingsSection.calendar.rawValue)")
 
-                if googleCalendarEnabled {
-                    Text("Sign in with your Google account to sync events.")
+            NavigationLink {
+                remindersImportSettingsView
+            } label: {
+                Label(SettingsSection.remindersImport.title, systemImage: SettingsSection.remindersImport.systemImage)
+            }
+            .accessibilityIdentifier("settings.section.\(SettingsSection.remindersImport.rawValue)")
+
+            NavigationLink {
+                appearanceSettingsView
+            } label: {
+                Label(SettingsSection.appearance.title, systemImage: SettingsSection.appearance.systemImage)
+            }
+            .accessibilityIdentifier("settings.section.\(SettingsSection.appearance.rawValue)")
+
+            NavigationLink {
+                notificationsSettingsView
+            } label: {
+                Label(SettingsSection.notifications.title, systemImage: SettingsSection.notifications.systemImage)
+            }
+            .accessibilityIdentifier("settings.section.\(SettingsSection.notifications.rawValue)")
+
+            NavigationLink {
+                taskBehaviorSettingsView
+            } label: {
+                Label(SettingsSection.taskBehavior.title, systemImage: SettingsSection.taskBehavior.systemImage)
+            }
+            .accessibilityIdentifier("settings.section.\(SettingsSection.taskBehavior.rawValue)")
+
+            NavigationLink {
+                bottomNavigationSettingsView
+            } label: {
+                Label(SettingsSection.bottomNavigation.title, systemImage: SettingsSection.bottomNavigation.systemImage)
+            }
+            .accessibilityIdentifier("settings.section.\(SettingsSection.bottomNavigation.rawValue)")
+
+            NavigationLink {
+                storageSettingsView
+            } label: {
+                Label(SettingsSection.storage.title, systemImage: SettingsSection.storage.systemImage)
+            }
+            .accessibilityIdentifier("settings.section.\(SettingsSection.storage.rawValue)")
+
+            NavigationLink {
+                maintenanceSettingsView
+            } label: {
+                Label(SettingsSection.maintenance.title, systemImage: SettingsSection.maintenance.systemImage)
+            }
+            .accessibilityIdentifier("settings.section.\(SettingsSection.maintenance.rawValue)")
+        }
+        .navigationTitle("Settings")
+        .fileImporter(
+            isPresented: $showingFolderPicker,
+            allowedContentTypes: [.folder],
+            allowsMultipleSelection: false
+        ) { result in
+            handleFolderSelection(result: result)
+        }
+        .alert(
+            "Folder Selection Error",
+            isPresented: Binding(
+                get: { folderSelectionErrorMessage != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        folderSelectionErrorMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button("OK", role: .cancel) {
+                folderSelectionErrorMessage = nil
+            }
+        } message: {
+            Text(folderSelectionErrorMessage ?? "")
+        }
+    }
+
+    private var calendarSettingsView: some View {
+        Form {
+            Section {
+                Toggle("Show Calendar Events", isOn: $calendarEnabled)
+
+                if calendarEnabled {
+                    Text("Allow access to Apple Calendar to view events in Today and Upcoming.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
                     if container.isCalendarConnected {
-                        Label("Connected", systemImage: "checkmark.circle.fill")
+                        Label("Calendar Access Granted", systemImage: "checkmark.circle.fill")
                             .foregroundStyle(.green)
                     }
 
-                    Button(container.isCalendarConnected ? "Reconnect Google Calendar" : "Connect Google Calendar") {
-                        Task {
-                            await container.connectGoogleCalendar()
+                    if !container.isCalendarConnected {
+                        Button("Allow Calendar Access") {
+                            Task {
+                                await container.connectCalendar()
+                            }
                         }
+                        .disabled(container.isCalendarSyncing)
                     }
-                    .disabled(container.isCalendarSyncing || !container.isGoogleCalendarConfigured)
 
                     Button("Refresh Calendar") {
                         Task {
@@ -57,12 +199,6 @@ struct SettingsView: View {
                         }
                     }
                     .disabled(container.isCalendarSyncing || !container.isCalendarConnected)
-
-                    if container.isCalendarConnected {
-                        Button("Disconnect Calendar", role: .destructive) {
-                            container.disconnectGoogleCalendar()
-                        }
-                    }
 
                     if container.isCalendarConnected, !container.calendarSources.isEmpty {
                         Button("Select All Calendars") {
@@ -94,16 +230,20 @@ struct SettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-
-                    if !container.isGoogleCalendarConfigured {
-                        Text("This app build is missing Google OAuth configuration.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
                 }
             }
+        }
+        .navigationTitle(SettingsSection.calendar.title)
+        .onChange(of: calendarEnabled) { _, _ in
+            Task {
+                await container.refreshCalendar(force: true)
+            }
+        }
+    }
 
-            Section("Reminders Import") {
+    private var remindersImportSettingsView: some View {
+        Form {
+            Section {
                 Text(
                     "Import incomplete reminders using natural-language parsing, then delete them from Reminders."
                 )
@@ -148,16 +288,29 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+        }
+        .navigationTitle(SettingsSection.remindersImport.title)
+        .task {
+            await container.refreshReminderListsIfNeeded()
+        }
+    }
 
-            Section("Appearance") {
+    private var appearanceSettingsView: some View {
+        Form {
+            Section {
                 Picker("Color mode", selection: $appearanceMode) {
                     Text("System").tag("system")
                     Text("Light").tag("light")
                     Text("Dark").tag("dark")
                 }
             }
+        }
+        .navigationTitle(SettingsSection.appearance.title)
+    }
 
-            Section("Notifications") {
+    private var notificationsSettingsView: some View {
+        Form {
+            Section {
                 DatePicker(
                     "Default time",
                     selection: Binding(
@@ -189,8 +342,13 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+        }
+        .navigationTitle(SettingsSection.notifications.title)
+    }
 
-            Section("Task Behavior") {
+    private var taskBehaviorSettingsView: some View {
+        Form {
+            Section {
                 Toggle("Archive completed", isOn: $archiveCompleted)
 
                 Picker("Completed retention", selection: $completedRetention) {
@@ -237,8 +395,18 @@ struct SettingsView: View {
                     .onMove(perform: moveQuickEntryFields)
                 }
             }
+        }
+        .navigationTitle(SettingsSection.taskBehavior.title)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                EditButton()
+            }
+        }
+    }
 
-            Section("Bottom Navigation") {
+    private var bottomNavigationSettingsView: some View {
+        Form {
+            Section {
                 Text("Configure 0 to 5 bottom sections for compact screens.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -284,8 +452,18 @@ struct SettingsView: View {
                     }
                 }
             }
+        }
+        .navigationTitle(SettingsSection.bottomNavigation.title)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                EditButton()
+            }
+        }
+    }
 
-            Section("Storage") {
+    private var storageSettingsView: some View {
+        Form {
+            Section {
                 TextField("Default iCloud folder name", text: $iCloudFolderName)
                     .textInputAutocapitalization(.never)
 
@@ -314,8 +492,13 @@ struct SettingsView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
+        }
+        .navigationTitle(SettingsSection.storage.title)
+    }
 
-            Section("Maintenance") {
+    private var maintenanceSettingsView: some View {
+        Form {
+            Section {
                 Button("Sync now") {
                     container.refresh()
                 }
@@ -337,44 +520,7 @@ struct SettingsView: View {
                 }
             }
         }
-        .navigationTitle("Settings")
-        .fileImporter(
-            isPresented: $showingFolderPicker,
-            allowedContentTypes: [.folder],
-            allowsMultipleSelection: false
-        ) { result in
-            handleFolderSelection(result: result)
-        }
-        .alert(
-            "Folder Selection Error",
-            isPresented: Binding(
-                get: { folderSelectionErrorMessage != nil },
-                set: { isPresented in
-                    if !isPresented {
-                        folderSelectionErrorMessage = nil
-                    }
-                }
-            )
-        ) {
-            Button("OK", role: .cancel) {
-                folderSelectionErrorMessage = nil
-            }
-        } message: {
-            Text(folderSelectionErrorMessage ?? "")
-        }
-        .onChange(of: googleCalendarEnabled) { _, _ in
-            Task {
-                await container.refreshCalendar(force: true)
-            }
-        }
-        .task {
-            await container.refreshReminderListsIfNeeded()
-        }
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                EditButton()
-            }
-        }
+        .navigationTitle(SettingsSection.maintenance.title)
     }
 
     private var reminderListSelection: Binding<String> {

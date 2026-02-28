@@ -83,15 +83,19 @@ final class TodoMDAppUITests: XCTestCase {
         XCTAssertTrue(settingsButton.waitForExistence(timeout: 10))
         settingsButton.tap()
 
-        let importButton = app.buttons["settings.remindersImport.importButton"]
+        let remindersImportSection = app.buttons["settings.section.remindersImport"]
+        XCTAssertTrue(remindersImportSection.waitForExistence(timeout: 10), "Reminders Import section not visible")
+        remindersImportSection.tap()
+
+        let importButton = app.descendants(matching: .any)["settings.remindersImport.importButton"]
         var scrollAttempts = 0
-        while !importButton.exists && scrollAttempts < 8 {
+        while !importButton.exists && scrollAttempts < 6 {
             app.swipeUp()
             scrollAttempts += 1
         }
         XCTAssertTrue(importButton.waitForExistence(timeout: 10), "Reminders import button not visible")
 
-        let refreshButton = app.buttons["settings.remindersImport.refreshListsButton"]
+        let refreshButton = app.descendants(matching: .any)["settings.remindersImport.refreshListsButton"]
         if refreshButton.exists {
             refreshButton.tap()
         }
@@ -103,9 +107,11 @@ final class TodoMDAppUITests: XCTestCase {
         XCTAssertTrue(status.waitForExistence(timeout: 10), "Import status did not appear")
         XCTAssertTrue(status.label.contains("Imported 1 reminder"))
 
-        let backButton = app.navigationBars.buttons.firstMatch
-        XCTAssertTrue(backButton.waitForExistence(timeout: 10))
-        backButton.tap()
+        for _ in 0..<2 {
+            let backButton = app.navigationBars.buttons.firstMatch
+            XCTAssertTrue(backButton.waitForExistence(timeout: 10))
+            backButton.tap()
+        }
 
         let importedTaskRow = app.descendants(matching: .any)["taskRow.from reminders e2e"]
         XCTAssertTrue(importedTaskRow.waitForExistence(timeout: 10), "Imported reminder task row not found")
