@@ -4,7 +4,7 @@ import Foundation
 protocol RemindersImportServicing: Sendable {
     func fetchLists() async throws -> [ReminderList]
     func fetchIncompleteReminders(calendarID: String?) async throws -> [ReminderImportItem]
-    func removeReminders(withIDs reminderIDs: [String]) throws -> ReminderDeletionResult
+    func markRemindersCompleted(withIDs reminderIDs: [String]) throws -> ReminderCompletionResult
 }
 
 struct ReminderList: Identifiable, Equatable, Sendable {
@@ -32,8 +32,8 @@ struct ReminderImportItem: Identifiable, Equatable, Sendable {
     let modifiedAt: Date?
 }
 
-struct ReminderDeletionResult: Equatable, Sendable {
-    let removedCount: Int
+struct ReminderCompletionResult: Equatable, Sendable {
+    let completedCount: Int
     let missingCount: Int
 }
 
@@ -100,9 +100,9 @@ final class RemindersImportService: RemindersImportServicing, @unchecked Sendabl
         )
     }
 
-    func removeReminders(withIDs reminderIDs: [String]) throws -> ReminderDeletionResult {
+    func markRemindersCompleted(withIDs reminderIDs: [String]) throws -> ReminderCompletionResult {
         let uniqueIDs = Array(Set(reminderIDs))
-        var removed = 0
+        var completed = 0
         var missing = 0
 
         for reminderID in uniqueIDs {
@@ -114,15 +114,22 @@ final class RemindersImportService: RemindersImportServicing, @unchecked Sendabl
                 missing += 1
                 continue
             }
-            try eventStore.remove(reminder, commit: false)
-            removed += 1
+
+            if !reminder.isCompleted {
+                reminder.isCompleted = true
+                if reminder.completionDate == nil {
+                    reminder.completionDate = Date()
+                }
+                try eventStore.save(reminder, commit: false)
+            }
+            completed += 1
         }
 
-        if removed > 0 {
+        if completed > 0 {
             try eventStore.commit()
         }
 
-        return ReminderDeletionResult(removedCount: removed, missingCount: missing)
+        return ReminderCompletionResult(completedCount: completed, missingCount: missing)
     }
 
     private func ensureAccess() async throws {
@@ -232,7 +239,7 @@ final class FakeRemindersImportService: RemindersImportServicing, @unchecked Sen
     private static let defaultListID = "ui-test-reminders-list"
     private static let reminderID = "ui-test-reminder-1"
 
-    private var removedReminderIDs: Set<String> = []
+    private var completedReminderIDs: Set<String> = []
 
     func fetchLists() async throws -> [ReminderList] {
         [
@@ -249,7 +256,7 @@ final class FakeRemindersImportService: RemindersImportServicing, @unchecked Sen
             return []
         }
 
-        guard !removedReminderIDs.contains(Self.reminderID) else {
+        guard !completedReminderIDs.contains(Self.reminderID) else {
             return []
         }
 
@@ -268,13 +275,13 @@ final class FakeRemindersImportService: RemindersImportServicing, @unchecked Sen
         ]
     }
 
-    func removeReminders(withIDs reminderIDs: [String]) throws -> ReminderDeletionResult {
+    func markRemindersCompleted(withIDs reminderIDs: [String]) throws -> ReminderCompletionResult {
         let unique = Set(reminderIDs)
-        let removable = unique.intersection([Self.reminderID])
-        removedReminderIDs.formUnion(removable)
-        return ReminderDeletionResult(
-            removedCount: removable.count,
-            missingCount: unique.subtracting(removable).count
+        let completable = unique.intersection([Self.reminderID])
+        completedReminderIDs.formUnion(completable)
+        return ReminderCompletionResult(
+            completedCount: completable.count,
+            missingCount: unique.subtracting(completable).count
         )
     }
 }
