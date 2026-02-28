@@ -102,24 +102,7 @@ final class RemindersImportService: RemindersImportServicing {
         return await withCheckedContinuation { continuation in
             eventStore.fetchReminders(matching: predicate) { reminders in
                 let reminderItems = (reminders ?? [])
-                    .compactMap { reminder -> ReminderImportItem? in
-                        guard let reminderID = Self.trimmedText(reminder.calendarItemIdentifier), !reminderID.isEmpty else {
-                            return nil
-                        }
-                        guard let title = Self.trimmedText(reminder.title), !title.isEmpty else {
-                            return nil
-                        }
-                        return ReminderImportItem(
-                            id: reminderID,
-                            title: title,
-                            notes: Self.trimmedText(reminder.notes),
-                            dueDateComponents: reminder.dueDateComponents,
-                            startDateComponents: reminder.startDateComponents,
-                            priority: reminder.priority,
-                            createdAt: reminder.creationDate,
-                            modifiedAt: reminder.lastModifiedDate
-                        )
-                    }
+                    .compactMap(Self.makeReminderItem)
                     .sorted(by: Self.reminderSort)
 
                 continuation.resume(returning: reminderItems)
@@ -174,7 +157,7 @@ final class RemindersImportService: RemindersImportServicing {
         }
     }
 
-    private static func listSort(lhs: ReminderList, rhs: ReminderList) -> Bool {
+    nonisolated private static func listSort(lhs: ReminderList, rhs: ReminderList) -> Bool {
         let lhsSource = lhs.sourceName
         let rhsSource = rhs.sourceName
         if lhsSource.caseInsensitiveCompare(rhsSource) != .orderedSame {
@@ -183,7 +166,7 @@ final class RemindersImportService: RemindersImportServicing {
         return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
     }
 
-    private static func reminderSort(lhs: ReminderImportItem, rhs: ReminderImportItem) -> Bool {
+    nonisolated private static func reminderSort(lhs: ReminderImportItem, rhs: ReminderImportItem) -> Bool {
         let lhsDue = lhs.dueDateComponents?.date
         let rhsDue = rhs.dueDateComponents?.date
 
@@ -199,8 +182,27 @@ final class RemindersImportService: RemindersImportServicing {
         }
     }
 
-    private static func trimmedText(_ value: String?) -> String? {
+    nonisolated private static func trimmedText(_ value: String?) -> String? {
         value?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    }
+
+    nonisolated private static func makeReminderItem(from reminder: EKReminder) -> ReminderImportItem? {
+        guard let reminderID = Self.trimmedText(reminder.calendarItemIdentifier), !reminderID.isEmpty else {
+            return nil
+        }
+        guard let title = Self.trimmedText(reminder.title), !title.isEmpty else {
+            return nil
+        }
+        return ReminderImportItem(
+            id: reminderID,
+            title: title,
+            notes: Self.trimmedText(reminder.notes),
+            dueDateComponents: reminder.dueDateComponents,
+            startDateComponents: reminder.startDateComponents,
+            priority: reminder.priority,
+            createdAt: reminder.creationDate,
+            modifiedAt: reminder.lastModifiedDate
+        )
     }
 }
 
