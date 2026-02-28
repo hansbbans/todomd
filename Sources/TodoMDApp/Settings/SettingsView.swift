@@ -120,6 +120,7 @@ struct SettingsView: View {
                             Text(list.displayName).tag(list.id)
                         }
                     }
+                    .accessibilityIdentifier("settings.remindersImport.listPicker")
                     .disabled(container.isRemindersImporting)
                 }
 
@@ -128,6 +129,7 @@ struct SettingsView: View {
                         await container.refreshReminderLists()
                     }
                 }
+                .accessibilityIdentifier("settings.remindersImport.refreshListsButton")
                 .disabled(container.isRemindersImporting)
 
                 Button(container.isRemindersImporting ? "Importing..." : "Import Now") {
@@ -135,11 +137,13 @@ struct SettingsView: View {
                         await container.importFromReminders()
                     }
                 }
+                .accessibilityIdentifier("settings.remindersImport.importButton")
                 .disabled(container.isRemindersImporting || container.reminderLists.isEmpty)
 
                 if let remindersImportStatusMessage = container.remindersImportStatusMessage,
                    !remindersImportStatusMessage.isEmpty {
                     Text(remindersImportStatusMessage)
+                        .accessibilityIdentifier("settings.remindersImport.status")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

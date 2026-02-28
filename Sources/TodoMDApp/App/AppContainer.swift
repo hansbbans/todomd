@@ -158,7 +158,7 @@ final class AppContainer: ObservableObject {
     private let quickEntryParser = NaturalLanguageTaskParser()
     private let urlRouter = URLRouter()
     private let googleCalendarService = GoogleCalendarService()
-    private let remindersImportService = RemindersImportService()
+    private let remindersImportService: any RemindersImportServicing
     private let logger: RuntimeLogging
     private(set) var rootURL: URL
 
@@ -204,16 +204,13 @@ final class AppContainer: ObservableObject {
 
     init(logger: RuntimeLogging = ConsoleRuntimeLogger()) {
         self.logger = logger
+        remindersImportService = Self.makeRemindersImportServiceForCurrentProcess()
 
         let resolvedRoot = Self.resolveRootURL()
         self.rootURL = resolvedRoot
 
 #if canImport(SwiftData)
-        if let container = try? ModelContainer(for: TaskIndexRecord.self) {
-            self.modelContainer = container
-        } else {
-            fatalError("Failed to initialize SwiftData container for TaskIndexRecord")
-        }
+        self.modelContainer = Self.makeModelContainer()
         self.modelContext = ModelContext(modelContainer)
 #endif
 
@@ -233,6 +230,50 @@ final class AppContainer: ObservableObject {
         startMetadataQuery()
         refresh()
     }
+
+    private static func makeRemindersImportServiceForCurrentProcess() -> any RemindersImportServicing {
+        let environment = ProcessInfo.processInfo.environment
+        if environment["TODOMD_FAKE_REMINDERS_IMPORT"] == "1" {
+            return FakeRemindersImportService()
+        }
+        return RemindersImportService()
+    }
+
+#if canImport(SwiftData)
+    private static func makeModelContainer() -> ModelContainer {
+        do {
+            return try ModelContainer(for: TaskIndexRecord.self)
+        } catch {
+            resetSwiftDataStoreFiles()
+            do {
+                return try ModelContainer(for: TaskIndexRecord.self)
+            } catch {
+                fatalError("Failed to initialize SwiftData container for TaskIndexRecord")
+            }
+        }
+    }
+
+    private static func resetSwiftDataStoreFiles() {
+        #if os(iOS)
+        let homeDirectory = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+        #else
+        let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
+        #endif
+        let appSupportDirectory = homeDirectory
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+        let storeURL = appSupportDirectory.appendingPathComponent("default.store", isDirectory: false)
+        let fileManager = FileManager.default
+        let urls = [
+            storeURL,
+            URL(fileURLWithPath: "\(storeURL.path)-shm", isDirectory: false),
+            URL(fileURLWithPath: "\(storeURL.path)-wal", isDirectory: false)
+        ]
+        for url in urls where fileManager.fileExists(atPath: url.path) {
+            try? fileManager.removeItem(at: url)
+        }
+    }
+#endif
 
     deinit {
         metadataRefreshWorkItem?.cancel()

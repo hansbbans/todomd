@@ -1,6 +1,13 @@
 import EventKit
 import Foundation
 
+@MainActor
+protocol RemindersImportServicing {
+    func fetchLists() async throws -> [ReminderList]
+    func fetchIncompleteReminders(calendarID: String?) async throws -> [ReminderImportItem]
+    func removeReminders(withIDs reminderIDs: [String]) throws -> ReminderDeletionResult
+}
+
 struct ReminderList: Identifiable, Equatable, Sendable {
     let id: String
     let name: String
@@ -48,7 +55,7 @@ enum RemindersImportServiceError: LocalizedError {
 }
 
 @MainActor
-final class RemindersImportService {
+final class RemindersImportService: RemindersImportServicing {
     private let eventStore: EKEventStore
 
     init(eventStore: EKEventStore = EKEventStore()) {
@@ -183,5 +190,56 @@ final class RemindersImportService {
 private extension String {
     var nilIfEmpty: String? {
         isEmpty ? nil : self
+    }
+}
+
+@MainActor
+final class FakeRemindersImportService: RemindersImportServicing {
+    private static let defaultListID = "ui-test-reminders-list"
+    private static let reminderID = "ui-test-reminder-1"
+
+    private var removedReminderIDs: Set<String> = []
+
+    func fetchLists() async throws -> [ReminderList] {
+        [
+            ReminderList(
+                id: Self.defaultListID,
+                name: "UI Test Reminders",
+                sourceName: "Local"
+            )
+        ]
+    }
+
+    func fetchIncompleteReminders(calendarID: String?) async throws -> [ReminderImportItem] {
+        if let calendarID, calendarID != Self.defaultListID {
+            return []
+        }
+
+        guard !removedReminderIDs.contains(Self.reminderID) else {
+            return []
+        }
+
+        return [
+            ReminderImportItem(
+                id: Self.reminderID,
+                title: "from reminders e2e",
+                notes: "created by ui test",
+                dueDateComponents: nil,
+                startDateComponents: nil,
+                priority: 0,
+                createdAt: Date(),
+                modifiedAt: Date()
+            )
+        ]
+    }
+
+    func removeReminders(withIDs reminderIDs: [String]) throws -> ReminderDeletionResult {
+        let unique = Set(reminderIDs)
+        let removable = unique.intersection([Self.reminderID])
+        removedReminderIDs.formUnion(removable)
+        return ReminderDeletionResult(
+            removedCount: removable.count,
+            missingCount: unique.subtracting(removable).count
+        )
     }
 }
