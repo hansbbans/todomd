@@ -20,6 +20,10 @@ public struct TaskQueryEngine {
             switch builtIn {
             case .inbox:
                 return isInbox(record)
+            case .myTasks:
+                return isMyTasks(record)
+            case .delegated:
+                return isDelegated(record)
             case .today:
                 return isToday(record, today: today)
             case .upcoming:
@@ -43,9 +47,16 @@ public struct TaskQueryEngine {
     }
 
     public func todayGroup(for record: TaskRecord, today: LocalDate) -> TodayGroup? {
-        guard isActive(record), isAvailableByDefer(record, today: today) else { return nil }
+        guard isActive(record), isAvailableByDefer(record, today: today), isAssignedToUser(record) else { return nil }
 
         let frontmatter = record.document.frontmatter
+
+        if frontmatter.isBlocked {
+            if let due = frontmatter.due, due < today {
+                return .overdue
+            }
+            return nil
+        }
 
         if let due = frontmatter.due, due < today {
             return .overdue
@@ -71,6 +82,16 @@ public struct TaskQueryEngine {
         return isActive(record) && frontmatter.area == nil && frontmatter.project == nil
     }
 
+    public func isMyTasks(_ record: TaskRecord) -> Bool {
+        guard isActive(record) else { return false }
+        return isAssignedToUser(record)
+    }
+
+    public func isDelegated(_ record: TaskRecord) -> Bool {
+        guard isActive(record) else { return false }
+        return isDelegatedTask(record)
+    }
+
     public func isToday(_ record: TaskRecord, today: LocalDate) -> Bool {
         todayGroup(for: record, today: today) != nil
     }
@@ -87,6 +108,8 @@ public struct TaskQueryEngine {
     public func isAnytime(_ record: TaskRecord, today: LocalDate) -> Bool {
         let status = record.document.frontmatter.status
         guard status == .todo || status == .inProgress else { return false }
+        guard isAssignedToUser(record) else { return false }
+        guard !record.document.frontmatter.isBlocked else { return false }
         guard isAvailableByDefer(record, today: today) else { return false }
         return status != .someday
     }
@@ -103,6 +126,17 @@ public struct TaskQueryEngine {
     private func isActive(_ record: TaskRecord) -> Bool {
         let status = record.document.frontmatter.status
         return status == .todo || status == .inProgress
+    }
+
+    private func isAssignedToUser(_ record: TaskRecord) -> Bool {
+        let assignee = record.document.frontmatter.assignee?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return assignee == nil || assignee == "user" || assignee == ""
+    }
+
+    private func isDelegatedTask(_ record: TaskRecord) -> Bool {
+        let assignee = record.document.frontmatter.assignee?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard let assignee, !assignee.isEmpty else { return false }
+        return assignee != "user"
     }
 
     private func isAvailableByDefer(_ record: TaskRecord, today: LocalDate) -> Bool {

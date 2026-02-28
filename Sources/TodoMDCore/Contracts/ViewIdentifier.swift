@@ -2,6 +2,8 @@ import Foundation
 
 public enum BuiltInView: String, CaseIterable, Sendable {
     case inbox
+    case myTasks = "my-tasks"
+    case delegated
     case today
     case upcoming
     case anytime

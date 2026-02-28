@@ -27,11 +27,16 @@ struct ConflictSummary: Identifiable, Equatable {
 }
 
 struct TaskEditState: Equatable {
+    var ref: String
     var title: String
     var subtitle: String
     var status: TaskStatus
     var flagged: Bool
     var priority: TaskPriority
+    var assignee: String
+    var blockedByManual: Bool
+    var blockedByRefsText: String
+    var completedBy: String
 
     var hasDue: Bool
     var dueDate: Date
@@ -180,6 +185,7 @@ final class AppContainer: ObservableObject {
 
     private static let settingsNotificationHourKey = "settings_notification_hour"
     private static let settingsNotificationMinuteKey = "settings_notification_minute"
+    private static let settingsNotifyAutoUnblockedKey = "settings_notify_auto_unblocked"
     private static let settingsPersistentRemindersEnabledKey = "settings_persistent_reminders_enabled"
     private static let settingsPersistentReminderIntervalMinutesKey = "settings_persistent_reminder_interval_minutes"
     private static let settingsArchiveCompletedKey = "settings_archive_completed"
@@ -254,7 +260,24 @@ final class AppContainer: ObservableObject {
             loadPerspectivesFromDisk()
             let sync = try fileWatcher.synchronize()
             let canonicalLoad = try loadCanonicalRecordsBestEffort(timestamp: sync.summary.timestamp)
-            let canonicalRecords = canonicalLoad.records
+            var canonicalRecords = canonicalLoad.records
+
+            let backfilledRefCount = try backfillMissingRefs(in: canonicalRecords)
+            if backfilledRefCount > 0 {
+                canonicalRecords = try repository.loadAll()
+            }
+
+            let autoUnblockedPaths = try autoResolveBlockedDependencies(in: canonicalRecords)
+            if !autoUnblockedPaths.isEmpty {
+                canonicalRecords = try repository.loadAll()
+                notifyAutoUnblockedTasksIfEnabled(paths: autoUnblockedPaths, records: canonicalRecords)
+            }
+
+            let completionMetadataUpdates = try inferCompletionMetadata(in: canonicalRecords)
+            if completionMetadataUpdates > 0 {
+                canonicalRecords = try repository.loadAll()
+            }
+
             canonicalByPath = Dictionary(uniqueKeysWithValues: canonicalRecords.map { ($0.identity.path, $0) })
 
             let indexStart = ContinuousClock.now
@@ -374,6 +397,181 @@ final class AppContainer: ObservableObject {
             return lhs.path < rhs.path
         }
     }
+
+    private func backfillMissingRefs(in records: [TaskRecord]) throws -> Int {
+        let generator = TaskRefGenerator()
+        var existingRefs: Set<String> = Set(records.compactMap { record in
+            guard let ref = record.document.frontmatter.ref?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  TaskRefGenerator.isValid(ref: ref) else {
+                return nil
+            }
+            return ref
+        })
+
+        var backfilledCount = 0
+        for record in records.sorted(by: { $0.identity.path < $1.identity.path }) {
+            let existing = record.document.frontmatter.ref?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if TaskRefGenerator.isValid(ref: existing) {
+                existingRefs.insert(existing)
+                continue
+            }
+
+            let generated = generator.generate(existingRefs: existingRefs)
+            existingRefs.insert(generated)
+            do {
+                let updated = try repository.update(path: record.identity.path) { document in
+                    document.frontmatter.ref = generated
+                }
+                markSelfWrite(path: updated.identity.path)
+                backfilledCount += 1
+            } catch {
+                logger.error("Ref backfill failed", metadata: [
+                    "path": record.identity.path,
+                    "error": error.localizedDescription
+                ])
+            }
+        }
+
+        return backfilledCount
+    }
+
+    private func autoResolveBlockedDependencies(in records: [TaskRecord]) throws -> [String] {
+        let recordsByRef = Dictionary(uniqueKeysWithValues: records.compactMap { record -> (String, TaskRecord)? in
+            guard let ref = record.document.frontmatter.ref?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !ref.isEmpty else {
+                return nil
+            }
+            return (ref, record)
+        })
+
+        var fullyUnblockedPaths: [String] = []
+
+        for record in records {
+            guard case .refs(let refs) = record.document.frontmatter.blockedBy else { continue }
+            guard !refs.isEmpty else { continue }
+
+            let unresolvedRefs = refs.filter { ref in
+                guard let blocker = recordsByRef[ref] else {
+                    return false
+                }
+                let status = blocker.document.frontmatter.status
+                return status != .done && status != .cancelled
+            }
+
+            if unresolvedRefs == refs {
+                continue
+            }
+
+            do {
+                let updated = try repository.update(path: record.identity.path) { document in
+                    if unresolvedRefs.isEmpty {
+                        document.frontmatter.blockedBy = nil
+                    } else {
+                        document.frontmatter.blockedBy = .refs(unresolvedRefs)
+                    }
+                }
+                markSelfWrite(path: updated.identity.path)
+                if unresolvedRefs.isEmpty {
+                    fullyUnblockedPaths.append(updated.identity.path)
+                }
+            } catch {
+                logger.error("Auto-unblock update failed", metadata: [
+                    "path": record.identity.path,
+                    "error": error.localizedDescription
+                ])
+            }
+        }
+
+        return fullyUnblockedPaths
+    }
+
+    private func inferCompletionMetadata(in records: [TaskRecord]) throws -> Int {
+        var updatedCount = 0
+
+        for record in records {
+            let frontmatter = record.document.frontmatter
+            let isCompleted = frontmatter.status == .done || frontmatter.status == .cancelled
+
+            if isCompleted {
+                let needsCompletedAt = frontmatter.completed == nil
+                let completedByText = frontmatter.completedBy?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let needsCompletedBy = completedByText.isEmpty
+                guard needsCompletedAt || needsCompletedBy else { continue }
+
+                let inferredCompletedBy: String = {
+                    let assignee = frontmatter.assignee?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    if !assignee.isEmpty { return assignee }
+                    let source = frontmatter.source.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return source.isEmpty ? "unknown" : source
+                }()
+
+                do {
+                    let updated = try repository.update(path: record.identity.path) { document in
+                        if document.frontmatter.completed == nil {
+                            document.frontmatter.completed = document.frontmatter.modified ?? Date()
+                        }
+                        let completedBy = document.frontmatter.completedBy?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        if completedBy.isEmpty {
+                            document.frontmatter.completedBy = inferredCompletedBy
+                        }
+                    }
+                    markSelfWrite(path: updated.identity.path)
+                    updatedCount += 1
+                } catch {
+                    logger.error("Completion metadata inference failed", metadata: [
+                        "path": record.identity.path,
+                        "error": error.localizedDescription
+                    ])
+                }
+                continue
+            }
+
+            if frontmatter.completed == nil && frontmatter.completedBy == nil {
+                continue
+            }
+
+            do {
+                let updated = try repository.update(path: record.identity.path) { document in
+                    document.frontmatter.completed = nil
+                    document.frontmatter.completedBy = nil
+                }
+                markSelfWrite(path: updated.identity.path)
+                updatedCount += 1
+            } catch {
+                logger.error("Completion metadata clear failed", metadata: [
+                    "path": record.identity.path,
+                    "error": error.localizedDescription
+                ])
+            }
+        }
+
+        return updatedCount
+    }
+
+#if canImport(UserNotifications)
+    private func notifyAutoUnblockedTasksIfEnabled(paths: [String], records: [TaskRecord]) {
+        let shouldNotify = UserDefaults.standard.object(forKey: Self.settingsNotifyAutoUnblockedKey) as? Bool ?? true
+        guard shouldNotify else { return }
+
+        let byPath = Dictionary(uniqueKeysWithValues: records.map { ($0.identity.path, $0) })
+        let uniquePaths = Array(Set(paths))
+
+        Task {
+            for path in uniquePaths {
+                guard let record = byPath[path] else { continue }
+                await notificationScheduler.scheduleAutoUnblockedNotification(
+                    taskPath: path,
+                    title: record.document.frontmatter.title
+                )
+            }
+        }
+    }
+#else
+    private func notifyAutoUnblockedTasksIfEnabled(paths: [String], records: [TaskRecord]) {
+        _ = paths
+        _ = records
+    }
+#endif
 
     @discardableResult
     private func reconfigureStorageIfNeeded(force: Bool = false) -> Bool {
@@ -603,6 +801,47 @@ final class AppContainer: ObservableObject {
                     ]
                 )
             )
+        case .myTasks:
+            return PerspectiveDefinition(
+                id: "builtin.my-tasks",
+                name: "My Tasks",
+                icon: "person",
+                rules: PerspectiveRuleGroup(
+                    operator: .and,
+                    conditions: [
+                        .rule(PerspectiveRule(
+                            field: .status,
+                            operator: .in,
+                            jsonValue: .array([.string(TaskStatus.todo.rawValue), .string(TaskStatus.inProgress.rawValue)])
+                        )),
+                        .group(PerspectiveRuleGroup(
+                            operator: .or,
+                            conditions: [
+                                .rule(PerspectiveRule(field: .assignee, operator: .isNil)),
+                                .rule(PerspectiveRule(field: .assignee, operator: .equals, value: "user"))
+                            ]
+                        ))
+                    ]
+                )
+            )
+        case .delegated:
+            return PerspectiveDefinition(
+                id: "builtin.delegated",
+                name: "Delegated",
+                icon: "person.2",
+                rules: PerspectiveRuleGroup(
+                    operator: .and,
+                    conditions: [
+                        .rule(PerspectiveRule(
+                            field: .status,
+                            operator: .in,
+                            jsonValue: .array([.string(TaskStatus.todo.rawValue), .string(TaskStatus.inProgress.rawValue)])
+                        )),
+                        .rule(PerspectiveRule(field: .assignee, operator: .isNotNil)),
+                        .rule(PerspectiveRule(field: .assignee, operator: .notEquals, value: "user"))
+                    ]
+                )
+            )
         case .today:
             return PerspectiveDefinition(
                 id: "builtin.today",
@@ -618,6 +857,13 @@ final class AppContainer: ObservableObject {
                                 .rule(PerspectiveRule(field: .scheduled, operator: .onToday)),
                                 .rule(PerspectiveRule(field: .defer, operator: .onOrBefore, jsonValue: .object(["op": .string("today")]))
                                 )
+                            ]
+                        )),
+                        .group(PerspectiveRuleGroup(
+                            operator: .or,
+                            conditions: [
+                                .rule(PerspectiveRule(field: .assignee, operator: .isNil)),
+                                .rule(PerspectiveRule(field: .assignee, operator: .equals, value: "user"))
                             ]
                         )),
                         .group(PerspectiveRuleGroup(operator: .not, conditions: [.rule(completedStatusesRule)]))
@@ -779,13 +1025,19 @@ final class AppContainer: ObservableObject {
         guard let record = record(for: path) else { return nil }
         let frontmatter = record.document.frontmatter
         let locationReminder = frontmatter.locationReminder
+        let blockedByRefsText = frontmatter.blockedByRefs.joined(separator: ", ")
 
         return TaskEditState(
+            ref: frontmatter.ref ?? "",
             title: frontmatter.title,
             subtitle: frontmatter.description ?? "",
             status: frontmatter.status,
             flagged: frontmatter.flagged,
             priority: frontmatter.priority,
+            assignee: frontmatter.assignee ?? "",
+            blockedByManual: frontmatter.blockedBy == .manual,
+            blockedByRefsText: blockedByRefsText,
+            completedBy: frontmatter.completedBy ?? "",
             hasDue: frontmatter.due != nil,
             dueDate: dateFromLocalDate(frontmatter.due) ?? Date(),
             hasDueTime: frontmatter.dueTime != nil,
@@ -942,6 +1194,22 @@ final class AppContainer: ObservableObject {
         }
     }
 
+    @discardableResult
+    func setBlocked(path: String, blockedBy: TaskBlockedBy?) -> Bool {
+        do {
+            let updated = try repository.update(path: path) { document in
+                document.frontmatter.blockedBy = blockedBy
+                document.frontmatter.modified = Date()
+            }
+            markSelfWrite(path: updated.identity.path)
+            refresh()
+            return true
+        } catch {
+            logger.error("Set blocked failed", metadata: ["path": path, "error": error.localizedDescription])
+            return false
+        }
+    }
+
     func createTask(
         title: String,
         naturalDate: String?,
@@ -1065,12 +1333,12 @@ final class AppContainer: ObservableObject {
             let shouldRepeat = !recurrence.isEmpty && current.document.frontmatter.status != .done && current.document.frontmatter.status != .cancelled
 
             if shouldRepeat {
-                let result = try repository.completeRepeating(path: path, at: now)
+                let result = try repository.completeRepeating(path: path, at: now, completedBy: "user")
                 archiveCompletedFilesIfEnabled(paths: [result.completed.identity.path])
                 markSelfWrite(path: result.completed.identity.path)
                 markSelfWrite(path: result.next.identity.path)
             } else {
-                let completed = try repository.complete(path: path, at: now)
+                let completed = try repository.complete(path: path, at: now, completedBy: "user")
                 archiveCompletedFilesIfEnabled(paths: [completed.identity.path])
                 markSelfWrite(path: completed.identity.path)
             }
@@ -1112,6 +1380,13 @@ final class AppContainer: ObservableObject {
                 selectedView = view
             case .showTask(let path):
                 navigationTaskPath = path
+            case .showTaskRef(let ref):
+                if let path = pathForTaskRef(ref) {
+                    navigationTaskPath = path
+                } else {
+                    refresh()
+                    navigationTaskPath = pathForTaskRef(ref)
+                }
             case .quickAdd:
                 shouldPresentQuickEntry = true
             }
@@ -1123,6 +1398,12 @@ final class AppContainer: ObservableObject {
 
     func deleteUnparseable(path: String) {
         _ = deleteTask(path: path)
+    }
+
+    private func pathForTaskRef(_ ref: String) -> String? {
+        let normalized = ref.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return nil }
+        return canonicalByPath.values.first(where: { $0.document.frontmatter.ref == normalized })?.identity.path
     }
 
     func rebuildIndex() {
@@ -2040,6 +2321,7 @@ final class AppContainer: ObservableObject {
                 modelContext.insert(TaskIndexRecord(
                     path: record.identity.path,
                     filename: record.identity.filename,
+                    ref: record.document.frontmatter.ref,
                     title: record.document.frontmatter.title,
                     subtitle: record.document.frontmatter.description,
                     status: record.document.frontmatter.status.rawValue,
@@ -2054,6 +2336,10 @@ final class AppContainer: ObservableObject {
                     tags: record.document.frontmatter.tags,
                     recurrence: record.document.frontmatter.recurrence,
                     estimatedMinutes: record.document.frontmatter.estimatedMinutes,
+                    assignee: record.document.frontmatter.assignee,
+                    completedBy: record.document.frontmatter.completedBy,
+                    blockedByFlag: record.document.frontmatter.blockedBy == .manual,
+                    blockedByRefs: record.document.frontmatter.blockedByRefs,
                     source: record.document.frontmatter.source,
                     modifiedAt: record.document.frontmatter.modified,
                     completedAt: record.document.frontmatter.completed,
@@ -2071,6 +2357,7 @@ final class AppContainer: ObservableObject {
 
     private func apply(record: TaskRecord, to model: TaskIndexRecord) {
         model.filename = record.identity.filename
+        model.ref = record.document.frontmatter.ref
         model.title = record.document.frontmatter.title
         model.subtitle = record.document.frontmatter.description
         model.status = record.document.frontmatter.status.rawValue
@@ -2085,6 +2372,10 @@ final class AppContainer: ObservableObject {
         model.tags = record.document.frontmatter.tags
         model.recurrence = record.document.frontmatter.recurrence
         model.estimatedMinutes = record.document.frontmatter.estimatedMinutes
+        model.assignee = record.document.frontmatter.assignee
+        model.completedBy = record.document.frontmatter.completedBy
+        model.blockedByFlag = record.document.frontmatter.blockedBy == .manual
+        model.blockedByRefs = record.document.frontmatter.blockedByRefs
         model.source = record.document.frontmatter.source
         model.modifiedAt = record.document.frontmatter.modified
         model.completedAt = record.document.frontmatter.completed
@@ -2106,6 +2397,7 @@ final class AppContainer: ObservableObject {
         let scheduled = model.scheduledISODate.flatMap { try? LocalDate(isoDate: $0) }
 
         let frontmatter = TaskFrontmatterV1(
+            ref: model.ref,
             title: model.title,
             status: status,
             due: due,
@@ -2123,6 +2415,9 @@ final class AppContainer: ObservableObject {
             created: model.createdAt,
             modified: model.modifiedAt,
             completed: model.completedAt,
+            assignee: model.assignee,
+            completedBy: model.completedBy,
+            blockedBy: model.blockedByFlag ? .manual : (model.blockedByRefs.isEmpty ? nil : .refs(model.blockedByRefs)),
             source: model.source
         )
 
@@ -2171,12 +2466,27 @@ final class AppContainer: ObservableObject {
     }
 
     private func apply(editState: TaskEditState, to document: inout TaskDocument) {
+        let previousStatus = document.frontmatter.status
         let trimmedTitle = editState.title.trimmingCharacters(in: .whitespacesAndNewlines)
         document.frontmatter.title = trimmedTitle.isEmpty ? document.frontmatter.title : trimmedTitle
+        document.frontmatter.ref = editState.ref.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         document.frontmatter.description = editState.subtitle.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         document.frontmatter.status = editState.status
         document.frontmatter.flagged = editState.flagged
         document.frontmatter.priority = editState.priority
+        document.frontmatter.assignee = editState.assignee.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+
+        let blockedRefs = editState.blockedByRefsText
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if editState.blockedByManual {
+            document.frontmatter.blockedBy = .manual
+        } else if blockedRefs.isEmpty {
+            document.frontmatter.blockedBy = nil
+        } else {
+            document.frontmatter.blockedBy = .refs(blockedRefs)
+        }
 
         document.frontmatter.due = editState.hasDue ? localDateFromDate(editState.dueDate) : nil
         document.frontmatter.dueTime = (editState.hasDue && editState.hasDueTime) ? localTimeFromDate(editState.dueTime) : nil
@@ -2196,6 +2506,16 @@ final class AppContainer: ObservableObject {
         document.frontmatter.recurrence = editState.recurrence.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         document.frontmatter.locationReminder = locationReminder(from: editState)
         document.body = String(editState.body.prefix(TaskValidation.maxBodyLength))
+
+        let isNowCompleted = editState.status == .done || editState.status == .cancelled
+        let wasCompleted = previousStatus == .done || previousStatus == .cancelled
+        if isNowCompleted && !wasCompleted {
+            document.frontmatter.completed = Date()
+            document.frontmatter.completedBy = "user"
+        } else if !isNowCompleted && wasCompleted {
+            document.frontmatter.completed = nil
+            document.frontmatter.completedBy = nil
+        }
     }
 
     private func locationReminder(from editState: TaskEditState) -> TaskLocationReminder? {

@@ -115,4 +115,28 @@ final class PerspectiveQueryEngineTests: XCTestCase {
 
         XCTAssertTrue(engine.matches(record, perspective: perspective, today: try LocalDate(isoDate: "2025-03-03")))
     }
+
+    func testAssigneeCompletedByAndBlockedByFields() throws {
+        var frontmatter = TestSupport.sampleFrontmatter(title: "Task")
+        frontmatter.assignee = "codex"
+        frontmatter.completedBy = "codex"
+        frontmatter.blockedBy = .refs(["t-1234"])
+        frontmatter.ref = "t-abcd"
+        let record = TaskRecord(identity: TaskFileIdentity(path: "/tmp/fields.md"), document: .init(frontmatter: frontmatter, body: ""))
+
+        let perspective = PerspectiveDefinition(
+            name: "Fields",
+            rules: PerspectiveRuleGroup(
+                operator: .and,
+                conditions: [
+                    .rule(PerspectiveRule(field: .assignee, operator: .equals, value: "codex")),
+                    .rule(PerspectiveRule(field: .completedBy, operator: .equals, value: "codex")),
+                    .rule(PerspectiveRule(field: .blockedBy, operator: .contains, value: "t-1234")),
+                    .rule(PerspectiveRule(field: .ref, operator: .equals, value: "t-abcd"))
+                ]
+            )
+        )
+
+        XCTAssertTrue(engine.matches(record, perspective: perspective, today: try LocalDate(isoDate: "2025-03-03")))
+    }
 }

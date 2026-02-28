@@ -86,9 +86,9 @@ private struct IntentServices {
         let shouldRepeat = !recurrence.isEmpty && current.document.frontmatter.status != .done && current.document.frontmatter.status != .cancelled
 
         if shouldRepeat {
-            return try repository.completeRepeating(path: path, at: now).completed
+            return try repository.completeRepeating(path: path, at: now, completedBy: "user").completed
         }
-        return try repository.complete(path: path, at: now)
+        return try repository.complete(path: path, at: now, completedBy: "user")
     }
 }
 

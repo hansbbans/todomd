@@ -100,6 +100,23 @@ final class UserNotificationScheduler {
 #endif
     }
 
+    func scheduleAutoUnblockedNotification(taskPath: String, title: String) async {
+        let content = notificationContent(
+            title: title,
+            body: "Task is now unblocked and ready to work on.",
+            taskPath: taskPath,
+            kind: "auto_unblocked"
+        )
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+        let identifier = "auto-unblocked-\(abs(taskPath.hashValue))"
+        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
+        do {
+            try await center.add(request)
+        } catch {
+            // Keep non-fatal.
+        }
+    }
+
     private func notificationContent(title: String, body: String, taskPath: String, kind: String) -> UNMutableNotificationContent {
         let content = UNMutableNotificationContent()
         content.title = title
