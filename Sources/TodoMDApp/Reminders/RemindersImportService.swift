@@ -66,12 +66,15 @@ final class RemindersImportService: RemindersImportServicing {
         try await ensureAccess()
 
         return eventStore.calendars(for: .reminder)
-            .map { calendar in
+            .compactMap { calendar -> ReminderList? in
+                guard let calendarID = Self.trimmedText(calendar.calendarIdentifier), !calendarID.isEmpty else {
+                    return nil
+                }
                 let name = Self.trimmedText(calendar.title) ?? "Reminders"
                 return ReminderList(
-                    id: calendar.calendarIdentifier,
+                    id: calendarID,
                     name: name,
-                    sourceName: Self.trimmedText(calendar.source.title) ?? ""
+                    sourceName: Self.trimmedText(calendar.source?.title) ?? ""
                 )
             }
             .sorted(by: Self.listSort)
@@ -134,7 +137,7 @@ final class RemindersImportService: RemindersImportServicing {
                 missing += 1
                 continue
             }
-            guard reminder.calendar.allowsContentModifications else {
+            guard reminder.calendar?.allowsContentModifications == true else {
                 missing += 1
                 continue
             }
