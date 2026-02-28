@@ -157,7 +157,7 @@ final class AppContainer: ObservableObject {
     private let dateParser = NaturalLanguageDateParser()
     private let quickEntryParser = NaturalLanguageTaskParser()
     private let urlRouter = URLRouter()
-    private let googleCalendarService = GoogleCalendarService()
+    private let appleCalendarService = AppleCalendarService()
     private let remindersImportService: any RemindersImportServicing
     private let logger: RuntimeLogging
     private(set) var rootURL: URL
@@ -193,13 +193,10 @@ final class AppContainer: ObservableObject {
     private static let settingsDefaultPriorityKey = "settings_default_priority"
     private static let settingsQuickEntryDefaultViewKey = "settings_quick_entry_default_view"
     private static let settingsPerspectivesKey = "settings_saved_perspectives_v1"
-    private static let settingsGoogleCalendarEnabledKey = "settings_google_calendar_enabled"
-    private static let settingsGoogleCalendarSelectedIDsKey = "settings_google_calendar_selected_ids"
+    private static let settingsCalendarEnabledKey = "settings_google_calendar_enabled"
+    private static let settingsCalendarSelectedIDsKey = "settings_google_calendar_selected_ids"
     private static let settingsRemindersImportListIDKey = "settings_reminders_import_list_id"
     private static let settingsLocationFavoritesKey = "settings_location_favorites_v1"
-    private static let infoGoogleCalendarClientIDKey = "GOOGLE_OAUTH_CLIENT_ID"
-    private static let infoGoogleCalendarRedirectURIKey = "GOOGLE_OAUTH_REDIRECT_URI"
-    private static let defaultGoogleCalendarRedirectURI = "todomd://oauth"
     private static let hashtagRegex = try? NSRegularExpression(pattern: "#([A-Za-z0-9_-]+)")
 
     init(logger: RuntimeLogging = ConsoleRuntimeLogger()) {
@@ -225,7 +222,7 @@ final class AppContainer: ObservableObject {
         loadLocationFavorites()
         loadPerspectivesFromDisk()
         migrateLegacyPerspectivesFromSettingsIfNeeded()
-        isCalendarConnected = googleCalendarService.isConnected
+        isCalendarConnected = appleCalendarService.isConnected
         configureLifecycleObservers()
         startMetadataQuery()
         refresh()
@@ -1671,10 +1668,6 @@ final class AppContainer: ObservableObject {
         }
     }
 
-    var isGoogleCalendarConfigured: Bool {
-        googleCalendarClientID() != nil
-    }
-
     func isCalendarSourceSelected(_ sourceID: String) -> Bool {
         selectedCalendarSourceIDs.contains(sourceID)
     }
@@ -1695,45 +1688,32 @@ final class AppContainer: ObservableObject {
         scheduleCalendarRefresh(force: true)
     }
 
-    func connectGoogleCalendar() async {
-        guard let clientID = googleCalendarClientID() else {
-            calendarStatusMessage = "Google Calendar is not configured for this app build."
-            return
-        }
-
-        let redirectURI = googleCalendarRedirectURI()
+    func connectCalendar() async {
         isCalendarSyncing = true
         calendarStatusMessage = nil
         do {
-            try await googleCalendarService.connect(clientID: clientID, redirectURI: redirectURI)
+            try await appleCalendarService.requestAccessIfNeeded()
             isCalendarConnected = true
             await refreshCalendar(force: true)
         } catch {
             calendarStatusMessage = error.localizedDescription
+            if case AppleCalendarServiceError.accessDenied = error {
+                isCalendarConnected = false
+            }
         }
         isCalendarSyncing = false
     }
 
-    func disconnectGoogleCalendar() {
-        googleCalendarService.disconnect()
-        isCalendarConnected = false
-        calendarStatusMessage = nil
-        calendarSources = []
-        calendarTodayEvents = []
-        calendarUpcomingSections = []
-        lastCalendarSyncAt = nil
-    }
-
     func refreshCalendar(force: Bool = false) async {
         let defaults = UserDefaults.standard
-        let calendarEnabled = defaults.object(forKey: Self.settingsGoogleCalendarEnabledKey) as? Bool ?? true
+        let calendarEnabled = defaults.object(forKey: Self.settingsCalendarEnabledKey) as? Bool ?? true
         guard calendarEnabled else {
             calendarTodayEvents = []
             calendarUpcomingSections = []
             return
         }
 
-        guard googleCalendarService.isConnected else {
+        guard appleCalendarService.isConnected else {
             isCalendarConnected = false
             calendarTodayEvents = []
             calendarUpcomingSections = []
@@ -1744,11 +1724,6 @@ final class AppContainer: ObservableObject {
         if !force,
            let lastSync = lastCalendarSyncAt,
            now.timeIntervalSince(lastSync) < 60 {
-            return
-        }
-
-        guard let clientID = googleCalendarClientID() else {
-            calendarStatusMessage = "Google Calendar is not configured for this app build."
             return
         }
 
@@ -1765,9 +1740,7 @@ final class AppContainer: ObservableObject {
         defer { isCalendarSyncing = false }
 
         do {
-            let result = try await googleCalendarService.fetchUpcomingEvents(
-                clientID: clientID,
-                redirectURI: googleCalendarRedirectURI(),
+            let result = try appleCalendarService.fetchUpcomingEvents(
                 startDate: startDate,
                 endDate: endDate,
                 allowedCalendarIDs: allowedCalendarIDs
@@ -1796,7 +1769,7 @@ final class AppContainer: ObservableObject {
             calendarUpcomingSections = groupedUpcomingSections(result.events, today: startDate)
         } catch {
             calendarStatusMessage = error.localizedDescription
-            if case GoogleCalendarServiceError.tokenUnavailable = error {
+            if case AppleCalendarServiceError.accessDenied = error {
                 isCalendarConnected = false
             }
         }
@@ -1817,25 +1790,13 @@ final class AppContainer: ObservableObject {
         }
     }
 
-    private func googleCalendarRedirectURI() -> String {
-        (Bundle.main.object(forInfoDictionaryKey: Self.infoGoogleCalendarRedirectURIKey) as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .nilIfEmpty ?? Self.defaultGoogleCalendarRedirectURI
-    }
-
-    private func googleCalendarClientID() -> String? {
-        (Bundle.main.object(forInfoDictionaryKey: Self.infoGoogleCalendarClientIDKey) as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .nilIfEmpty
-    }
-
     private func hasPersistedCalendarSourceSelection() -> Bool {
-        UserDefaults.standard.array(forKey: Self.settingsGoogleCalendarSelectedIDsKey) != nil
+        UserDefaults.standard.array(forKey: Self.settingsCalendarSelectedIDsKey) != nil
     }
 
     private func loadCalendarSourceSelection() {
         let defaults = UserDefaults.standard
-        guard let ids = defaults.array(forKey: Self.settingsGoogleCalendarSelectedIDsKey) as? [String] else {
+        guard let ids = defaults.array(forKey: Self.settingsCalendarSelectedIDsKey) as? [String] else {
             selectedCalendarSourceIDs = []
             return
         }
@@ -1844,7 +1805,7 @@ final class AppContainer: ObservableObject {
 
     private func persistCalendarSourceSelection() {
         let defaults = UserDefaults.standard
-        defaults.set(Array(selectedCalendarSourceIDs).sorted(), forKey: Self.settingsGoogleCalendarSelectedIDsKey)
+        defaults.set(Array(selectedCalendarSourceIDs).sorted(), forKey: Self.settingsCalendarSelectedIDsKey)
     }
 
     private func loadReminderListSelection() {

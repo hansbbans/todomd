@@ -15,7 +15,7 @@ struct SettingsView: View {
     @AppStorage("settings_notify_auto_unblocked") private var notifyAutoUnblocked = true
     @AppStorage("settings_persistent_reminders_enabled") private var persistentRemindersEnabled = false
     @AppStorage("settings_persistent_reminder_interval_minutes") private var persistentReminderIntervalMinutes = 1
-    @AppStorage("settings_google_calendar_enabled") private var googleCalendarEnabled = true
+    @AppStorage("settings_google_calendar_enabled") private var calendarEnabled = true
     @AppStorage("settings_appearance_mode") private var appearanceMode = "system"
     @AppStorage("settings_archive_completed") private var archiveCompleted = false
     @AppStorage("settings_completed_retention") private var completedRetention = "forever"
@@ -32,24 +32,26 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("Calendar") {
-                Toggle("Enable Google Calendar", isOn: $googleCalendarEnabled)
+                Toggle("Show Calendar Events", isOn: $calendarEnabled)
 
-                if googleCalendarEnabled {
-                    Text("Sign in with your Google account to sync events.")
+                if calendarEnabled {
+                    Text("Allow access to Apple Calendar to view events in Today and Upcoming.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
                     if container.isCalendarConnected {
-                        Label("Connected", systemImage: "checkmark.circle.fill")
+                        Label("Calendar Access Granted", systemImage: "checkmark.circle.fill")
                             .foregroundStyle(.green)
                     }
 
-                    Button(container.isCalendarConnected ? "Reconnect Google Calendar" : "Connect Google Calendar") {
-                        Task {
-                            await container.connectGoogleCalendar()
+                    if !container.isCalendarConnected {
+                        Button("Allow Calendar Access") {
+                            Task {
+                                await container.connectCalendar()
+                            }
                         }
+                        .disabled(container.isCalendarSyncing)
                     }
-                    .disabled(container.isCalendarSyncing || !container.isGoogleCalendarConfigured)
 
                     Button("Refresh Calendar") {
                         Task {
@@ -57,12 +59,6 @@ struct SettingsView: View {
                         }
                     }
                     .disabled(container.isCalendarSyncing || !container.isCalendarConnected)
-
-                    if container.isCalendarConnected {
-                        Button("Disconnect Calendar", role: .destructive) {
-                            container.disconnectGoogleCalendar()
-                        }
-                    }
 
                     if container.isCalendarConnected, !container.calendarSources.isEmpty {
                         Button("Select All Calendars") {
@@ -91,12 +87,6 @@ struct SettingsView: View {
                     if let calendarStatusMessage = container.calendarStatusMessage,
                        !calendarStatusMessage.isEmpty {
                         Text(calendarStatusMessage)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    if !container.isGoogleCalendarConfigured {
-                        Text("This app build is missing Google OAuth configuration.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -362,7 +352,7 @@ struct SettingsView: View {
         } message: {
             Text(folderSelectionErrorMessage ?? "")
         }
-        .onChange(of: googleCalendarEnabled) { _, _ in
+        .onChange(of: calendarEnabled) { _, _ in
             Task {
                 await container.refreshCalendar(force: true)
             }
