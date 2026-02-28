@@ -32,12 +32,15 @@ struct ReminderDeletionResult: Equatable, Sendable {
 
 enum RemindersImportServiceError: LocalizedError {
     case accessDenied
+    case missingUsageDescription
     case listNotFound
 
     var errorDescription: String? {
         switch self {
         case .accessDenied:
             return "Reminders access is unavailable. Enable it in iOS Settings for todo.md."
+        case .missingUsageDescription:
+            return "This build is missing Reminders permission text. Regenerate the Xcode project and rebuild."
         case .listNotFound:
             return "The selected Reminders list no longer exists."
         }
@@ -130,6 +133,12 @@ final class RemindersImportService {
     }
 
     private func ensureAccess() async throws {
+        let usageDescription = (Bundle.main.object(forInfoDictionaryKey: "NSRemindersFullAccessUsageDescription") as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard usageDescription?.isEmpty == false else {
+            throw RemindersImportServiceError.missingUsageDescription
+        }
+
         let status = EKEventStore.authorizationStatus(for: .reminder)
         switch status {
         case .fullAccess:
