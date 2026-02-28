@@ -1632,13 +1632,13 @@ final class AppContainer: ObservableObject {
             }
 
             let importedReminderIDs = createResult.created.map(\.reminderID)
-            var deletionResult: ReminderDeletionResult?
-            var deletionError: String?
+            var completionResult: ReminderCompletionResult?
+            var completionError: String?
             if !importedReminderIDs.isEmpty {
                 do {
-                    deletionResult = try remindersImportService.removeReminders(withIDs: importedReminderIDs)
+                    completionResult = try remindersImportService.markRemindersCompleted(withIDs: importedReminderIDs)
                 } catch {
-                    deletionError = error.localizedDescription
+                    completionError = error.localizedDescription
                 }
             }
 
@@ -1647,21 +1647,21 @@ final class AppContainer: ObservableObject {
             if importedCount > 0 {
                 summary.append("Imported \(importedCount) reminder\(importedCount == 1 ? "" : "s") as tasks.")
             }
-            if let deletionResult {
-                if deletionResult.removedCount == importedCount {
-                    summary.append("Removed imported reminders from Apple Reminders.")
+            if let completionResult {
+                if completionResult.completedCount == importedCount {
+                    summary.append("Marked imported reminders complete in Apple Reminders.")
                 } else {
                     summary.append(
-                        "Removed \(deletionResult.removedCount) reminder\(deletionResult.removedCount == 1 ? "" : "s") from Apple Reminders."
+                        "Marked \(completionResult.completedCount) reminder\(completionResult.completedCount == 1 ? "" : "s") complete in Apple Reminders."
                     )
                 }
-                if deletionResult.missingCount > 0 {
+                if completionResult.missingCount > 0 {
                     summary.append(
-                        "\(deletionResult.missingCount) reminder\(deletionResult.missingCount == 1 ? "" : "s") could not be found for deletion."
+                        "\(completionResult.missingCount) reminder\(completionResult.missingCount == 1 ? "" : "s") could not be found for completion."
                     )
                 }
-            } else if let deletionError {
-                summary.append("Imported tasks but failed to remove reminders: \(deletionError)")
+            } else if let completionError {
+                summary.append("Imported tasks but failed to mark reminders complete: \(completionError)")
             }
 
             let failedCount = createResult.failedCount + skippedCount
