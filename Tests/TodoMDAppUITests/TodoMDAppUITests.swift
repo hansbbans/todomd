@@ -69,4 +69,78 @@ final class TodoMDAppUITests: XCTestCase {
         XCTAssertTrue(cancelButton.waitForExistence(timeout: 5))
         cancelButton.tap()
     }
+
+    func testRemindersImportEndToEndWithFakeSource() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = "Library/Caches/TodoMDUITests/\(UUID().uuidString)"
+        app.launchEnvironment["TODOMD_FAKE_REMINDERS_IMPORT"] = "1"
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let settingsButton = app.buttons["root.settingsButton"]
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 10))
+        settingsButton.tap()
+
+        let importButton = app.buttons["settings.remindersImport.importButton"]
+        var scrollAttempts = 0
+        while !importButton.exists && scrollAttempts < 8 {
+            app.swipeUp()
+            scrollAttempts += 1
+        }
+        XCTAssertTrue(importButton.waitForExistence(timeout: 10), "Reminders import button not visible")
+
+        let refreshButton = app.buttons["settings.remindersImport.refreshListsButton"]
+        if refreshButton.exists {
+            refreshButton.tap()
+        }
+
+        XCTAssertTrue(importButton.isHittable)
+        importButton.tap()
+
+        let status = app.staticTexts["settings.remindersImport.status"]
+        XCTAssertTrue(status.waitForExistence(timeout: 10), "Import status did not appear")
+        XCTAssertTrue(status.label.contains("Imported 1 reminder"))
+
+        let backButton = app.navigationBars.buttons.firstMatch
+        XCTAssertTrue(backButton.waitForExistence(timeout: 10))
+        backButton.tap()
+
+        let importedTaskRow = app.descendants(matching: .any)["taskRow.from reminders e2e"]
+        XCTAssertTrue(importedTaskRow.waitForExistence(timeout: 10), "Imported reminder task row not found")
+    }
+
+    private func completeOnboarding(app: XCUIApplication) {
+        let nextButton = app.buttons["onboarding.nextButton"]
+        let useDefaultButton = app.buttons["onboarding.useDefaultButton"]
+        let getStartedButton = app.buttons["onboarding.getStartedButton"]
+        let settingsButton = app.buttons["root.settingsButton"]
+
+        let timeout = Date().addingTimeInterval(25)
+        while Date() < timeout {
+            if settingsButton.exists {
+                return
+            }
+
+            if getStartedButton.exists, getStartedButton.isHittable, getStartedButton.isEnabled {
+                getStartedButton.tap()
+                continue
+            }
+
+            if nextButton.exists, nextButton.isHittable {
+                nextButton.tap()
+                continue
+            }
+
+            if useDefaultButton.exists, useDefaultButton.isHittable {
+                useDefaultButton.tap()
+                continue
+            }
+
+            RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        }
+
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 5), "App did not reach root view")
+    }
 }
