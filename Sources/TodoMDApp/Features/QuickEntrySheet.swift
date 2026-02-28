@@ -24,6 +24,8 @@ struct QuickEntrySheet: View {
     @State private var reminderDraftDate = Date()
     @State private var didApplyDefaults = false
 
+    private let descriptionInputHeight: CGFloat = 44
+
     private var selectedFields: [QuickEntryField] {
         QuickEntrySettings.decodeFields(quickEntryFieldsRawValue)
     }
@@ -119,13 +121,13 @@ struct QuickEntrySheet: View {
             HStack(alignment: .top, spacing: 12) {
                 RoundedRectangle(cornerRadius: 3)
                     .fill(theme.accentColor)
-                    .frame(width: 4, height: 56)
+                    .frame(width: 4, height: descriptionInputHeight)
 
                 TextField("Description", text: $quickEntryText)
                     .font(.system(.title2, design: .rounded).weight(.regular))
                     .textInputAutocapitalization(.sentences)
                     .autocorrectionDisabled(false)
-                    .frame(maxWidth: .infinity, minHeight: 56, alignment: .bottomLeading)
+                    .frame(maxWidth: .infinity, minHeight: descriptionInputHeight, alignment: .bottomLeading)
                     .accessibilityIdentifier("quickEntry.titleField")
             }
             .accessibilityIdentifier("quickEntry.titleField")
