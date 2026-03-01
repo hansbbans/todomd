@@ -42,6 +42,14 @@ struct TodoMDApp: App {
             .modelContainer(container.modelContainer)
 #endif
         }
+        .commands {
+            CommandMenu("File") {
+                Button("New Task") {
+                    container.requestQuickEntry()
+                }
+                .keyboardShortcut("n", modifiers: .command)
+            }
+        }
     }
 
     private var preferredColorScheme: ColorScheme? {

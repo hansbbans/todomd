@@ -43,6 +43,15 @@ struct TaskDetailView: View {
     @State private var recurrenceInterval = 1
     @State private var recurrenceWeekdays: Set<String> = []
 
+    @AppStorage("taskDetail.expandedDependencies") private var expandedDependencies = false
+    @AppStorage("taskDetail.expandedLocationReminder") private var expandedLocationReminder = false
+    @AppStorage("taskDetail.expandedRecurrence") private var expandedRecurrence = false
+    @AppStorage("taskDetail.expandedMetadata") private var expandedMetadata = false
+
+    @State private var latitudeError: String?
+    @State private var longitudeError: String?
+    @State private var titleError: String?
+
     private let recurrenceWeekdayOptions = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
 
     var body: some View {
@@ -69,6 +78,7 @@ struct TaskDetailView: View {
                         isEditing = true
                     }
                 }
+                .keyboardShortcut(isEditing ? KeyEquivalent.return : KeyEquivalent("e"), modifiers: .command)
             }
         }
         .onAppear {
@@ -174,20 +184,23 @@ struct TaskDetailView: View {
                 }
                 .buttonStyle(.plain)
 
-                VStack(alignment: .leading, spacing: 6) {
+                DisclosureGroup(isExpanded: $expandedMetadata) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        detailRow("Source", value: binding(\.source).wrappedValue)
+                        detailRow("Created", value: DateCoding.encode(binding(\.createdAt).wrappedValue))
+                        if let modified = binding(\.modifiedAt).wrappedValue {
+                            detailRow("Modified", value: DateCoding.encode(modified))
+                        }
+                        if let completed = binding(\.completedAt).wrappedValue {
+                            detailRow("Completed", value: DateCoding.encode(completed))
+                        }
+                        if !binding(\.completedBy).wrappedValue.isEmpty {
+                            detailRow("Completed By", value: binding(\.completedBy).wrappedValue)
+                        }
+                    }
+                } label: {
                     Text("Metadata")
                         .font(.headline)
-                    detailRow("Source", value: binding(\.source).wrappedValue)
-                    detailRow("Created", value: DateCoding.encode(binding(\.createdAt).wrappedValue))
-                    if let modified = binding(\.modifiedAt).wrappedValue {
-                        detailRow("Modified", value: DateCoding.encode(modified))
-                    }
-                    if let completed = binding(\.completedAt).wrappedValue {
-                        detailRow("Completed", value: DateCoding.encode(completed))
-                    }
-                    if !binding(\.completedBy).wrappedValue.isEmpty {
-                        detailRow("Completed By", value: binding(\.completedBy).wrappedValue)
-                    }
                 }
 
                 HStack {
@@ -211,16 +224,19 @@ struct TaskDetailView: View {
     private var editForm: some View {
         Form {
             Section {
-                TextField("Ref (t-xxxx)", text: binding(\.ref))
-                    .textInputAutocapitalization(.never)
-                TextField("Assignee (blank = user)", text: binding(\.assignee))
-                    .textInputAutocapitalization(.never)
-                Toggle("Blocked (no specific dependency)", isOn: binding(\.blockedByManual))
-                TextField("Blocked by refs (comma-separated)", text: binding(\.blockedByRefsText))
-                    .textInputAutocapitalization(.never)
-                    .disabled(binding(\.blockedByManual).wrappedValue)
-            } header: {
-                Text("Assignment & Dependencies")
+                DisclosureGroup(isExpanded: $expandedDependencies) {
+                    TextField("Ref (t-xxxx)", text: binding(\.ref))
+                        .textInputAutocapitalization(.never)
+                    TextField("Assignee (blank = user)", text: binding(\.assignee))
+                        .textInputAutocapitalization(.never)
+                    Toggle("Blocked (no specific dependency)", isOn: binding(\.blockedByManual))
+                    TextField("Blocked by refs (comma-separated)", text: binding(\.blockedByRefsText))
+                        .textInputAutocapitalization(.never)
+                        .disabled(binding(\.blockedByManual).wrappedValue)
+                } label: {
+                    Text("Assignment & Dependencies")
+                        .font(.headline)
+                }
             } footer: {
                 Text("Use task refs like t-3f8a for dependency links.")
             }
@@ -228,6 +244,18 @@ struct TaskDetailView: View {
             Section {
                 TextField("Title", text: binding(\.title), axis: .vertical)
                     .font(.title2.weight(.semibold))
+                    .onChange(of: binding(\.title).wrappedValue) { _, newValue in
+                        if newValue.count > TaskValidation.maxTitleLength {
+                            titleError = "Title must be \(TaskValidation.maxTitleLength) characters or fewer"
+                        } else {
+                            titleError = nil
+                        }
+                    }
+                if let titleError {
+                    Text(titleError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
                 TextField("Description", text: binding(\.subtitle), axis: .vertical)
                     .foregroundStyle(.secondary)
             }
@@ -322,64 +350,100 @@ struct TaskDetailView: View {
             }
 
             Section("Location Reminder") {
-                Toggle("Enable location reminder", isOn: binding(\.hasLocationReminder))
-                if binding(\.hasLocationReminder).wrappedValue {
-                    if container.locationFavorites.isEmpty {
-                        Text("No saved presets yet.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Picker("Preset", selection: $selectedLocationFavoriteID) {
-                            Text("Choose preset").tag("")
-                            ForEach(container.locationFavorites) { favorite in
-                                Text(favorite.name).tag(favorite.id)
+                DisclosureGroup(isExpanded: $expandedLocationReminder) {
+                    Toggle("Enable location reminder", isOn: binding(\.hasLocationReminder))
+                    if binding(\.hasLocationReminder).wrappedValue {
+                        if container.locationFavorites.isEmpty {
+                            Text("No saved presets yet.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Picker("Preset", selection: $selectedLocationFavoriteID) {
+                                Text("Choose preset").tag("")
+                                ForEach(container.locationFavorites) { favorite in
+                                    Text(favorite.name).tag(favorite.id)
+                                }
                             }
+
+                            HStack {
+                                Button("Use Preset") {
+                                    applySelectedLocationFavorite()
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(selectedLocationFavorite == nil)
+
+                                Button("Delete Preset", role: .destructive) {
+                                    deleteSelectedLocationFavorite()
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(selectedLocationFavorite == nil)
+                            }
+                        }
+
+                        TextField("Location name (optional)", text: binding(\.locationName))
+
+                        TextField("Latitude", text: binding(\.locationLatitude))
+                            .keyboardType(.decimalPad)
+                            .textInputAutocapitalization(.never)
+                            .onChange(of: binding(\.locationLatitude).wrappedValue) { _, newValue in
+                                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if trimmed.isEmpty {
+                                    latitudeError = nil
+                                } else if let lat = Double(trimmed), (-90.0...90.0).contains(lat) {
+                                    latitudeError = nil
+                                } else {
+                                    latitudeError = "Latitude must be between -90 and 90"
+                                }
+                            }
+                        if let latitudeError {
+                            Text(latitudeError)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+
+                        TextField("Longitude", text: binding(\.locationLongitude))
+                            .keyboardType(.decimalPad)
+                            .textInputAutocapitalization(.never)
+                            .onChange(of: binding(\.locationLongitude).wrappedValue) { _, newValue in
+                                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if trimmed.isEmpty {
+                                    longitudeError = nil
+                                } else if let lon = Double(trimmed), (-180.0...180.0).contains(lon) {
+                                    longitudeError = nil
+                                } else {
+                                    longitudeError = "Longitude must be between -180 and 180"
+                                }
+                            }
+                        if let longitudeError {
+                            Text(longitudeError)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+
+                        Stepper(value: binding(\.locationRadiusMeters), in: 50...1_000, step: 25) {
+                            Text("Radius: \(binding(\.locationRadiusMeters).wrappedValue) m")
+                        }
+
+                        Picker("Notify when", selection: binding(\.locationTrigger)) {
+                            Text("Arriving").tag(TaskLocationReminderTrigger.onArrival)
+                            Text("Leaving").tag(TaskLocationReminderTrigger.onDeparture)
                         }
 
                         HStack {
-                            Button("Use Preset") {
-                                applySelectedLocationFavorite()
+                            TextField("Preset name (Home, Work)", text: $locationPresetName)
+                            Button("Save Preset") {
+                                saveCurrentLocationAsPreset()
                             }
-                            .buttonStyle(.bordered)
-                            .disabled(selectedLocationFavorite == nil)
-
-                            Button("Delete Preset", role: .destructive) {
-                                deleteSelectedLocationFavorite()
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(selectedLocationFavorite == nil)
+                            .buttonStyle(.borderedProminent)
                         }
+
+                        Text("The app will ask for location permission when this reminder is saved.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
-
-                    TextField("Location name (optional)", text: binding(\.locationName))
-
-                    TextField("Latitude", text: binding(\.locationLatitude))
-                        .keyboardType(.decimalPad)
-                        .textInputAutocapitalization(.never)
-                    TextField("Longitude", text: binding(\.locationLongitude))
-                        .keyboardType(.decimalPad)
-                        .textInputAutocapitalization(.never)
-
-                    Stepper(value: binding(\.locationRadiusMeters), in: 50...1_000, step: 25) {
-                        Text("Radius: \(binding(\.locationRadiusMeters).wrappedValue) m")
-                    }
-
-                    Picker("Notify when", selection: binding(\.locationTrigger)) {
-                        Text("Arriving").tag(TaskLocationReminderTrigger.onArrival)
-                        Text("Leaving").tag(TaskLocationReminderTrigger.onDeparture)
-                    }
-
-                    HStack {
-                        TextField("Preset name (Home, Work)", text: $locationPresetName)
-                        Button("Save Preset") {
-                            saveCurrentLocationAsPreset()
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-
-                    Text("The app will ask for location permission when this reminder is saved.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                } label: {
+                    Text("Location Reminder")
+                        .font(.headline)
                 }
             }
 
@@ -453,39 +517,57 @@ struct TaskDetailView: View {
             }
 
             Section("Recurrence") {
-                Picker("Pattern", selection: $recurrenceFrequency) {
-                    ForEach(RecurrenceFrequencyOption.allCases, id: \.self) { option in
-                        Text(option.rawValue.capitalized).tag(option)
+                DisclosureGroup(isExpanded: $expandedRecurrence) {
+                    Picker("Pattern", selection: $recurrenceFrequency) {
+                        ForEach(RecurrenceFrequencyOption.allCases, id: \.self) { option in
+                            Text(option.rawValue.capitalized).tag(option)
+                        }
                     }
-                }
 
-                if recurrenceFrequency != .none {
-                    Stepper("Every \(recurrenceInterval)", value: $recurrenceInterval, in: 1...365)
+                    if recurrenceFrequency != .none {
+                        Stepper("Every \(recurrenceInterval)", value: $recurrenceInterval, in: 1...365)
 
-                    if recurrenceFrequency == .weekly {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 44), spacing: 8)], spacing: 8) {
-                            ForEach(recurrenceWeekdayOptions, id: \.self) { day in
-                                Button(day) {
-                                    if recurrenceWeekdays.contains(day) {
-                                        recurrenceWeekdays.remove(day)
-                                    } else {
-                                        recurrenceWeekdays.insert(day)
+                        if recurrenceFrequency == .weekly {
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 44), spacing: 8)], spacing: 8) {
+                                ForEach(recurrenceWeekdayOptions, id: \.self) { day in
+                                    Button(day) {
+                                        if recurrenceWeekdays.contains(day) {
+                                            recurrenceWeekdays.remove(day)
+                                        } else {
+                                            recurrenceWeekdays.insert(day)
+                                        }
                                     }
+                                    .buttonStyle(.bordered)
+                                    .tint(recurrenceWeekdays.contains(day) ? .accentColor : .secondary)
                                 }
-                                .buttonStyle(.bordered)
-                                .tint(recurrenceWeekdays.contains(day) ? .accentColor : .secondary)
                             }
                         }
                     }
-                }
 
-                Button("Apply Pattern") {
-                    applyRecurrenceBuilder()
-                }
-                .disabled(recurrenceFrequency == .weekly && recurrenceWeekdays.isEmpty)
+                    Button("Apply Pattern") {
+                        applyRecurrenceBuilder()
+                    }
+                    .disabled(recurrenceFrequency == .weekly && recurrenceWeekdays.isEmpty)
 
-                TextField("Recurrence RRULE", text: binding(\.recurrence))
-                    .textInputAutocapitalization(.never)
+                    if let preview = recurrenceBuilderPreview() {
+                        Text(preview)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    TextField("Recurrence RRULE", text: binding(\.recurrence))
+                        .textInputAutocapitalization(.never)
+
+                    let rawRule = binding(\.recurrence).wrappedValue
+                    if !rawRule.isEmpty, let rawPreview = RecurrenceService.humanReadableDescription(for: rawRule) {
+                        Text(rawPreview)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                } label: {
+                    Text("Recurrence")
+                        .font(.headline)
+                }
             }
 
             Section("Notes") {
@@ -498,13 +580,18 @@ struct TaskDetailView: View {
             }
 
             Section("Metadata") {
-                LabeledContent("Source", value: binding(\.source).wrappedValue)
-                LabeledContent("Created", value: DateCoding.encode(binding(\.createdAt).wrappedValue))
-                if let modified = binding(\.modifiedAt).wrappedValue {
-                    LabeledContent("Modified", value: DateCoding.encode(modified))
-                }
-                if let completed = binding(\.completedAt).wrappedValue {
-                    LabeledContent("Completed", value: DateCoding.encode(completed))
+                DisclosureGroup(isExpanded: $expandedMetadata) {
+                    LabeledContent("Source", value: binding(\.source).wrappedValue)
+                    LabeledContent("Created", value: DateCoding.encode(binding(\.createdAt).wrappedValue))
+                    if let modified = binding(\.modifiedAt).wrappedValue {
+                        LabeledContent("Modified", value: DateCoding.encode(modified))
+                    }
+                    if let completed = binding(\.completedAt).wrappedValue {
+                        LabeledContent("Completed", value: DateCoding.encode(completed))
+                    }
+                } label: {
+                    Text("Metadata")
+                        .font(.headline)
                 }
             }
 
@@ -573,6 +660,34 @@ struct TaskDetailView: View {
         }
 
         binding(\.recurrence).wrappedValue = fields.joined(separator: ";")
+    }
+
+    private func recurrenceBuilderPreview() -> String? {
+        switch recurrenceFrequency {
+        case .none:
+            return nil
+        case .daily:
+            return recurrenceInterval == 1 ? "Every day" : "Every \(recurrenceInterval) days"
+        case .weekly:
+            if recurrenceWeekdays.isEmpty {
+                return recurrenceInterval == 1 ? "Every week" : "Every \(recurrenceInterval) weeks"
+            }
+            let dayMap: [String: String] = [
+                "MO": "Mon", "TU": "Tue", "WE": "Wed", "TH": "Thu",
+                "FR": "Fri", "SA": "Sat", "SU": "Sun"
+            ]
+            let orderedDays = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
+            let dayNames = orderedDays
+                .filter { recurrenceWeekdays.contains($0) }
+                .compactMap { dayMap[$0] }
+                .joined(separator: ", ")
+            let weekPart = recurrenceInterval == 1 ? "week" : "\(recurrenceInterval) weeks"
+            return "Every \(weekPart) on \(dayNames)"
+        case .monthly:
+            return recurrenceInterval == 1 ? "Every month" : "Every \(recurrenceInterval) months"
+        case .yearly:
+            return recurrenceInterval == 1 ? "Every year" : "Every \(recurrenceInterval) years"
+        }
     }
 
     private func syncRecurrenceBuilderFromEditState() {

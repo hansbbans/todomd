@@ -30,8 +30,9 @@ struct RootView: View {
     @State private var showingQuickEntry = false
     @State private var navigationPath = NavigationPath()
     @State private var universalSearchText = ""
-    @State private var browseProjectName = ""
-    @State private var browseProjectFirstTaskTitle = ""
+    @State private var showingCreateProjectSheet = false
+    @State private var newProjectName = ""
+    @State private var newProjectColorHex = "1E88E5"
     @State private var pathsCompleting: Set<String> = []
     @State private var pathsSlidingOut: Set<String> = []
     @State private var completionAnimationTasks: [String: Task<Void, Never>] = [:]
@@ -114,6 +115,11 @@ struct RootView: View {
             }
             .sheet(isPresented: $showingQuickEntry) {
                 QuickEntrySheet()
+            }
+            .sheet(isPresented: $showingCreateProjectSheet) {
+                NavigationStack {
+                    createProjectSheet
+                }
             }
             .sheet(item: $deferDateTarget) { target in
                 deferDateSheet(target: target)
@@ -278,10 +284,15 @@ struct RootView: View {
 
             Section("Views") {
                 builtInNavButton(.inbox, label: "Inbox", icon: "tray")
+                    .keyboardShortcut("1", modifiers: .command)
                 builtInNavButton(.myTasks, label: "My Tasks", icon: "person")
+                    .keyboardShortcut("2", modifiers: .command)
                 builtInNavButton(.delegated, label: "Delegated", icon: "person.2")
+                    .keyboardShortcut("3", modifiers: .command)
                 builtInNavButton(.today, label: "Today", icon: "sun.max")
+                    .keyboardShortcut("4", modifiers: .command)
                 builtInNavButton(.upcoming, label: "Upcoming", icon: "calendar")
+                    .keyboardShortcut("5", modifiers: .command)
                 builtInNavButton(.anytime, label: "Anytime", icon: "list.bullet")
                 builtInNavButton(.someday, label: "Someday", icon: "clock")
                 builtInNavButton(.flagged, label: "Flagged", icon: "flag")
@@ -476,24 +487,6 @@ struct RootView: View {
 
     private var browseSectionScreen: some View {
         List {
-            Section("New Project") {
-                TextField("Project name", text: $browseProjectName)
-                    .textInputAutocapitalization(.words)
-                    .autocorrectionDisabled()
-
-                TextField("First task title (optional)", text: $browseProjectFirstTaskTitle)
-                    .textInputAutocapitalization(.sentences)
-
-                Button("Create Project") {
-                    createProjectFromBrowse()
-                }
-                .disabled(browseProjectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                Text("Projects are created from tasks. This adds a starter task to the new project.")
-                    .font(.caption)
-                    .foregroundStyle(theme.textSecondaryColor)
-            }
-
             let tags = container.availableTags()
             if tags.isEmpty {
                 Section("Tags") {
@@ -509,13 +502,11 @@ struct RootView: View {
             }
 
             let projects = container.allProjects()
-            if projects.isEmpty {
-                Section("Projects") {
+            Section {
+                if projects.isEmpty {
                     Text("No projects yet")
                         .foregroundStyle(theme.textSecondaryColor)
-                }
-            } else {
-                Section("Projects") {
+                } else {
                     ForEach(projects, id: \.self) { project in
                         HStack(spacing: 8) {
                             browseFilterButton(
@@ -529,6 +520,21 @@ struct RootView: View {
                             projectColorMenu(for: project)
                         }
                     }
+                }
+            } header: {
+                HStack {
+                    Text("My Projects")
+                    Spacer()
+                    Button {
+                        newProjectName = ""
+                        newProjectColorHex = "1E88E5"
+                        showingCreateProjectSheet = true
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.caption.weight(.bold))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Create Project")
                 }
             }
         }
@@ -651,6 +657,53 @@ struct RootView: View {
             ProjectColorChoice(hex: "6D4C41", name: "Brown"),
             ProjectColorChoice(hex: "546E7A", name: "Slate")
         ]
+    }
+
+    private var createProjectSheet: some View {
+        Form {
+            Section("Name") {
+                TextField("Project name", text: $newProjectName)
+                    .textInputAutocapitalization(.words)
+                    .autocorrectionDisabled()
+            }
+
+            Section("Color") {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 40), spacing: 12)], spacing: 12) {
+                    ForEach(projectColorChoices) { choice in
+                        Button {
+                            newProjectColorHex = choice.hex
+                        } label: {
+                            Circle()
+                                .fill(color(forHex: choice.hex) ?? theme.textSecondaryColor)
+                                .frame(width: 28, height: 28)
+                                .overlay {
+                                    if newProjectColorHex == choice.hex {
+                                        Image(systemName: "checkmark")
+                                            .font(.caption2.weight(.bold))
+                                            .foregroundStyle(.white)
+                                    }
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(choice.name)
+                    }
+                }
+            }
+        }
+        .navigationTitle("New Project")
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") {
+                    showingCreateProjectSheet = false
+                }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Create") {
+                    createProjectFromSheet()
+                }
+                .disabled(newProjectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
     }
 
     private func projectColorMenu(for project: String) -> some View {
@@ -847,6 +900,7 @@ struct RootView: View {
                 .foregroundStyle(.white)
                 .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 4)
         }
+        .keyboardShortcut("n", modifiers: .command)
         .accessibilityIdentifier("root.quickAddButton")
         .padding(.trailing, 20)
         .padding(.bottom, shouldShowBottomNavigationBar ? 76 : 16)
@@ -867,25 +921,15 @@ struct RootView: View {
         value.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
     }
 
-    private func createProjectFromBrowse() {
-        let trimmedProjectName = browseProjectName.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func createProjectFromSheet() {
+        let trimmedProjectName = newProjectName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedProjectName.isEmpty else { return }
+        guard let created = container.createProject(name: trimmedProjectName, colorHex: newProjectColorHex) else { return }
 
-        if let existingProject = container.allProjects().first(where: {
-            $0.compare(trimmedProjectName, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
-        }) {
-            browseProjectName = ""
-            browseProjectFirstTaskTitle = ""
-            applyFilter(.project(existingProject))
-            return
-        }
-
-        let trimmedTaskTitle = browseProjectFirstTaskTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let starterTaskTitle = trimmedTaskTitle.isEmpty ? "Plan \(trimmedProjectName)" : trimmedTaskTitle
-        container.createTask(title: starterTaskTitle, naturalDate: nil, project: trimmedProjectName)
-        browseProjectName = ""
-        browseProjectFirstTaskTitle = ""
-        applyFilter(.project(trimmedProjectName))
+        newProjectName = ""
+        newProjectColorHex = "1E88E5"
+        showingCreateProjectSheet = false
+        applyFilter(.project(created))
     }
 
     private func applyFilter(_ view: ViewIdentifier) {
@@ -1006,11 +1050,7 @@ struct RootView: View {
                     } else {
                         ForEach(quickProjects, id: \.self) { project in
                             Button(project) {
-                                _ = container.moveTask(
-                                    path: record.identity.path,
-                                    area: record.document.frontmatter.area,
-                                    project: project
-                                )
+                                _ = container.addToProject(path: record.identity.path, project: project)
                             }
                         }
                     }
@@ -1281,7 +1321,7 @@ private struct TaskRow: View {
         guard let dueDate = date(from: due, time: frontmatter.dueTime) else { return due.isoString }
         let calendar = Calendar.current
 
-        if let dueTime = frontmatter.dueTime, calendar.isDateInToday(dueDate) {
+        if frontmatter.dueTime != nil, calendar.isDateInToday(dueDate) {
             let formatter = RelativeDateTimeFormatter()
             formatter.unitsStyle = .short
             return formatter.localizedString(for: dueDate, relativeTo: Date())

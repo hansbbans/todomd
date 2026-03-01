@@ -139,6 +139,7 @@ final class AppContainer: ObservableObject {
     @Published var isCalendarConnected = false
     @Published var isCalendarSyncing = false
     @Published var calendarStatusMessage: String?
+    @Published private(set) var userProjects: [String] = []
     @Published private(set) var projectColorsByProject: [String: String] = [:]
     @Published private(set) var calendarSources: [CalendarSource] = []
     @Published private(set) var selectedCalendarSourceIDs: Set<String> = []
@@ -199,6 +200,7 @@ final class AppContainer: ObservableObject {
     private static let settingsCalendarSelectedIDsKey = "settings_google_calendar_selected_ids"
     private static let settingsRemindersImportListIDKey = "settings_reminders_import_list_id"
     private static let settingsLocationFavoritesKey = "settings_location_favorites_v1"
+    private static let settingsProjectsKey = "settings_projects_v1"
     private static let settingsProjectColorsKey = "settings_project_colors_v1"
     private static let hashtagRegex = try? NSRegularExpression(pattern: "#([A-Za-z0-9_-]+)")
 
@@ -223,6 +225,7 @@ final class AppContainer: ObservableObject {
         loadCalendarSourceSelection()
         loadReminderListSelection()
         loadLocationFavorites()
+        loadUserProjects()
         loadProjectColors()
         loadPerspectivesFromDisk()
         migrateLegacyPerspectivesFromSettingsIfNeeded()
@@ -753,9 +756,21 @@ final class AppContainer: ObservableObject {
     }
 
     func allProjects() -> [String] {
-        Set(allIndexedRecords.compactMap { $0.document.frontmatter.project?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty })
-            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        let taskProjects = allIndexedRecords.compactMap { $0.document.frontmatter.project?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let combined = taskProjects + userProjects
+
+        var unique: [String] = []
+        for project in combined {
+            let exists = unique.contains {
+                $0.compare(project, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+            }
+            if !exists {
+                unique.append(project)
+            }
+        }
+
+        return unique.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
     func projectColorHex(for project: String) -> String? {
@@ -772,19 +787,51 @@ final class AppContainer: ObservableObject {
     func setProjectColor(project: String, hex: String?) {
         let normalizedProject = project.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProject.isEmpty else { return }
+        let resolvedProject = resolvedProjectName(for: normalizedProject) ?? normalizedProject
+
+        // Keep only one color entry for case-insensitive project matches.
+        let duplicateKeys = projectColorsByProject.keys.filter {
+            $0.compare(resolvedProject, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+                && $0 != resolvedProject
+        }
+        for key in duplicateKeys {
+            projectColorsByProject.removeValue(forKey: key)
+        }
 
         if let sanitizedHex = sanitizeProjectColorHex(hex) {
-            projectColorsByProject[normalizedProject] = sanitizedHex
+            projectColorsByProject[resolvedProject] = sanitizedHex
         } else {
-            projectColorsByProject.removeValue(forKey: normalizedProject)
+            projectColorsByProject.removeValue(forKey: resolvedProject)
         }
         persistProjectColors()
     }
 
+    @discardableResult
+    func createProject(name: String, colorHex: String) -> String? {
+        let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedName.isEmpty else { return nil }
+        guard let sanitizedColor = sanitizeProjectColorHex(colorHex) else { return nil }
+
+        let resolvedName = resolvedProjectName(for: normalizedName) ?? normalizedName
+        if !userProjects.contains(where: {
+            $0.compare(resolvedName, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+        }) {
+            userProjects.append(resolvedName)
+            sortUserProjects()
+            persistUserProjects()
+        }
+
+        setProjectColor(project: resolvedName, hex: sanitizedColor)
+        return resolvedName
+    }
+
     func availableProjects(inArea area: String?) -> [String] {
         let normalizedArea = area?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let normalizedArea, !normalizedArea.isEmpty else {
+            return allProjects()
+        }
+
         let projects = allIndexedRecords.filter { record in
-            guard let normalizedArea, !normalizedArea.isEmpty else { return true }
             return record.document.frontmatter.area == normalizedArea
         }.compactMap { $0.document.frontmatter.project?.trimmingCharacters(in: .whitespacesAndNewlines) }
 
@@ -1079,6 +1126,10 @@ final class AppContainer: ObservableObject {
         shouldPresentQuickEntry = false
     }
 
+    func requestQuickEntry() {
+        shouldPresentQuickEntry = true
+    }
+
     func record(for path: String) -> TaskRecord? {
         if let cached = canonicalByPath[path] {
             if cached.document.body.isEmpty, let loaded = try? repository.load(path: path) {
@@ -1323,6 +1374,15 @@ final class AppContainer: ObservableObject {
             .map(\.key)
             .prefix(max(0, limit))
             .map { $0 }
+    }
+
+    @discardableResult
+    func addToProject(path: String, project: String) -> Bool {
+        let normalizedProject = project.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProject.isEmpty else { return false }
+        let resolvedProject = resolvedProjectName(for: normalizedProject) ?? normalizedProject
+        let resolvedArea = inferredArea(forProject: resolvedProject)
+        return moveTask(path: path, area: resolvedArea, project: resolvedProject)
     }
 
     @discardableResult
@@ -1987,6 +2047,28 @@ final class AppContainer: ObservableObject {
         projectColorsByProject = sanitized
     }
 
+    private func loadUserProjects() {
+        let defaults = UserDefaults.standard
+        guard let raw = defaults.array(forKey: Self.settingsProjectsKey) as? [String] else {
+            userProjects = []
+            return
+        }
+
+        var unique: [String] = []
+        for project in raw {
+            let normalizedProject = project.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedProject.isEmpty else { continue }
+            if unique.contains(where: {
+                $0.compare(normalizedProject, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+            }) {
+                continue
+            }
+            unique.append(normalizedProject)
+        }
+        userProjects = unique
+        sortUserProjects()
+    }
+
     private func syncSelectedReminderList(with lists: [ReminderList]) {
         guard !lists.isEmpty else {
             selectedReminderListID = nil
@@ -2019,9 +2101,48 @@ final class AppContainer: ObservableObject {
         defaults.set(projectColorsByProject, forKey: Self.settingsProjectColorsKey)
     }
 
+    private func persistUserProjects() {
+        let defaults = UserDefaults.standard
+        defaults.set(userProjects, forKey: Self.settingsProjectsKey)
+    }
+
     private func sortLocationFavorites() {
         locationFavorites.sort {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+    }
+
+    private func sortUserProjects() {
+        userProjects.sort { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private func inferredArea(forProject project: String) -> String? {
+        let normalizedProject = project.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProject.isEmpty else { return nil }
+
+        let matches = allIndexedRecords.compactMap { record -> (area: String, recency: Date)? in
+            guard let recordProject = record.document.frontmatter.project?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                  recordProject.compare(normalizedProject, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame,
+                  let area = record.document.frontmatter.area?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !area.isEmpty else {
+                return nil
+            }
+            let recency = record.document.frontmatter.modified ?? record.document.frontmatter.created
+            return (area, recency)
+        }
+
+        return matches
+            .sorted { lhs, rhs in
+                if lhs.recency != rhs.recency { return lhs.recency > rhs.recency }
+                return lhs.area.localizedCaseInsensitiveCompare(rhs.area) == .orderedAscending
+            }
+            .first?.area
+    }
+
+    private func resolvedProjectName(for project: String) -> String? {
+        allProjects().first {
+            $0.compare(project, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
         }
     }
 
