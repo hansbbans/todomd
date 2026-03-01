@@ -428,7 +428,6 @@ struct SettingsView: View {
                     .accessibilityIdentifier("settings.bottomNavigation.addPomodoroButton")
                     .disabled(hasPomodoroSection || bottomNavigationSections.count >= BottomNavigationSettings.maxSections)
                 }
-
                 if bottomNavigationSections.isEmpty {
                     Text("No bottom sections configured.")
                         .foregroundStyle(.secondary)
@@ -604,9 +603,7 @@ struct SettingsView: View {
                 label = "Flagged"
                 icon = "flag"
             case .pomodoro:
-                if !pomodoroEnabled {
-                    continue
-                }
+                guard pomodoroEnabled else { continue }
                 label = "Pomodoro"
                 icon = "timer"
             }
