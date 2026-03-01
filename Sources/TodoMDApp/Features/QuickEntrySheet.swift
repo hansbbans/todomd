@@ -109,6 +109,7 @@ struct QuickEntrySheet: View {
                     Button("Cancel") {
                         dismiss()
                     }
+                    .keyboardShortcut(.escape, modifiers: [])
                     .accessibilityIdentifier("quickEntry.cancelButton")
                 }
             }
@@ -334,6 +335,7 @@ struct QuickEntrySheet: View {
                         )
                 }
                 .disabled(!canSubmit)
+                .keyboardShortcut(.return, modifiers: .command)
                 .accessibilityIdentifier("quickEntry.addButton")
                 .accessibilityLabel("Add task")
             }

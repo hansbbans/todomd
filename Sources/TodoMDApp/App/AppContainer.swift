@@ -1126,6 +1126,10 @@ final class AppContainer: ObservableObject {
         shouldPresentQuickEntry = false
     }
 
+    func requestQuickEntry() {
+        shouldPresentQuickEntry = true
+    }
+
     func record(for path: String) -> TaskRecord? {
         if let cached = canonicalByPath[path] {
             if cached.document.body.isEmpty, let loaded = try? repository.load(path: path) {

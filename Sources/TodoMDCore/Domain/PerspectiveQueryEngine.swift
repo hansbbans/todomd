@@ -858,6 +858,12 @@ public struct PerspectiveQueryEngine {
     public init() {}
 
     public func matches(_ record: TaskRecord, perspective: PerspectiveDefinition, today: LocalDate) -> Bool {
+        // TODO: Use TaskMetadataIndex for pre-filtering here
+        // Before evaluating the full rule group, check the metadata index for a fast answer:
+        //   if let entry = index.entry(for: record.identity.path),
+        //      let result = entry.matches(field: rule.field, operator: rule.operator, value: rule.stringValue) {
+        //       return result  // skip full evaluation
+        //   }
         evaluate(group: perspective.effectiveRules, record: record, today: today) ?? true
     }
 
@@ -892,6 +898,16 @@ public struct PerspectiveQueryEngine {
     }
 
     private func evaluate(rule: PerspectiveRule, record: TaskRecord, today: LocalDate) -> Bool? {
+        // TODO: Use TaskMetadataIndex for pre-filtering here
+        // When a TaskMetadataIndex is available, indexed fields can be evaluated without
+        // touching the full frontmatter. Example integration:
+        //   if let entry = index.entry(for: record.identity.path) {
+        //       if let result = entry.matches(field: rule.field, operator: rule.operator,
+        //                                     value: rule.stringValue) {
+        //           return result
+        //       }
+        //   }
+        // Fall through to full frontmatter evaluation for un-indexed fields.
         guard rule.isEnabled else { return true }
         let frontmatter = record.document.frontmatter
 

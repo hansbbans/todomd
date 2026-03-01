@@ -148,4 +148,33 @@ public struct RecurrenceService {
         guard let year = parts.year, let month = parts.month, let day = parts.day else { return nil }
         return try? LocalDate(year: year, month: month, day: day)
     }
+
+    public static func humanReadableDescription(for rule: String) -> String? {
+        guard let parsed = try? RecurrenceRule.parse(rule) else { return nil }
+        let interval = parsed.interval
+
+        switch parsed.frequency {
+        case .daily:
+            return interval == 1 ? "Every day" : "Every \(interval) days"
+        case .weekly:
+            if parsed.byDay.isEmpty {
+                return interval == 1 ? "Every week" : "Every \(interval) weeks"
+            }
+            let dayMap: [String: String] = [
+                "MO": "Mon", "TU": "Tue", "WE": "Wed", "TH": "Thu",
+                "FR": "Fri", "SA": "Sat", "SU": "Sun"
+            ]
+            let orderedDays = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
+            let dayNames = orderedDays
+                .filter { parsed.byDay.contains($0) }
+                .compactMap { dayMap[$0] }
+                .joined(separator: ", ")
+            let weekPart = interval == 1 ? "week" : "\(interval) weeks"
+            return "Every \(weekPart) on \(dayNames)"
+        case .monthly:
+            return interval == 1 ? "Every month" : "Every \(interval) months"
+        case .yearly:
+            return interval == 1 ? "Every year" : "Every \(interval) years"
+        }
+    }
 }

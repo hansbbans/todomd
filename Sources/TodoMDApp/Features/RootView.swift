@@ -284,10 +284,15 @@ struct RootView: View {
 
             Section("Views") {
                 builtInNavButton(.inbox, label: "Inbox", icon: "tray")
+                    .keyboardShortcut("1", modifiers: .command)
                 builtInNavButton(.myTasks, label: "My Tasks", icon: "person")
+                    .keyboardShortcut("2", modifiers: .command)
                 builtInNavButton(.delegated, label: "Delegated", icon: "person.2")
+                    .keyboardShortcut("3", modifiers: .command)
                 builtInNavButton(.today, label: "Today", icon: "sun.max")
+                    .keyboardShortcut("4", modifiers: .command)
                 builtInNavButton(.upcoming, label: "Upcoming", icon: "calendar")
+                    .keyboardShortcut("5", modifiers: .command)
                 builtInNavButton(.anytime, label: "Anytime", icon: "list.bullet")
                 builtInNavButton(.someday, label: "Someday", icon: "clock")
                 builtInNavButton(.flagged, label: "Flagged", icon: "flag")
@@ -895,6 +900,7 @@ struct RootView: View {
                 .foregroundStyle(.white)
                 .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 4)
         }
+        .keyboardShortcut("n", modifiers: .command)
         .accessibilityIdentifier("root.quickAddButton")
         .padding(.trailing, 20)
         .padding(.bottom, shouldShowBottomNavigationBar ? 76 : 16)
