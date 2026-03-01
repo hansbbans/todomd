@@ -498,7 +498,7 @@ struct TaskDetailView: View {
                                 .font(.caption)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
-                                .background(Capsule().fill(Color.secondary.opacity(0.2)))
+                                .background(Rectangle().fill(Color.secondary.opacity(0.2)))
                             }
                             .buttonStyle(.plain)
                         }
@@ -735,7 +735,7 @@ struct TaskDetailView: View {
             .font(.caption.weight(.semibold))
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(Capsule().fill(Color.secondary.opacity(0.18)))
+            .background(Rectangle().fill(Color.secondary.opacity(0.18)))
     }
 
     private func dateText(_ value: Date?) -> String {
