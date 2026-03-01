@@ -298,30 +298,6 @@ struct RootView: View {
                 builtInNavButton(.flagged, label: "Flagged", icon: "flag")
             }
 
-            if !container.perspectives.isEmpty {
-                Section("Perspectives") {
-                    ForEach(container.perspectives) { perspective in
-                        navButton(
-                            view: container.perspectiveViewIdentifier(for: perspective.id),
-                            label: perspective.name,
-                            icon: perspective.icon,
-                            tintHex: perspective.color
-                        )
-                        .contextMenu {
-                            Button("Edit") {
-                                editingPerspective = perspective
-                            }
-                            Button("Duplicate") {
-                                editingPerspective = container.duplicatePerspective(id: perspective.id)
-                            }
-                            Button("Delete", role: .destructive) {
-                                pendingDeletePerspective = perspective
-                            }
-                        }
-                    }
-                }
-            }
-
             let groupedAreas = container.projectsByArea()
             if !groupedAreas.isEmpty {
                 Section("Areas") {
@@ -487,20 +463,6 @@ struct RootView: View {
 
     private var browseSectionScreen: some View {
         List {
-            let tags = container.availableTags()
-            if tags.isEmpty {
-                Section("Tags") {
-                    Text("No tags yet")
-                        .foregroundStyle(theme.textSecondaryColor)
-                }
-            } else {
-                Section("Tags") {
-                    ForEach(tags, id: \.self) { tag in
-                        browseFilterButton(view: .tag(tag), label: "#\(tag)", icon: "number")
-                    }
-                }
-            }
-
             let projects = container.allProjects()
             Section {
                 if projects.isEmpty {
@@ -535,6 +497,60 @@ struct RootView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Create Project")
+                }
+            }
+
+            Section {
+                if container.perspectives.isEmpty {
+                    Text("No perspectives yet")
+                        .foregroundStyle(theme.textSecondaryColor)
+                } else {
+                    ForEach(container.perspectives) { perspective in
+                        browseFilterButton(
+                            view: container.perspectiveViewIdentifier(for: perspective.id),
+                            label: perspective.name,
+                            icon: perspective.icon,
+                            tintHex: perspective.color
+                        )
+                        .contextMenu {
+                            Button("Edit") {
+                                editingPerspective = perspective
+                            }
+                            Button("Duplicate") {
+                                editingPerspective = container.duplicatePerspective(id: perspective.id)
+                            }
+                            Button("Delete", role: .destructive) {
+                                pendingDeletePerspective = perspective
+                            }
+                        }
+                    }
+                }
+            } header: {
+                HStack {
+                    Text("My Perspectives")
+                    Spacer()
+                    Button {
+                        editingPerspective = PerspectiveDefinition()
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.caption.weight(.bold))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Create Perspective")
+                }
+            }
+
+            let tags = container.availableTags()
+            if tags.isEmpty {
+                Section("Tags") {
+                    Text("No tags yet")
+                        .foregroundStyle(theme.textSecondaryColor)
+                }
+            } else {
+                Section("Tags") {
+                    ForEach(tags, id: \.self) { tag in
+                        browseFilterButton(view: .tag(tag), label: "#\(tag)", icon: "number")
+                    }
                 }
             }
         }

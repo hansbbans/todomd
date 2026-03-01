@@ -581,10 +581,6 @@ struct SettingsView: View {
                     container.rebuildIndex()
                 }
 
-                NavigationLink("Perspectives") {
-                    PerspectivesView()
-                }
-
                 NavigationLink("Conflict resolution") {
                     ConflictResolutionView()
                 }
