@@ -1238,7 +1238,7 @@ private struct TaskRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(frontmatter.title)
-                        .font(.system(.title3, design: .rounded).weight(.regular))
+                        .font(.system(size: 18, weight: .regular, design: .rounded))
                         .foregroundStyle(theme.textPrimaryColor)
                         .lineLimit(1)
 
@@ -1246,7 +1246,7 @@ private struct TaskRow: View {
 
                     if let dueText = dueDisplayText(for: frontmatter) {
                         Text(dueText)
-                            .font(.system(.title3, design: .rounded).weight(.regular))
+                            .font(.system(size: 18, weight: .regular, design: .rounded))
                             .foregroundStyle(theme.textSecondaryColor)
                             .lineLimit(1)
                     }
@@ -1254,13 +1254,14 @@ private struct TaskRow: View {
 
                 if let recurrenceText = recurrenceDisplayText(for: frontmatter) {
                     Text(recurrenceText)
-                        .font(.system(.title3, design: .rounded).weight(.regular))
+                        .font(.system(size: 16, weight: .regular, design: .rounded))
                         .foregroundStyle(theme.textSecondaryColor)
                         .lineLimit(1)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 12)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 14)
+            .frame(minHeight: 84, alignment: .center)
         }
         .background(theme.surfaceColor.opacity(0.88))
         .opacity(isCompleting ? 0.9 : 1.0)
