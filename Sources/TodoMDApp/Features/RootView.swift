@@ -98,11 +98,6 @@ struct RootView: View {
                     .accessibilityIdentifier("root.settingsButton")
                 }
             }
-            .searchable(
-                text: $universalSearchText,
-                placement: .navigationBarDrawer(displayMode: .automatic),
-                prompt: "Search tasks, sections, tags"
-            )
             .overlay(alignment: .bottomTrailing) {
                 if shouldShowFloatingAddButton {
                     floatingAddButton
@@ -262,7 +257,7 @@ struct RootView: View {
                 }
             }
             .onChange(of: container.selectedView) { _, selectedView in
-                if selectedView.isBrowse {
+                if !selectedView.isBrowse {
                     universalSearchText = ""
                 }
             }
@@ -371,9 +366,12 @@ struct RootView: View {
     private var mainContent: some View {
         let searchQuery = universalSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         if container.selectedView.isBrowse {
-            browseSectionScreen
-        } else if !searchQuery.isEmpty {
-            universalSearchContent(query: searchQuery)
+            browseContent(query: searchQuery)
+                .searchable(
+                    text: $universalSearchText,
+                    placement: .navigationBarDrawer(displayMode: .automatic),
+                    prompt: "Search tasks, sections, tags"
+                )
         } else if container.selectedView == .builtIn(.upcoming) {
             UpcomingCalendarView(sections: container.calendarUpcomingSections)
         } else if container.selectedView == .builtIn(.pomodoro) {
@@ -514,6 +512,15 @@ struct RootView: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
+    }
+
+    @ViewBuilder
+    private func browseContent(query: String) -> some View {
+        if query.isEmpty {
+            browseSectionScreen
+        } else {
+            universalSearchContent(query: query)
+        }
     }
 
     @ViewBuilder
@@ -767,10 +774,6 @@ struct RootView: View {
     private func navigationTitle() -> String {
         if container.selectedView.isBrowse {
             return "Browse"
-        }
-        let query = universalSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !query.isEmpty {
-            return "Search"
         }
         return titleForCurrentView()
     }
