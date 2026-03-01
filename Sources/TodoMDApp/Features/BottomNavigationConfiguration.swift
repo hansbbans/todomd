@@ -20,6 +20,7 @@ enum BottomNavigationSettings {
 
     static let defaultSections: [BottomNavigationSection] = [
         BottomNavigationSection(view: .builtIn(.inbox)),
+        BottomNavigationSection(view: .browse),
         BottomNavigationSection(view: .builtIn(.today)),
         BottomNavigationSection(view: .builtIn(.upcoming))
     ]

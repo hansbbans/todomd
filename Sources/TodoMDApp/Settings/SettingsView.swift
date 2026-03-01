@@ -573,6 +573,8 @@ struct SettingsView: View {
             options.append(BottomNavigationOption(id: rawValue, label: label, icon: icon))
         }
 
+        appendOption(view: .browse, label: "Browse", icon: "square.grid.2x2")
+
         for builtIn in BuiltInView.allCases {
             let label: String
             let icon: String
@@ -670,6 +672,7 @@ struct SettingsView: View {
 
     private func nextBottomNavigationView(existing: [ViewIdentifier]) -> ViewIdentifier {
         let builtInCandidates: [ViewIdentifier] = [
+            .browse,
             .builtIn(.inbox),
             .builtIn(.today),
             .builtIn(.upcoming),

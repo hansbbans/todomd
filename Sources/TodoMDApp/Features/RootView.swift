@@ -22,9 +22,10 @@ struct RootView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var showingQuickEntry = false
-    @State private var showingFilterBrowser = false
     @State private var navigationPath = NavigationPath()
     @State private var universalSearchText = ""
+    @State private var browseProjectName = ""
+    @State private var browseProjectFirstTaskTitle = ""
     @State private var pathsCompleting: Set<String> = []
     @State private var pathsSlidingOut: Set<String> = []
     @State private var completionAnimationTasks: [String: Task<Void, Never>] = [:]
@@ -69,9 +70,9 @@ struct RootView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     if horizontalSizeClass == .compact {
                         Button {
-                            showingFilterBrowser = true
+                            applyFilter(.browse)
                         } label: {
-                            Image(systemName: "line.3.horizontal.decrease.circle")
+                            Image(systemName: "square.grid.2x2")
                         }
                     }
                 }
@@ -112,19 +113,6 @@ struct RootView: View {
             }
             .sheet(isPresented: $showingQuickEntry) {
                 QuickEntrySheet()
-            }
-            .sheet(isPresented: $showingFilterBrowser) {
-                NavigationStack {
-                    filterBrowserScreen
-                        .navigationTitle("Browse")
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button("Done") {
-                                    showingFilterBrowser = false
-                                }
-                            }
-                        }
-                }
             }
             .sheet(item: $deferDateTarget) { target in
                 deferDateSheet(target: target)
@@ -278,6 +266,10 @@ struct RootView: View {
 
     private var sidebar: some View {
         List {
+            Section("Browse") {
+                navButton(view: .browse, label: "Browse", icon: "square.grid.2x2")
+            }
+
             Section("Views") {
                 builtInNavButton(.inbox, label: "Inbox", icon: "tray")
                 builtInNavButton(.myTasks, label: "My Tasks", icon: "person")
@@ -375,6 +367,8 @@ struct RootView: View {
         let searchQuery = universalSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !searchQuery.isEmpty {
             universalSearchContent(query: searchQuery)
+        } else if container.selectedView.isBrowse {
+            browseSectionScreen
         } else if container.selectedView == .builtIn(.upcoming) {
             UpcomingCalendarView(sections: container.calendarUpcomingSections)
         } else if container.selectedView == .builtIn(.pomodoro) {
@@ -465,36 +459,24 @@ struct RootView: View {
         }
     }
 
-    private var filterBrowserScreen: some View {
+    private var browseSectionScreen: some View {
         List {
-            Section("Sections") {
-                builtInBrowseFilterButton(.inbox, label: "Inbox", icon: "tray")
-                builtInBrowseFilterButton(.myTasks, label: "My Tasks", icon: "person")
-                builtInBrowseFilterButton(.delegated, label: "Delegated", icon: "person.2")
-                builtInBrowseFilterButton(.today, label: "Today", icon: "sun.max")
-                builtInBrowseFilterButton(.upcoming, label: "Upcoming", icon: "calendar")
-                builtInBrowseFilterButton(.anytime, label: "Anytime", icon: "list.bullet")
-            }
+            Section("New Project") {
+                TextField("Project name", text: $browseProjectName)
+                    .textInputAutocapitalization(.words)
+                    .autocorrectionDisabled()
 
-            if !container.perspectives.isEmpty {
-                Section("Perspectives") {
-                    ForEach(container.perspectives) { perspective in
-                        browseFilterButton(
-                            view: container.perspectiveViewIdentifier(for: perspective.id),
-                            label: perspective.name,
-                            icon: perspective.icon,
-                            tintHex: perspective.color
-                        )
-                    }
-                }
-            }
+                TextField("First task title (optional)", text: $browseProjectFirstTaskTitle)
+                    .textInputAutocapitalization(.sentences)
 
-            Section("Filters") {
-                NavigationLink {
-                    PerspectivesView()
-                } label: {
-                    Label("Manage Perspectives", systemImage: "slider.horizontal.3")
+                Button("Create Project") {
+                    createProjectFromBrowse()
                 }
+                .disabled(browseProjectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                Text("Projects are created from tasks. This adds a starter task to the new project.")
+                    .font(.caption)
+                    .foregroundStyle(theme.textSecondaryColor)
             }
 
             let tags = container.availableTags()
@@ -537,6 +519,7 @@ struct RootView: View {
         let projects = container.allProjects().filter { matchesQuery($0, query: query) }
         let perspectives = container.perspectives.filter { matchesQuery($0.name, query: query) }
         let builtInViews: [(label: String, view: ViewIdentifier, icon: String)] = [
+            ("Browse", .browse, "square.grid.2x2"),
             ("Inbox", .builtIn(.inbox), "tray"),
             ("My Tasks", .builtIn(.myTasks), "person"),
             ("Delegated", .builtIn(.delegated), "person.2"),
@@ -651,17 +634,26 @@ struct RootView: View {
     }
 
     private var resolvedBottomNavigationSections: [ResolvedBottomNavigationSection] {
-        BottomNavigationSettings.decodeSections(bottomNavigationSectionsRawValue)
-            .compactMap { section in
+        var resolved = BottomNavigationSettings.decodeSections(bottomNavigationSectionsRawValue)
+            .compactMap { section -> ResolvedBottomNavigationSection? in
                 let view = section.viewIdentifier
                 if case .builtIn(.pomodoro) = view, !pomodoroEnabled {
                     return nil
                 }
-                if case .custom = view, perspective(for: view) == nil {
+                if case .custom = view, perspective(for: view) == nil, !view.isBrowse {
                     return nil
                 }
                 return ResolvedBottomNavigationSection(id: section.id, view: view)
             }
+
+        if !resolved.contains(where: { $0.view.isBrowse }) {
+            if resolved.count >= BottomNavigationSettings.maxSections {
+                _ = resolved.popLast()
+            }
+            resolved.append(ResolvedBottomNavigationSection(id: "browse", view: .browse))
+        }
+
+        return resolved
     }
 
     private var compactBottomNavigationBar: some View {
@@ -728,6 +720,9 @@ struct RootView: View {
         case .tag(let tag):
             return ("#\(tag)", "number", nil)
         case .custom(let rawValue):
+            if view.isBrowse {
+                return ("Browse", "square.grid.2x2", nil)
+            }
             if let perspective = perspective(for: view) {
                 return (perspective.name, perspective.icon, perspective.color)
             }
@@ -776,12 +771,32 @@ struct RootView: View {
         value.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
     }
 
+    private func createProjectFromBrowse() {
+        let trimmedProjectName = browseProjectName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedProjectName.isEmpty else { return }
+
+        if let existingProject = container.allProjects().first(where: {
+            $0.compare(trimmedProjectName, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+        }) {
+            browseProjectName = ""
+            browseProjectFirstTaskTitle = ""
+            applyFilter(.project(existingProject))
+            return
+        }
+
+        let trimmedTaskTitle = browseProjectFirstTaskTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let starterTaskTitle = trimmedTaskTitle.isEmpty ? "Plan \(trimmedProjectName)" : trimmedTaskTitle
+        container.createTask(title: starterTaskTitle, naturalDate: nil, project: trimmedProjectName)
+        browseProjectName = ""
+        browseProjectFirstTaskTitle = ""
+        applyFilter(.project(trimmedProjectName))
+    }
+
     private func applyFilter(_ view: ViewIdentifier) {
         withAnimation(.easeInOut(duration: 0.2)) {
             container.selectedView = view
         }
         universalSearchText = ""
-        showingFilterBrowser = false
 #if canImport(UIKit)
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
 #endif
@@ -1079,6 +1094,9 @@ struct RootView: View {
         case .tag(let tag):
             return "#\(tag)"
         case .custom(let id):
+            if ViewIdentifier.custom(id).isBrowse {
+                return "Browse"
+            }
             if let perspectiveName = container.perspectiveName(for: .custom(id)) {
                 return perspectiveName
             }

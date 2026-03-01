@@ -19,6 +19,9 @@ public enum ViewIdentifier: Hashable, Sendable, RawRepresentable {
     case tag(String)
     case custom(String)
 
+    public static let browseRawValue = "browse"
+    public static var browse: ViewIdentifier { .custom(browseRawValue) }
+
     public init(rawValue: String) {
         if let builtIn = BuiltInView(rawValue: rawValue) {
             self = .builtIn(builtIn)
@@ -56,5 +59,12 @@ public enum ViewIdentifier: Hashable, Sendable, RawRepresentable {
         case .custom(let value):
             return value
         }
+    }
+
+    public var isBrowse: Bool {
+        if case .custom(let value) = self {
+            return value == Self.browseRawValue
+        }
+        return false
     }
 }
