@@ -1373,6 +1373,15 @@ final class AppContainer: ObservableObject {
     }
 
     @discardableResult
+    func addToProject(path: String, project: String) -> Bool {
+        let normalizedProject = project.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProject.isEmpty else { return false }
+        let resolvedProject = resolvedProjectName(for: normalizedProject) ?? normalizedProject
+        let resolvedArea = inferredArea(forProject: resolvedProject)
+        return moveTask(path: path, area: resolvedArea, project: resolvedProject)
+    }
+
+    @discardableResult
     func moveTask(path: String, area: String?, project: String?) -> Bool {
         do {
             let updated = try repository.update(path: path) { document in
@@ -2101,6 +2110,30 @@ final class AppContainer: ObservableObject {
 
     private func sortUserProjects() {
         userProjects.sort { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private func inferredArea(forProject project: String) -> String? {
+        let normalizedProject = project.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProject.isEmpty else { return nil }
+
+        let matches = allIndexedRecords.compactMap { record -> (area: String, recency: Date)? in
+            guard let recordProject = record.document.frontmatter.project?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                  recordProject.compare(normalizedProject, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame,
+                  let area = record.document.frontmatter.area?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !area.isEmpty else {
+                return nil
+            }
+            let recency = record.document.frontmatter.modified ?? record.document.frontmatter.created
+            return (area, recency)
+        }
+
+        return matches
+            .sorted { lhs, rhs in
+                if lhs.recency != rhs.recency { return lhs.recency > rhs.recency }
+                return lhs.area.localizedCaseInsensitiveCompare(rhs.area) == .orderedAscending
+            }
+            .first?.area
     }
 
     private func resolvedProjectName(for project: String) -> String? {

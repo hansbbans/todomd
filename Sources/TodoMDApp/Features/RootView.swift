@@ -1044,11 +1044,7 @@ struct RootView: View {
                     } else {
                         ForEach(quickProjects, id: \.self) { project in
                             Button(project) {
-                                _ = container.moveTask(
-                                    path: record.identity.path,
-                                    area: record.document.frontmatter.area,
-                                    project: project
-                                )
+                                _ = container.addToProject(path: record.identity.path, project: project)
                             }
                         }
                     }
@@ -1319,7 +1315,7 @@ private struct TaskRow: View {
         guard let dueDate = date(from: due, time: frontmatter.dueTime) else { return due.isoString }
         let calendar = Calendar.current
 
-        if let dueTime = frontmatter.dueTime, calendar.isDateInToday(dueDate) {
+        if frontmatter.dueTime != nil, calendar.isDateInToday(dueDate) {
             let formatter = RelativeDateTimeFormatter()
             formatter.unitsStyle = .short
             return formatter.localizedString(for: dueDate, relativeTo: Date())
