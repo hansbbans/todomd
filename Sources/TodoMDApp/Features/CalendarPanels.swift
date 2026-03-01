@@ -6,79 +6,22 @@ struct TodayCalendarCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Today")
-                .font(.system(size: 22, weight: .bold, design: .rounded))
-                .foregroundStyle(theme.textPrimaryColor)
-
+            CalendarDayHeaderView(date: Date(), label: "Today")
             if events.isEmpty {
                 Text("No calendar events")
                     .font(.system(size: 16, weight: .medium, design: .rounded))
                     .foregroundStyle(theme.textSecondaryColor)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 14)
+                    .padding(.leading, 4)
             } else {
-                VStack(alignment: .leading, spacing: 5) {
+                VStack(alignment: .leading, spacing: 6) {
                     ForEach(events.prefix(8)) { event in
-                        TodayCalendarEventLine(
-                            event: event,
-                            isHighlighted: isHighlighted(event: event)
-                        )
+                        UpcomingEventLineView(event: event)
                     }
                 }
+                .padding(.leading, 4)
             }
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(theme.surfaceColor.opacity(0.95))
-        )
-    }
-
-    private func isHighlighted(event: CalendarEventItem) -> Bool {
-        if event.isAllDay {
-            return false
-        }
-        let now = Date()
-        if event.startDate <= now, now <= event.endDate {
-            return true
-        }
-        let futureTimed = events.filter { !$0.isAllDay && $0.startDate >= now }
-        return futureTimed.first?.id == event.id
-    }
-}
-
-private struct TodayCalendarEventLine: View {
-    let event: CalendarEventItem
-    let isHighlighted: Bool
-
-    var body: some View {
-        HStack(spacing: 8) {
-            RoundedRectangle(cornerRadius: 2)
-                .fill(Color(hex: event.calendarColorHex))
-                .frame(width: 4, height: 16)
-
-            if event.isAllDay {
-                Text(event.title)
-                    .foregroundStyle(.white.opacity(isHighlighted ? 0.95 : 0.72))
-                    .lineLimit(1)
-            } else {
-                Text(formatTime(event.startDate))
-                    .foregroundStyle(Color(hex: event.calendarColorHex))
-                    .lineLimit(1)
-                Text(event.title)
-                    .lineLimit(1)
-                    .foregroundStyle(.white.opacity(isHighlighted ? 0.95 : 0.72))
-            }
-        }
-        .font(.system(size: 14, weight: isHighlighted ? .semibold : .regular, design: .rounded))
-    }
-
-    private func formatTime(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale.current
-        formatter.timeStyle = .short
-        formatter.dateStyle = .none
-        return formatter.string(from: date)
     }
 }
 
@@ -125,24 +68,10 @@ struct UpcomingCalendarView: View {
 
 private struct UpcomingDaySectionView: View {
     let section: CalendarDaySection
-    @EnvironmentObject private var theme: ThemeManager
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(dayNumberText)
-                    .font(.system(size: 30, weight: .bold, design: .rounded))
-                    .foregroundStyle(theme.textPrimaryColor)
-
-                Text(dayLabelText)
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
-                    .foregroundStyle(theme.textPrimaryColor)
-
-                Rectangle()
-                    .fill(theme.textSecondaryColor.opacity(0.35))
-                    .frame(height: 1)
-                    .padding(.leading, 6)
-            }
+            CalendarDayHeaderView(date: section.date, label: dayLabelText)
 
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(section.events) { event in
@@ -161,6 +90,9 @@ private struct UpcomingDaySectionView: View {
 
     private var dayLabelText: String {
         let calendar = Calendar.current
+        if calendar.isDateInToday(section.date) {
+            return "Today"
+        }
         if calendar.isDateInTomorrow(section.date) {
             return "Tomorrow"
         }
@@ -168,6 +100,35 @@ private struct UpcomingDaySectionView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "EEEE"
         return formatter.string(from: section.date)
+    }
+}
+
+private struct CalendarDayHeaderView: View {
+    let date: Date
+    let label: String
+    @EnvironmentObject private var theme: ThemeManager
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(dayNumberText)
+                .font(.system(size: 30, weight: .bold, design: .rounded))
+                .foregroundStyle(theme.textPrimaryColor)
+
+            Text(label)
+                .font(.system(size: 20, weight: .bold, design: .rounded))
+                .foregroundStyle(theme.textPrimaryColor)
+
+            Rectangle()
+                .fill(theme.textSecondaryColor.opacity(0.35))
+                .frame(height: 1)
+                .padding(.leading, 6)
+        }
+    }
+
+    private var dayNumberText: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "d"
+        return formatter.string(from: date)
     }
 }
 
