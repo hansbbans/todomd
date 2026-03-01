@@ -9,6 +9,7 @@ public enum BuiltInView: String, CaseIterable, Sendable {
     case anytime
     case someday
     case flagged
+    case pomodoro
 }
 
 public enum ViewIdentifier: Hashable, Sendable, RawRepresentable {

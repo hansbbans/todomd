@@ -79,6 +79,7 @@ struct SettingsView: View {
     @AppStorage(QuickEntrySettings.fieldsKey) private var quickEntryFieldsRawValue = QuickEntrySettings.defaultFieldsRawValue
     @AppStorage(QuickEntrySettings.defaultDateModeKey) private var quickEntryDefaultDateModeRawValue = QuickEntryDefaultDateMode.today.rawValue
     @AppStorage(BottomNavigationSettings.sectionsKey) private var bottomNavigationSectionsRawValue = BottomNavigationSettings.defaultSectionsRawValue
+    @AppStorage("settings_pomodoro_enabled") private var pomodoroEnabled = false
     @AppStorage("settings_icloud_folder_name") private var iCloudFolderName = "todo.md"
     @State private var selectedFolderPath = UserDefaults.standard.string(forKey: TaskFolderPreferences.selectedFolderPathKey)
     @State private var showingFolderPicker = false
@@ -412,6 +413,9 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
+                Toggle("Enable Pomodoro", isOn: $pomodoroEnabled)
+                    .accessibilityIdentifier("settings.bottomNavigation.pomodoroToggle")
+
                 if bottomNavigationSections.isEmpty {
                     Text("No bottom sections configured.")
                         .foregroundStyle(.secondary)
@@ -429,6 +433,7 @@ struct SettingsView: View {
                                     .tag(section.viewRawValue)
                             }
                         }
+                        .accessibilityIdentifier("settings.bottomNavigation.section\(sectionNumber)Picker")
                     }
                     .onMove(perform: moveBottomNavigationSections)
                     .onDelete(perform: deleteBottomNavigationSections)
@@ -577,6 +582,10 @@ struct SettingsView: View {
             case .flagged:
                 label = "Flagged"
                 icon = "flag"
+            case .pomodoro:
+                guard pomodoroEnabled else { continue }
+                label = "Pomodoro"
+                icon = "timer"
             }
             appendOption(view: .builtIn(builtIn), label: label, icon: icon)
         }

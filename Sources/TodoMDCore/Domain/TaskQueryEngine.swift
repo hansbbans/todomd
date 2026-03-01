@@ -34,6 +34,8 @@ public struct TaskQueryEngine {
                 return isSomeday(record)
             case .flagged:
                 return isFlagged(record)
+            case .pomodoro:
+                return false
             }
         case .area(let name):
             return record.document.frontmatter.area == name

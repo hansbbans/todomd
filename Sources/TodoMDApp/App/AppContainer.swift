@@ -976,6 +976,18 @@ final class AppContainer: ObservableObject {
                     ]
                 )
             )
+        case .pomodoro:
+            return PerspectiveDefinition(
+                id: "builtin.pomodoro",
+                name: "Pomodoro",
+                icon: "timer",
+                rules: PerspectiveRuleGroup(
+                    operator: .and,
+                    conditions: [
+                        .rule(PerspectiveRule(field: .status, operator: .equals, value: TaskStatus.todo.rawValue))
+                    ]
+                )
+            )
         }
     }
 
