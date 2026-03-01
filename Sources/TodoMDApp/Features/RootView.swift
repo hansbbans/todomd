@@ -35,6 +35,7 @@ struct RootView: View {
     @State private var editingPerspective: PerspectiveDefinition?
     @State private var builtInRulesTarget: BuiltInRulesTarget?
     @AppStorage(BottomNavigationSettings.sectionsKey) private var bottomNavigationSectionsRawValue = BottomNavigationSettings.defaultSectionsRawValue
+    @AppStorage("settings_pomodoro_enabled") private var pomodoroEnabled = false
 
     var body: some View {
         Group {
@@ -266,6 +267,12 @@ struct RootView: View {
                 completionAnimationTasks.values.forEach { $0.cancel() }
                 completionAnimationTasks.removeAll()
             }
+            .onChange(of: pomodoroEnabled) { _, isEnabled in
+                guard !isEnabled, container.selectedView == .builtIn(.pomodoro) else { return }
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    container.selectedView = .builtIn(.inbox)
+                }
+            }
         }
     }
 
@@ -370,6 +377,8 @@ struct RootView: View {
             universalSearchContent(query: searchQuery)
         } else if container.selectedView == .builtIn(.upcoming) {
             UpcomingCalendarView(sections: container.calendarUpcomingSections)
+        } else if container.selectedView == .builtIn(.pomodoro) {
+            PomodoroTimerView()
         } else {
             let records = container.filteredRecords()
 
@@ -645,6 +654,9 @@ struct RootView: View {
         BottomNavigationSettings.decodeSections(bottomNavigationSectionsRawValue)
             .compactMap { section in
                 let view = section.viewIdentifier
+                if case .builtIn(.pomodoro) = view, !pomodoroEnabled {
+                    return nil
+                }
                 if case .custom = view, perspective(for: view) == nil {
                     return nil
                 }
@@ -706,6 +718,8 @@ struct RootView: View {
                 return ("Someday", "clock", nil)
             case .flagged:
                 return ("Flagged", "flag", nil)
+            case .pomodoro:
+                return ("Pomodoro", "timer", nil)
             }
         case .area(let area):
             return (area, "square.grid.2x2", nil)
@@ -1055,6 +1069,8 @@ struct RootView: View {
                 return "Someday"
             case .flagged:
                 return "Flagged"
+            case .pomodoro:
+                return "Pomodoro"
             }
         case .area(let area):
             return area
