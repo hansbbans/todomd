@@ -153,7 +153,13 @@ final class UserNotificationScheduler {
         for plan in allPlans {
             guard plan.kind == .due else { continue }
             guard plan.fireDate <= now else { continue }
-            guard plan.fireDate >= oldestAllowed else { continue }
+            // Always catch up for same-day due notifications: the user may have created
+            // the task after the default notification time (e.g. task added at 10 AM for a
+            // due date whose default fire time is 9 AM). For tasks from earlier days the
+            // original 30-minute window is sufficient — a same-day check avoids a flood
+            // of notifications for long-overdue tasks.
+            let isDueToday = Calendar.current.isDate(plan.fireDate, inSameDayAs: now)
+            guard isDueToday || plan.fireDate >= oldestAllowed else { continue }
 
             let catchUpIdentifier = catchUpNotificationIdentifier(for: plan)
             guard ledger[catchUpIdentifier] == nil else { continue }
