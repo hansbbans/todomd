@@ -261,6 +261,11 @@ struct RootView: View {
                     container.selectedView = .builtIn(.inbox)
                 }
             }
+            .onChange(of: container.selectedView) { _, selectedView in
+                if selectedView.isBrowse {
+                    universalSearchText = ""
+                }
+            }
         }
     }
 
@@ -365,10 +370,10 @@ struct RootView: View {
     @ViewBuilder
     private var mainContent: some View {
         let searchQuery = universalSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !searchQuery.isEmpty {
-            universalSearchContent(query: searchQuery)
-        } else if container.selectedView.isBrowse {
+        if container.selectedView.isBrowse {
             browseSectionScreen
+        } else if !searchQuery.isEmpty {
+            universalSearchContent(query: searchQuery)
         } else if container.selectedView == .builtIn(.upcoming) {
             UpcomingCalendarView(sections: container.calendarUpcomingSections)
         } else if container.selectedView == .builtIn(.pomodoro) {
@@ -760,6 +765,9 @@ struct RootView: View {
     }
 
     private func navigationTitle() -> String {
+        if container.selectedView.isBrowse {
+            return "Browse"
+        }
         let query = universalSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !query.isEmpty {
             return "Search"
