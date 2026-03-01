@@ -1107,7 +1107,7 @@ struct RootView: View {
         }
         .opacity(isSlidingOut ? 0.0 : (isCompleting ? 0.86 : 1.0))
         .offset(x: isSlidingOut ? 700 : 0)
-        .listRowInsets(EdgeInsets(top: 7, leading: 12, bottom: 7, trailing: 12))
+        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
         .animation(.spring(response: 0.34, dampingFraction: 0.82), value: pathsCompleting)
@@ -1230,139 +1230,112 @@ private struct TaskRow: View {
     var body: some View {
         let frontmatter = record.document.frontmatter
 
-        HStack(alignment: .top, spacing: 10) {
-            completionStripe(isDone: frontmatter.status == .done)
+        HStack(spacing: 0) {
+            Rectangle()
+                .fill(projectBarColor(for: frontmatter))
+                .frame(width: 5)
 
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 10) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 6) {
-                            if frontmatter.isBlocked {
-                                Image(systemName: "lock.fill")
-                                    .foregroundStyle(.orange)
-                            }
-                            Text(frontmatter.title)
-                                .font(.system(.body, design: .rounded).weight(.medium))
-                                .foregroundStyle(theme.textPrimaryColor)
-                                .lineLimit(1)
-                        }
-
-                        if let description = frontmatter.description, !description.isEmpty {
-                            Text(description)
-                                .font(.system(.subheadline, design: .rounded))
-                                .foregroundStyle(theme.textSecondaryColor)
-                                .lineLimit(1)
-                        }
-                    }
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(frontmatter.title)
+                        .font(.system(.title3, design: .rounded).weight(.regular))
+                        .foregroundStyle(theme.textPrimaryColor)
+                        .lineLimit(1)
 
                     Spacer(minLength: 8)
 
-                    if frontmatter.flagged {
-                        Image(systemName: "flag.fill")
-                            .foregroundStyle(.orange)
+                    if let dueText = dueDisplayText(for: frontmatter) {
+                        Text(dueText)
+                            .font(.system(.title3, design: .rounded).weight(.regular))
+                            .foregroundStyle(theme.textSecondaryColor)
+                            .lineLimit(1)
                     }
                 }
 
-                metadata(frontmatter)
+                if let recurrenceText = recurrenceDisplayText(for: frontmatter) {
+                    Text(recurrenceText)
+                        .font(.system(.title3, design: .rounded).weight(.regular))
+                        .foregroundStyle(theme.textSecondaryColor)
+                        .lineLimit(1)
+                }
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(theme.surfaceColor.opacity(0.94))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(theme.textSecondaryColor.opacity(0.14), lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.08), radius: 8, x: 0, y: 3)
+        .background(theme.surfaceColor.opacity(0.88))
+        .opacity(isCompleting ? 0.9 : 1.0)
     }
 
-    @ViewBuilder
-    private func completionStripe(isDone: Bool) -> some View {
-        let fillColor: Color = {
-            if isDone || isCompleting {
-                return .green
-            }
-            if record.document.frontmatter.flagged {
-                return .orange
-            }
-            return theme.accentColor
-        }()
-        RoundedRectangle(cornerRadius: 4, style: .continuous)
-            .fill(fillColor)
-            .frame(width: 5)
-            .padding(.vertical, 2)
-            .animation(.spring(response: 0.24, dampingFraction: 0.76), value: isCompleting)
-    }
-
-    @ViewBuilder
-    private func metadata(_ frontmatter: TaskFrontmatterV1) -> some View {
-        HStack(spacing: 8) {
-            if let due = frontmatter.due {
-                Label(dueLabel(for: frontmatter, due: due), systemImage: "calendar.badge.clock")
-                    .foregroundStyle(theme.textSecondaryColor)
-            }
-
-            if let scheduled = frontmatter.scheduled {
-                Label("Planned \(scheduled.isoString)", systemImage: "calendar")
-                    .foregroundStyle(theme.textSecondaryColor)
-            }
-
-            if let project = frontmatter.project {
-                let projectColor = projectPillColor(for: project)
-                Text(project)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(projectColor.opacity(0.2)))
-                    .foregroundStyle(projectColor)
-            }
-
-            if let assignee = frontmatter.assignee, !assignee.isEmpty {
-                Label(assignee, systemImage: assignee.lowercased() == "user" ? "person.fill" : "cpu")
-                    .foregroundStyle(theme.textSecondaryColor)
-            }
-
-            if frontmatter.priority != .none {
-                Text(frontmatter.priority.rawValue.uppercased())
-                    .font(.caption2.weight(.semibold))
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(priorityColor(frontmatter.priority).opacity(0.2)))
-                    .foregroundStyle(priorityColor(frontmatter.priority))
-            }
-
-            if let estimate = frontmatter.estimatedMinutes {
-                Label("\(estimate)m", systemImage: "clock")
-                    .foregroundStyle(theme.textSecondaryColor)
-            }
-
-            if let deferDate = frontmatter.defer,
-               deferDate > LocalDate.today(in: .current) {
-                Label("Deferred \(deferDate.isoString)", systemImage: "hourglass")
-                    .foregroundStyle(theme.textSecondaryColor)
-            }
-
-            if frontmatter.source != "user" {
-                Label(frontmatter.source, systemImage: "tray.and.arrow.down")
-                    .foregroundStyle(theme.textSecondaryColor)
-            }
-
-            if let ref = frontmatter.ref {
-                Label(ref, systemImage: "number")
-                    .foregroundStyle(theme.textSecondaryColor)
-            }
+    private func projectBarColor(for frontmatter: TaskFrontmatterV1) -> Color {
+        guard let project = frontmatter.project?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !project.isEmpty else {
+            return theme.textSecondaryColor.opacity(0.35)
         }
-        .font(.caption2)
-        .lineLimit(1)
+        return color(forHex: container.projectColorHex(for: project))
+            ?? theme.textSecondaryColor.opacity(0.35)
     }
 
-    private func priorityColor(_ priority: TaskPriority) -> Color {
-        theme.priorityColor(priority)
+    private func dueDisplayText(for frontmatter: TaskFrontmatterV1) -> String? {
+        guard let due = frontmatter.due else { return nil }
+        guard let dueDate = date(from: due, time: frontmatter.dueTime) else { return due.isoString }
+        let calendar = Calendar.current
+
+        if let dueTime = frontmatter.dueTime, calendar.isDateInToday(dueDate) {
+            let formatter = RelativeDateTimeFormatter()
+            formatter.unitsStyle = .short
+            return formatter.localizedString(for: dueDate, relativeTo: Date())
+        }
+
+        if calendar.isDateInToday(dueDate) { return "Today" }
+        if calendar.isDateInTomorrow(dueDate) { return "Tomorrow" }
+
+        if let oneWeekFromNow = calendar.date(byAdding: .day, value: 7, to: Date()),
+           dueDate < oneWeekFromNow {
+            let formatter = DateFormatter()
+            formatter.setLocalizedDateFormatFromTemplate("EEE")
+            return formatter.string(from: dueDate)
+        }
+
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("MMM d")
+        return formatter.string(from: dueDate)
     }
 
-    private func projectPillColor(for project: String) -> Color {
-        color(forHex: container.projectColorHex(for: project)) ?? theme.textPrimaryColor
+    private func recurrenceDisplayText(for frontmatter: TaskFrontmatterV1) -> String? {
+        let recurrence = frontmatter.recurrence?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !recurrence.isEmpty else { return nil }
+
+        if recurrence.uppercased().contains("FREQ="),
+           let parsed = try? RecurrenceRule.parse(recurrence) {
+            let base: String
+            switch parsed.frequency {
+            case .daily:
+                base = parsed.interval == 1 ? "Every day" : "Every \(parsed.interval) days"
+            case .weekly:
+                let weekdayText = weekdayDisplayNames(for: parsed.byDay)
+                if parsed.interval == 1 {
+                    base = weekdayText.isEmpty ? "Every week" : "Every week on \(weekdayText)"
+                } else {
+                    base = weekdayText.isEmpty ? "Every \(parsed.interval) weeks" : "Every \(parsed.interval) weeks on \(weekdayText)"
+                }
+            case .monthly:
+                if let dueDay = frontmatter.due?.day {
+                    let dayText = ordinal(dueDay)
+                    base = parsed.interval == 1 ? "Every month on the \(dayText)" : "Every \(parsed.interval) months on the \(dayText)"
+                } else {
+                    base = parsed.interval == 1 ? "Every month" : "Every \(parsed.interval) months"
+                }
+            case .yearly:
+                base = parsed.interval == 1 ? "Every year" : "Every \(parsed.interval) years"
+            }
+
+            if let dueTime = frontmatter.dueTime {
+                return "\(base) at \(formattedTime(dueTime))"
+            }
+            return base
+        }
+
+        return recurrence
     }
 
     private func color(forHex hex: String?) -> Color? {
@@ -1375,10 +1348,60 @@ private struct TaskRow: View {
         return Color(red: red, green: green, blue: blue)
     }
 
-    private func dueLabel(for frontmatter: TaskFrontmatterV1, due: LocalDate) -> String {
-        if let dueTime = frontmatter.dueTime {
-            return "Due \(due.isoString) \(dueTime.isoString)"
+    private func date(from localDate: LocalDate, time localTime: LocalTime?) -> Date? {
+        var components = DateComponents()
+        components.year = localDate.year
+        components.month = localDate.month
+        components.day = localDate.day
+        components.hour = localTime?.hour ?? 12
+        components.minute = localTime?.minute ?? 0
+        components.second = 0
+        components.calendar = .current
+        return Calendar.current.date(from: components)
+    }
+
+    private func formattedTime(_ localTime: LocalTime) -> String {
+        var components = DateComponents()
+        components.hour = localTime.hour
+        components.minute = localTime.minute
+        components.second = 0
+        components.calendar = .current
+        guard let date = Calendar.current.date(from: components) else { return localTime.isoString }
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        formatter.dateStyle = .none
+        return formatter.string(from: date)
+    }
+
+    private func weekdayDisplayNames(for byDay: [String]) -> String {
+        let names = byDay.compactMap { token -> String? in
+            switch token {
+            case "MO": return "Mon"
+            case "TU": return "Tue"
+            case "WE": return "Wed"
+            case "TH": return "Thu"
+            case "FR": return "Fri"
+            case "SA": return "Sat"
+            case "SU": return "Sun"
+            default: return nil
+            }
         }
-        return "Due \(due.isoString)"
+        return names.joined(separator: ", ")
+    }
+
+    private func ordinal(_ day: Int) -> String {
+        let mod100 = day % 100
+        let suffix: String
+        if (11...13).contains(mod100) {
+            suffix = "th"
+        } else {
+            switch day % 10 {
+            case 1: suffix = "st"
+            case 2: suffix = "nd"
+            case 3: suffix = "rd"
+            default: suffix = "th"
+            }
+        }
+        return "\(day)\(suffix)"
     }
 }
