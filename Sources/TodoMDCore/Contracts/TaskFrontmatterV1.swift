@@ -47,6 +47,7 @@ public struct TaskFrontmatterV1: Equatable, Sendable {
     public var status: TaskStatus
     public var due: LocalDate?
     public var dueTime: LocalTime?
+    public var persistentReminder: Bool?
     public var `defer`: LocalDate?
     public var scheduled: LocalDate?
     public var priority: TaskPriority
@@ -72,6 +73,7 @@ public struct TaskFrontmatterV1: Equatable, Sendable {
         status: TaskStatus,
         due: LocalDate? = nil,
         dueTime: LocalTime? = nil,
+        persistentReminder: Bool? = nil,
         defer: LocalDate? = nil,
         scheduled: LocalDate? = nil,
         priority: TaskPriority = .none,
@@ -96,6 +98,7 @@ public struct TaskFrontmatterV1: Equatable, Sendable {
         self.status = status
         self.due = due
         self.dueTime = dueTime
+        self.persistentReminder = persistentReminder
         self.defer = `defer`
         self.scheduled = scheduled
         self.priority = priority

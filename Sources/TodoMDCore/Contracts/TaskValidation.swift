@@ -102,6 +102,12 @@ public enum TaskValidation {
         if frontmatter.due == nil, frontmatter.dueTime != nil {
             throw TaskValidationError.invalidFieldValue(field: "due_time", value: "due_time requires due date")
         }
+        if frontmatter.persistentReminder == true, (frontmatter.due == nil || frontmatter.dueTime == nil) {
+            throw TaskValidationError.invalidFieldValue(
+                field: "persistent_reminder",
+                value: "persistent_reminder requires due date and due_time"
+            )
+        }
 
         if let locationReminder = frontmatter.locationReminder {
             if let name = locationReminder.name,

@@ -59,6 +59,7 @@ public struct NotificationPlanner {
         let filename = record.identity.filename
         let frontmatter = record.document.frontmatter
         let status = frontmatter.status
+        let taskPersistentRemindersEnabled = frontmatter.persistentReminder ?? persistentRemindersEnabled
         guard status == .todo || status == .inProgress else { return [] }
 
         var planned: [PlannedNotification] = []
@@ -75,7 +76,7 @@ public struct NotificationPlanner {
                 )
             )
 
-            if persistentRemindersEnabled {
+            if taskPersistentRemindersEnabled {
                 let nags = persistentNagNotifications(
                     filename: filename,
                     path: record.identity.path,

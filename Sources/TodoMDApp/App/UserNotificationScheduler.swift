@@ -10,6 +10,11 @@ final class UserNotificationScheduler {
     private let center: UNUserNotificationCenter
     private let maxPendingTimedNotifications = 64
     private let maxPendingLocationNotifications = 20
+    private let maxCatchUpNotificationsPerSync = 8
+    private let catchUpGraceWindowSeconds: TimeInterval = 30 * 60
+    private let catchUpLedgerTTLSeconds: TimeInterval = 7 * 24 * 60 * 60
+    private let catchUpLedgerLimit = 1024
+    private let catchUpLedgerKey = "notifications_due_catchup_ledger_v1"
 #if canImport(CoreLocation)
     private let locationAuthorizationRequester = LocationAuthorizationRequester()
 #endif
@@ -33,31 +38,53 @@ final class UserNotificationScheduler {
         let now = Date()
         let allPlans = records
             .flatMap { planner.planNotifications(for: $0, referenceDate: now) }
-            .filter { $0.fireDate > now }
             .sorted { $0.fireDate < $1.fireDate }
         let allLocationPlans = locationNotificationPlans(records: records)
 
-        let selectedPlans = Array(allPlans.prefix(maxPendingTimedNotifications))
+        let futurePlans = allPlans.filter { $0.fireDate > now }
+        let catchUpPlans = dueCatchUpPlans(from: allPlans, now: now)
+
+        let futureBudget = max(0, maxPendingTimedNotifications - catchUpPlans.count)
+        let selectedFuturePlans = Array(futurePlans.prefix(futureBudget))
         let selectedLocationPlans = Array(allLocationPlans.prefix(maxPendingLocationNotifications))
         let existingIDs = await pendingManagedNotificationIdentifiers()
-        let identifiers = Set(selectedPlans.map(\.identifier))
+
+        let identifiers = Set(selectedFuturePlans.map(\.identifier))
             .union(selectedLocationPlans.map(\.identifier))
+            .union(catchUpPlans.map(\.identifier))
             .union(existingIDs)
 
         center.removePendingNotificationRequests(withIdentifiers: Array(identifiers))
 
-        for plan in selectedPlans {
+        for plan in selectedFuturePlans {
             let content = notificationContent(
                 title: plan.title,
                 body: plan.body,
                 taskPath: plan.taskPath,
                 kind: plan.kind.rawValue
             )
-            let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: plan.fireDate)
+            let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: plan.fireDate)
             let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
             let request = UNNotificationRequest(identifier: plan.identifier, content: content, trigger: trigger)
             do {
                 try await center.add(request)
+            } catch {
+                // Keep non-fatal: notification errors must not block task data flow.
+            }
+        }
+
+        for plan in catchUpPlans {
+            let content = notificationContent(
+                title: plan.title,
+                body: "Due now",
+                taskPath: plan.taskPath,
+                kind: plan.kind.rawValue
+            )
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+            let request = UNNotificationRequest(identifier: plan.identifier, content: content, trigger: trigger)
+            do {
+                try await center.add(request)
+                recordCatchUpIdentifier(plan.identifier, now: now)
             } catch {
                 // Keep non-fatal: notification errors must not block task data flow.
             }
@@ -115,6 +142,76 @@ final class UserNotificationScheduler {
         } catch {
             // Keep non-fatal.
         }
+    }
+
+    private func dueCatchUpPlans(from allPlans: [PlannedNotification], now: Date) -> [PlannedNotification] {
+        let oldestAllowed = now.addingTimeInterval(-catchUpGraceWindowSeconds)
+        let ledger = loadCatchUpLedger(now: now)
+        var selected: [PlannedNotification] = []
+        selected.reserveCapacity(maxCatchUpNotificationsPerSync)
+
+        for plan in allPlans {
+            guard plan.kind == .due else { continue }
+            guard plan.fireDate <= now else { continue }
+            guard plan.fireDate >= oldestAllowed else { continue }
+
+            let catchUpIdentifier = catchUpNotificationIdentifier(for: plan)
+            guard ledger[catchUpIdentifier] == nil else { continue }
+
+            selected.append(
+                PlannedNotification(
+                    identifier: catchUpIdentifier,
+                    taskPath: plan.taskPath,
+                    kind: .due,
+                    fireDate: now,
+                    title: plan.title,
+                    body: plan.body
+                )
+            )
+
+            if selected.count >= maxCatchUpNotificationsPerSync {
+                break
+            }
+        }
+
+        return selected
+    }
+
+    private func catchUpNotificationIdentifier(for plan: PlannedNotification) -> String {
+        "\(plan.identifier)#catchup-\(Int(plan.fireDate.timeIntervalSince1970))"
+    }
+
+    private func loadCatchUpLedger(now: Date) -> [String: TimeInterval] {
+        let raw = UserDefaults.standard.dictionary(forKey: catchUpLedgerKey) as? [String: TimeInterval] ?? [:]
+        guard !raw.isEmpty else { return [:] }
+
+        let cutoff = now.timeIntervalSince1970 - catchUpLedgerTTLSeconds
+        var filtered: [String: TimeInterval] = [:]
+        filtered.reserveCapacity(min(raw.count, catchUpLedgerLimit))
+
+        for (id, timestamp) in raw where timestamp >= cutoff {
+            filtered[id] = timestamp
+        }
+
+        return trimCatchUpLedger(filtered)
+    }
+
+    private func recordCatchUpIdentifier(_ identifier: String, now: Date) {
+        var ledger = loadCatchUpLedger(now: now)
+        ledger[identifier] = now.timeIntervalSince1970
+        let trimmed = trimCatchUpLedger(ledger)
+        UserDefaults.standard.set(trimmed, forKey: catchUpLedgerKey)
+    }
+
+    private func trimCatchUpLedger(_ ledger: [String: TimeInterval]) -> [String: TimeInterval] {
+        guard ledger.count > catchUpLedgerLimit else { return ledger }
+        let sorted = ledger.sorted { $0.value > $1.value }
+        var trimmed: [String: TimeInterval] = [:]
+        trimmed.reserveCapacity(catchUpLedgerLimit)
+        for (index, pair) in sorted.enumerated() where index < catchUpLedgerLimit {
+            trimmed[pair.key] = pair.value
+        }
+        return trimmed
     }
 
     private func notificationContent(title: String, body: String, taskPath: String, kind: String) -> UNMutableNotificationContent {

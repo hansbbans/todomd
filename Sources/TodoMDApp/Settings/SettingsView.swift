@@ -79,6 +79,7 @@ struct SettingsView: View {
     @AppStorage(QuickEntrySettings.fieldsKey) private var quickEntryFieldsRawValue = QuickEntrySettings.defaultFieldsRawValue
     @AppStorage(QuickEntrySettings.defaultDateModeKey) private var quickEntryDefaultDateModeRawValue = QuickEntryDefaultDateMode.today.rawValue
     @AppStorage(BottomNavigationSettings.sectionsKey) private var bottomNavigationSectionsRawValue = BottomNavigationSettings.defaultSectionsRawValue
+    @AppStorage("settings_pomodoro_enabled") private var pomodoroEnabled = false
     @AppStorage("settings_icloud_folder_name") private var iCloudFolderName = "todo.md"
     @State private var selectedFolderPath = UserDefaults.standard.string(forKey: TaskFolderPreferences.selectedFolderPathKey)
     @State private var showingFolderPicker = false
@@ -412,6 +413,22 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
+                Toggle("Enable Pomodoro section", isOn: $pomodoroEnabled)
+                    .accessibilityIdentifier("settings.bottomNavigation.pomodoroToggle")
+
+                Text("Turn this on to allow Pomodoro as a bottom section option.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if pomodoroEnabled {
+                    let hasPomodoroSection = bottomNavigationSections.contains { $0.viewIdentifier == .builtIn(.pomodoro) }
+                    Button("Add Pomodoro Section") {
+                        addPomodoroBottomNavigationSection()
+                    }
+                    .accessibilityIdentifier("settings.bottomNavigation.addPomodoroButton")
+                    .disabled(hasPomodoroSection || bottomNavigationSections.count >= BottomNavigationSettings.maxSections)
+                }
+
                 if bottomNavigationSections.isEmpty {
                     Text("No bottom sections configured.")
                         .foregroundStyle(.secondary)
@@ -429,6 +446,7 @@ struct SettingsView: View {
                                     .tag(section.viewRawValue)
                             }
                         }
+                        .accessibilityIdentifier("settings.bottomNavigation.section\(sectionNumber)Picker")
                     }
                     .onMove(perform: moveBottomNavigationSections)
                     .onDelete(perform: deleteBottomNavigationSections)
@@ -438,6 +456,7 @@ struct SettingsView: View {
                     Button("Add Section") {
                         addBottomNavigationSection()
                     }
+                    .accessibilityIdentifier("settings.bottomNavigation.addSectionButton")
                     .disabled(bottomNavigationSections.count >= BottomNavigationSettings.maxSections)
 
                     Spacer()
@@ -458,6 +477,11 @@ struct SettingsView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 EditButton()
+            }
+        }
+        .onChange(of: pomodoroEnabled) { _, isEnabled in
+            if !isEnabled {
+                removePomodoroFromBottomNavigationSections()
             }
         }
     }
@@ -577,6 +601,12 @@ struct SettingsView: View {
             case .flagged:
                 label = "Flagged"
                 icon = "flag"
+            case .pomodoro:
+                if !pomodoroEnabled {
+                    continue
+                }
+                label = "Pomodoro"
+                icon = "timer"
             }
             appendOption(view: .builtIn(builtIn), label: label, icon: icon)
         }
@@ -659,7 +689,27 @@ struct SettingsView: View {
             }
         }
 
+        if pomodoroEnabled {
+            let pomodoro = ViewIdentifier.builtIn(.pomodoro)
+            if !existing.contains(pomodoro) {
+                return pomodoro
+            }
+        }
+
         return .builtIn(.inbox)
+    }
+
+    private func removePomodoroFromBottomNavigationSections() {
+        let filtered = bottomNavigationSections.filter { $0.viewIdentifier != .builtIn(.pomodoro) }
+        bottomNavigationSectionsRawValue = BottomNavigationSettings.encodeSections(filtered)
+    }
+
+    private func addPomodoroBottomNavigationSection() {
+        var sections = bottomNavigationSections
+        guard sections.count < BottomNavigationSettings.maxSections else { return }
+        guard !sections.contains(where: { $0.viewIdentifier == .builtIn(.pomodoro) }) else { return }
+        sections.append(BottomNavigationSection(view: .builtIn(.pomodoro)))
+        bottomNavigationSectionsRawValue = BottomNavigationSettings.encodeSections(sections)
     }
 
     private func color(for hex: String) -> Color {

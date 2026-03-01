@@ -148,6 +148,7 @@ struct TaskDetailView: View {
                             time: binding(\.dueTime).wrappedValue
                         )
                     )
+                    detailRow("Persistent reminder", value: binding(\.persistentReminderEnabled).wrappedValue ? "On" : "Off")
                     detailRow("Scheduled", value: dateText(binding(\.hasScheduled).wrappedValue ? binding(\.scheduledDate).wrappedValue : nil))
                     detailRow("Defer", value: dateText(binding(\.hasDefer).wrappedValue ? binding(\.deferDate).wrappedValue : nil))
                     detailRow("Location", value: locationSummary())
@@ -264,15 +265,48 @@ struct TaskDetailView: View {
                             binding(\.hasDue).wrappedValue = isEnabled
                             if !isEnabled {
                                 binding(\.hasDueTime).wrappedValue = false
+                                binding(\.persistentReminderEnabled).wrappedValue = false
                             }
                         }
                     )
                 )
                 if binding(\.hasDue).wrappedValue {
                     DatePicker("Due date", selection: binding(\.dueDate), displayedComponents: .date)
-                    Toggle("Specific due time", isOn: binding(\.hasDueTime))
+                    Toggle(
+                        "Specific due time",
+                        isOn: Binding(
+                            get: { binding(\.hasDueTime).wrappedValue },
+                            set: { isEnabled in
+                                binding(\.hasDueTime).wrappedValue = isEnabled
+                                if !isEnabled {
+                                    binding(\.persistentReminderEnabled).wrappedValue = false
+                                }
+                            }
+                        )
+                    )
                     if binding(\.hasDueTime).wrappedValue {
                         DatePicker("Due time", selection: binding(\.dueTime), displayedComponents: .hourAndMinute)
+                    }
+
+                    Toggle(
+                        "Persistent reminder",
+                        isOn: Binding(
+                            get: {
+                                let canEnable = binding(\.hasDue).wrappedValue && binding(\.hasDueTime).wrappedValue
+                                return canEnable && binding(\.persistentReminderEnabled).wrappedValue
+                            },
+                            set: { isEnabled in
+                                let canEnable = binding(\.hasDue).wrappedValue && binding(\.hasDueTime).wrappedValue
+                                binding(\.persistentReminderEnabled).wrappedValue = canEnable && isEnabled
+                            }
+                        )
+                    )
+                    .disabled(!(binding(\.hasDue).wrappedValue && binding(\.hasDueTime).wrappedValue))
+
+                    if !(binding(\.hasDue).wrappedValue && binding(\.hasDueTime).wrappedValue) {
+                        Text("Set due date and specific due time to enable persistent reminders.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
                 }
 

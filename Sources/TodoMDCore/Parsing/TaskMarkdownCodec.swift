@@ -15,7 +15,7 @@ public struct TaskMarkdownCodec {
 
         let knownKeys: Set<String> = [
             "ref",
-            "title", "status", "due", "due_time", "defer", "scheduled", "priority", "flagged", "area", "project", "tags",
+            "title", "status", "due", "due_time", "persistent_reminder", "defer", "scheduled", "priority", "flagged", "area", "project", "tags",
             "recurrence", "estimated_minutes", "description",
             "location_name", "location_latitude", "location_longitude", "location_radius_meters", "location_trigger",
             "created", "modified", "completed", "assignee", "completed_by", "blocked_by", "source"
@@ -47,6 +47,7 @@ public struct TaskMarkdownCodec {
         if let ref = document.frontmatter.ref { object["ref"] = ref }
         if let due = document.frontmatter.due { object["due"] = due.isoString }
         if let dueTime = document.frontmatter.dueTime { object["due_time"] = dueTime.isoString }
+        if let persistentReminder = document.frontmatter.persistentReminder { object["persistent_reminder"] = persistentReminder }
         if let deferDate = document.frontmatter.defer { object["defer"] = deferDate.isoString }
         if let scheduled = document.frontmatter.scheduled { object["scheduled"] = scheduled.isoString }
         if let area = document.frontmatter.area { object["area"] = area }
@@ -193,6 +194,7 @@ public struct TaskMarkdownCodec {
 
         let due = try optionalDate("due", in: object)
         let dueTime = try optionalTime("due_time", in: object)
+        let persistentReminder = try optionalBool("persistent_reminder", in: object)
         let deferDate = try optionalDate("defer", in: object)
         let scheduled = try optionalDate("scheduled", in: object)
 
@@ -244,6 +246,7 @@ public struct TaskMarkdownCodec {
             status: status,
             due: due,
             dueTime: dueTime,
+            persistentReminder: persistentReminder,
             defer: deferDate,
             scheduled: scheduled,
             priority: priority,

@@ -38,6 +38,10 @@ targets:
         INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription: "todo.md uses Calendar access to show your events in Today and Upcoming."
         INFOPLIST_KEY_NSRemindersFullAccessUsageDescription: "todo.md imports tasks from Apple Reminders when you run the import."
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "todo.md uses your location to trigger reminders when you arrive at or leave saved places."
+        INFOPLIST_KEY_UIBackgroundModes:
+          - fetch
+        INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers:
+          - com.hans.todomd.notifications.refresh
         INFOPLIST_KEY_CFBundleURLTypes:
           - CFBundleURLName: com.hans.todomd
             CFBundleURLSchemes:

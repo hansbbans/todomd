@@ -36,4 +36,48 @@ final class NotificationPlannerTests: XCTestCase {
             "20250301-0900-task.md#nag-3"
         ])
     }
+
+    func testTaskPersistentReminderOverridesGlobalSetting() throws {
+        let planner = NotificationPlanner(
+            calendar: Calendar(identifier: .gregorian),
+            defaultHour: 9,
+            defaultMinute: 0,
+            persistentRemindersEnabled: true,
+            persistentReminderIntervalMinutes: 1,
+            maxPersistentNagsPerTask: 2
+        )
+        var frontmatter = TestSupport.sampleFrontmatter(due: try LocalDate(isoDate: "2027-03-01"))
+        frontmatter.dueTime = try LocalTime(hour: 10, minute: 30)
+        frontmatter.persistentReminder = false
+        let record = TaskRecord(identity: TaskFileIdentity(path: "/tmp/20250301-0900-task.md"), document: .init(frontmatter: frontmatter, body: ""))
+
+        let referenceDate = ISO8601DateFormatter().date(from: "2027-02-27T12:00:00Z")!
+        let plans = planner.planNotifications(for: record, referenceDate: referenceDate)
+        XCTAssertEqual(plans.map(\.identifier), [
+            "20250301-0900-task.md#due"
+        ])
+    }
+
+    func testTaskPersistentReminderCanEnableWhenGlobalDisabled() throws {
+        let planner = NotificationPlanner(
+            calendar: Calendar(identifier: .gregorian),
+            defaultHour: 9,
+            defaultMinute: 0,
+            persistentRemindersEnabled: false,
+            persistentReminderIntervalMinutes: 1,
+            maxPersistentNagsPerTask: 2
+        )
+        var frontmatter = TestSupport.sampleFrontmatter(due: try LocalDate(isoDate: "2027-03-01"))
+        frontmatter.dueTime = try LocalTime(hour: 10, minute: 30)
+        frontmatter.persistentReminder = true
+        let record = TaskRecord(identity: TaskFileIdentity(path: "/tmp/20250301-0900-task.md"), document: .init(frontmatter: frontmatter, body: ""))
+
+        let referenceDate = ISO8601DateFormatter().date(from: "2027-02-27T12:00:00Z")!
+        let plans = planner.planNotifications(for: record, referenceDate: referenceDate)
+        XCTAssertEqual(plans.map(\.identifier), [
+            "20250301-0900-task.md#due",
+            "20250301-0900-task.md#nag-1",
+            "20250301-0900-task.md#nag-2"
+        ])
+    }
 }

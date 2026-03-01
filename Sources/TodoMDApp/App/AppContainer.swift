@@ -42,6 +42,7 @@ struct TaskEditState: Equatable {
     var dueDate: Date
     var hasDueTime: Bool
     var dueTime: Date
+    var persistentReminderEnabled: Bool
     var hasDefer: Bool
     var deferDate: Date
     var hasScheduled: Bool
@@ -1064,6 +1065,7 @@ final class AppContainer: ObservableObject {
         let frontmatter = record.document.frontmatter
         let locationReminder = frontmatter.locationReminder
         let blockedByRefsText = frontmatter.blockedByRefs.joined(separator: ", ")
+        let persistentReminderDefault = UserDefaults.standard.object(forKey: Self.settingsPersistentRemindersEnabledKey) as? Bool ?? false
 
         return TaskEditState(
             ref: frontmatter.ref ?? "",
@@ -1080,6 +1082,7 @@ final class AppContainer: ObservableObject {
             dueDate: dateFromLocalDate(frontmatter.due) ?? Date(),
             hasDueTime: frontmatter.dueTime != nil,
             dueTime: dateFromLocalTime(frontmatter.dueTime) ?? Date(),
+            persistentReminderEnabled: frontmatter.persistentReminder ?? persistentReminderDefault,
             hasDefer: frontmatter.defer != nil,
             deferDate: dateFromLocalDate(frontmatter.defer) ?? Date(),
             hasScheduled: frontmatter.scheduled != nil,
@@ -2587,6 +2590,7 @@ final class AppContainer: ObservableObject {
 
         document.frontmatter.due = editState.hasDue ? localDateFromDate(editState.dueDate) : nil
         document.frontmatter.dueTime = (editState.hasDue && editState.hasDueTime) ? localTimeFromDate(editState.dueTime) : nil
+        document.frontmatter.persistentReminder = editState.persistentReminderEnabled && editState.hasDue && editState.hasDueTime
         document.frontmatter.defer = editState.hasDefer ? localDateFromDate(editState.deferDate) : nil
         document.frontmatter.scheduled = editState.hasScheduled ? localDateFromDate(editState.scheduledDate) : nil
 

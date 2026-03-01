@@ -179,6 +179,44 @@ final class TaskMarkdownCodecTests: XCTestCase {
         XCTAssertTrue(serialized.contains("08:30"))
     }
 
+    func testPersistentReminderParsesAndSerializes() throws {
+        let raw = """
+        ---
+        title: "Timed task"
+        status: "todo"
+        due: "2025-12-24"
+        due_time: "08:30"
+        persistent_reminder: true
+        created: "2025-02-26T14:30:00Z"
+        source: "user"
+        ---
+        """
+
+        let codec = TaskMarkdownCodec()
+        let parsed = try codec.parse(markdown: raw)
+        XCTAssertEqual(parsed.frontmatter.persistentReminder, true)
+
+        let serialized = try codec.serialize(document: parsed)
+        XCTAssertTrue(serialized.contains("persistent_reminder"))
+        XCTAssertTrue(serialized.contains("true"))
+    }
+
+    func testPersistentReminderRequiresDueTime() {
+        let raw = """
+        ---
+        title: "Timed task"
+        status: "todo"
+        due: "2025-12-24"
+        persistent_reminder: true
+        created: "2025-02-26T14:30:00Z"
+        source: "user"
+        ---
+        """
+
+        let codec = TaskMarkdownCodec()
+        XCTAssertThrowsError(try codec.parse(markdown: raw))
+    }
+
     func testLocationReminderParsesAndSerializes() throws {
         let raw = """
         ---
