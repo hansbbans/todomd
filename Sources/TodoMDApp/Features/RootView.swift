@@ -40,6 +40,7 @@ struct RootView: View {
     @State private var pendingDeletePerspective: PerspectiveDefinition?
     @State private var deferDateTarget: DeferDateTarget?
     @State private var deferDateValue = Date()
+    @State private var swipeAddProjectPath: String?
     @State private var editingPerspective: PerspectiveDefinition?
     @State private var builtInRulesTarget: BuiltInRulesTarget?
     @AppStorage(BottomNavigationSettings.sectionsKey) private var bottomNavigationSectionsRawValue = BottomNavigationSettings.defaultSectionsRawValue
@@ -238,6 +239,34 @@ struct RootView: View {
                     Text(container.perspectivesWarningMessage ?? "")
                 }
             )
+            .confirmationDialog(
+                "Add to Project",
+                isPresented: Binding(
+                    get: { swipeAddProjectPath != nil },
+                    set: { isPresented in
+                        if !isPresented { swipeAddProjectPath = nil }
+                    }
+                ),
+                titleVisibility: .visible
+            ) {
+                let projects = container.allProjects()
+                if projects.isEmpty {
+                    Button("No Projects") {}
+                        .disabled(true)
+                } else {
+                    ForEach(projects, id: \.self) { project in
+                        Button(project) {
+                            guard let path = swipeAddProjectPath else { return }
+                            _ = container.addToProject(path: path, project: project)
+                            swipeAddProjectPath = nil
+                        }
+                    }
+                }
+
+                Button("Cancel", role: .cancel) {
+                    swipeAddProjectPath = nil
+                }
+            }
             .onChange(of: container.navigationTaskPath) { _, newPath in
                 guard let newPath else { return }
                 navigationPath.append(newPath)
@@ -454,7 +483,7 @@ struct RootView: View {
                     }
                 }
                 .id(container.selectedView.rawValue)
-                .listStyle(.insetGrouped)
+                .listStyle(.plain)
                 .scrollContentBackground(.hidden)
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }
@@ -1039,7 +1068,7 @@ struct RootView: View {
             isCompleting: isCompleting || isSlidingOut
         )
         .accessibilityIdentifier("taskRow.\(record.document.frontmatter.title)")
-        .accessibilityHint("Swipe right to mark complete. Long press for quick actions.")
+        .accessibilityHint("Swipe right for quick actions. Swipe left to complete. Long press for more options.")
         .contentShape(Rectangle())
         .onTapGesture {
             guard editMode?.wrappedValue.isEditing != true else { return }
@@ -1130,26 +1159,18 @@ struct RootView: View {
         }
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
             Button {
-                _ = container.setBlocked(path: record.identity.path, blockedBy: .manual)
+                _ = container.setDefer(path: record.identity.path, date: Date())
             } label: {
-                Label("Block", systemImage: "lock.fill")
-            }
-            .tint(.orange)
-
-            Button {
-                deferDateValue = dateValue(for: record.document.frontmatter.defer) ?? Date()
-                deferDateTarget = DeferDateTarget(path: record.identity.path)
-            } label: {
-                Label("Set Date", systemImage: "calendar")
-            }
-            .tint(.indigo)
-
-            Button {
-                _ = container.deferToTomorrow(path: record.identity.path)
-            } label: {
-                Label("Tomorrow", systemImage: "arrow.turn.down.right")
+                Label("Today", systemImage: "sun.max.fill")
             }
             .tint(.blue)
+
+            Button {
+                swipeAddProjectPath = record.identity.path
+            } label: {
+                Label("Add to Project", systemImage: "folder.badge.plus")
+            }
+            .tint(.teal)
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
             if !isDone {
