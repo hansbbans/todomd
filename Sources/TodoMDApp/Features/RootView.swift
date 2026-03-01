@@ -15,6 +15,12 @@ private struct ResolvedBottomNavigationSection: Identifiable {
     let view: ViewIdentifier
 }
 
+private struct ProjectColorChoice: Identifiable {
+    let hex: String
+    let name: String
+    var id: String { hex }
+}
+
 struct RootView: View {
     @EnvironmentObject private var container: AppContainer
     @EnvironmentObject private var theme: ThemeManager
@@ -311,7 +317,13 @@ struct RootView: View {
                     ForEach(groupedAreas, id: \.area) { group in
                         navButton(view: .area(group.area), label: group.area, icon: "square.grid.2x2")
                         ForEach(group.projects, id: \.self) { project in
-                            navButton(view: .project(project), label: project, icon: "folder", isIndented: true)
+                            navButton(
+                                view: .project(project),
+                                label: project,
+                                icon: "folder",
+                                isIndented: true,
+                                tintHex: container.projectColorHex(for: project)
+                            )
                         }
                     }
                 }
@@ -505,7 +517,17 @@ struct RootView: View {
             } else {
                 Section("Projects") {
                     ForEach(projects, id: \.self) { project in
-                        browseFilterButton(view: .project(project), label: project, icon: "folder")
+                        HStack(spacing: 8) {
+                            browseFilterButton(
+                                view: .project(project),
+                                label: project,
+                                icon: "folder",
+                                tintHex: container.projectColorHex(for: project)
+                            )
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                            projectColorMenu(for: project)
+                        }
                     }
                 }
             }
@@ -594,7 +616,12 @@ struct RootView: View {
                 if !projects.isEmpty {
                     Section("Projects") {
                         ForEach(projects, id: \.self) { project in
-                            browseFilterButton(view: .project(project), label: project, icon: "folder")
+                            browseFilterButton(
+                                view: .project(project),
+                                label: project,
+                                icon: "folder",
+                                tintHex: container.projectColorHex(for: project)
+                            )
                         }
                     }
                 }
@@ -610,6 +637,64 @@ struct RootView: View {
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
         }
+    }
+
+    private var projectColorChoices: [ProjectColorChoice] {
+        [
+            ProjectColorChoice(hex: "E53935", name: "Red"),
+            ProjectColorChoice(hex: "FB8C00", name: "Orange"),
+            ProjectColorChoice(hex: "FDD835", name: "Yellow"),
+            ProjectColorChoice(hex: "43A047", name: "Green"),
+            ProjectColorChoice(hex: "00ACC1", name: "Teal"),
+            ProjectColorChoice(hex: "1E88E5", name: "Blue"),
+            ProjectColorChoice(hex: "5E35B1", name: "Purple"),
+            ProjectColorChoice(hex: "6D4C41", name: "Brown"),
+            ProjectColorChoice(hex: "546E7A", name: "Slate")
+        ]
+    }
+
+    private func projectColorMenu(for project: String) -> some View {
+        let currentHex = container.projectColorHex(for: project)
+
+        return Menu {
+            Button {
+                container.setProjectColor(project: project, hex: nil)
+            } label: {
+                HStack {
+                    Image(systemName: currentHex == nil ? "checkmark.circle.fill" : "circle")
+                    Text("No Color")
+                }
+            }
+
+            ForEach(projectColorChoices) { choice in
+                Button {
+                    container.setProjectColor(project: project, hex: choice.hex)
+                } label: {
+                    HStack {
+                        Circle()
+                            .fill(color(forHex: choice.hex) ?? theme.textSecondaryColor)
+                            .frame(width: 10, height: 10)
+                        Text(choice.name)
+                        if currentHex == choice.hex {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            Group {
+                if let tint = color(forHex: currentHex) {
+                    Circle()
+                        .fill(tint)
+                } else {
+                    Image(systemName: "paintpalette")
+                        .foregroundStyle(theme.textSecondaryColor)
+                }
+            }
+            .frame(width: 24, height: 24)
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel("Set color for \(project)")
     }
 
     private func browseFilterButton(view: ViewIdentifier, label: String, icon: String, tintHex: String? = nil) -> some View {
@@ -728,7 +813,7 @@ struct RootView: View {
         case .area(let area):
             return (area, "square.grid.2x2", nil)
         case .project(let project):
-            return (project, "folder", nil)
+            return (project, "folder", container.projectColorHex(for: project))
         case .tag(let tag):
             return ("#\(tag)", "number", nil)
         case .custom(let rawValue):
@@ -1139,6 +1224,7 @@ struct RootView: View {
 private struct TaskRow: View {
     let record: TaskRecord
     let isCompleting: Bool
+    @EnvironmentObject private var container: AppContainer
     @EnvironmentObject private var theme: ThemeManager
 
     var body: some View {
@@ -1224,11 +1310,12 @@ private struct TaskRow: View {
             }
 
             if let project = frontmatter.project {
+                let projectColor = projectPillColor(for: project)
                 Text(project)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 2)
-                    .background(Capsule().fill(theme.textSecondaryColor.opacity(0.15)))
-                    .foregroundStyle(theme.textPrimaryColor)
+                    .background(Capsule().fill(projectColor.opacity(0.2)))
+                    .foregroundStyle(projectColor)
             }
 
             if let assignee = frontmatter.assignee, !assignee.isEmpty {
@@ -1272,6 +1359,20 @@ private struct TaskRow: View {
 
     private func priorityColor(_ priority: TaskPriority) -> Color {
         theme.priorityColor(priority)
+    }
+
+    private func projectPillColor(for project: String) -> Color {
+        color(forHex: container.projectColorHex(for: project)) ?? theme.textPrimaryColor
+    }
+
+    private func color(forHex hex: String?) -> Color? {
+        guard let hex else { return nil }
+        let cleaned = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#")).uppercased()
+        guard cleaned.count == 6, let value = Int(cleaned, radix: 16) else { return nil }
+        let red = Double((value & 0xFF0000) >> 16) / 255.0
+        let green = Double((value & 0x00FF00) >> 8) / 255.0
+        let blue = Double(value & 0x0000FF) / 255.0
+        return Color(red: red, green: green, blue: blue)
     }
 
     private func dueLabel(for frontmatter: TaskFrontmatterV1, due: LocalDate) -> String {

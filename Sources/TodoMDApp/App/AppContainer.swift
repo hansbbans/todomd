@@ -139,6 +139,7 @@ final class AppContainer: ObservableObject {
     @Published var isCalendarConnected = false
     @Published var isCalendarSyncing = false
     @Published var calendarStatusMessage: String?
+    @Published private(set) var projectColorsByProject: [String: String] = [:]
     @Published private(set) var calendarSources: [CalendarSource] = []
     @Published private(set) var selectedCalendarSourceIDs: Set<String> = []
     @Published var calendarTodayEvents: [CalendarEventItem] = []
@@ -198,6 +199,7 @@ final class AppContainer: ObservableObject {
     private static let settingsCalendarSelectedIDsKey = "settings_google_calendar_selected_ids"
     private static let settingsRemindersImportListIDKey = "settings_reminders_import_list_id"
     private static let settingsLocationFavoritesKey = "settings_location_favorites_v1"
+    private static let settingsProjectColorsKey = "settings_project_colors_v1"
     private static let hashtagRegex = try? NSRegularExpression(pattern: "#([A-Za-z0-9_-]+)")
 
     init(logger: RuntimeLogging = ConsoleRuntimeLogger()) {
@@ -221,6 +223,7 @@ final class AppContainer: ObservableObject {
         loadCalendarSourceSelection()
         loadReminderListSelection()
         loadLocationFavorites()
+        loadProjectColors()
         loadPerspectivesFromDisk()
         migrateLegacyPerspectivesFromSettingsIfNeeded()
         isCalendarConnected = appleCalendarService.isConnected
@@ -753,6 +756,29 @@ final class AppContainer: ObservableObject {
         Set(allIndexedRecords.compactMap { $0.document.frontmatter.project?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty })
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    func projectColorHex(for project: String) -> String? {
+        let normalizedProject = project.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProject.isEmpty else { return nil }
+        if let exact = projectColorsByProject[normalizedProject] {
+            return exact
+        }
+        return projectColorsByProject.first(where: {
+            $0.key.compare(normalizedProject, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+        })?.value
+    }
+
+    func setProjectColor(project: String, hex: String?) {
+        let normalizedProject = project.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProject.isEmpty else { return }
+
+        if let sanitizedHex = sanitizeProjectColorHex(hex) {
+            projectColorsByProject[normalizedProject] = sanitizedHex
+        } else {
+            projectColorsByProject.removeValue(forKey: normalizedProject)
+        }
+        persistProjectColors()
     }
 
     func availableProjects(inArea area: String?) -> [String] {
@@ -1944,6 +1970,23 @@ final class AppContainer: ObservableObject {
         sortLocationFavorites()
     }
 
+    private func loadProjectColors() {
+        let defaults = UserDefaults.standard
+        guard let raw = defaults.dictionary(forKey: Self.settingsProjectColorsKey) as? [String: String] else {
+            projectColorsByProject = [:]
+            return
+        }
+
+        var sanitized: [String: String] = [:]
+        for (project, hex) in raw {
+            let normalizedProject = project.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedProject.isEmpty else { continue }
+            guard let normalizedHex = sanitizeProjectColorHex(hex) else { continue }
+            sanitized[normalizedProject] = normalizedHex
+        }
+        projectColorsByProject = sanitized
+    }
+
     private func syncSelectedReminderList(with lists: [ReminderList]) {
         guard !lists.isEmpty else {
             selectedReminderListID = nil
@@ -1971,10 +2014,26 @@ final class AppContainer: ObservableObject {
         defaults.set(data, forKey: Self.settingsLocationFavoritesKey)
     }
 
+    private func persistProjectColors() {
+        let defaults = UserDefaults.standard
+        defaults.set(projectColorsByProject, forKey: Self.settingsProjectColorsKey)
+    }
+
     private func sortLocationFavorites() {
         locationFavorites.sort {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
+    }
+
+    private func sanitizeProjectColorHex(_ hex: String?) -> String? {
+        guard let hex else { return nil }
+        let normalized = hex
+            .trimmingCharacters(in: CharacterSet(charactersIn: "#").union(.whitespacesAndNewlines))
+            .uppercased()
+        guard normalized.count == 6, Int(normalized, radix: 16) != nil else {
+            return nil
+        }
+        return normalized
     }
 
     private func eventsForToday(_ events: [CalendarEventItem], today: Date) -> [CalendarEventItem] {
