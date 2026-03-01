@@ -845,25 +845,59 @@ struct RootView: View {
 
     private func taskRowItem(_ record: TaskRecord) -> some View {
         let path = record.identity.path
+        let isDone = record.document.frontmatter.status == .done
+        let quickProjects = container.recentProjects(limit: 3, excluding: record.document.frontmatter.project)
         let isCompleting = pathsCompleting.contains(path)
         let isSlidingOut = pathsSlidingOut.contains(path)
         return TaskRow(
             record: record,
-            isCompleting: isCompleting || isSlidingOut,
-            onCompletionTap: {
-                guard record.document.frontmatter.status != .done else { return }
-                completeWithAnimation(path: record.identity.path)
-            }
+            isCompleting: isCompleting || isSlidingOut
         )
         .accessibilityIdentifier("taskRow.\(record.document.frontmatter.title)")
+        .accessibilityHint("Swipe right to mark complete. Long press for quick actions.")
         .contentShape(Rectangle())
         .onTapGesture {
             guard editMode?.wrappedValue.isEditing != true else { return }
             navigationPath.append(record.identity.path)
         }
         .contextMenu {
-            Button("Complete") {
-                completeWithAnimation(path: record.identity.path)
+            Menu("Quick Settings") {
+                Menu("Change Due Date") {
+                    Button("+1 Hour") {
+                        _ = container.offsetDueDate(path: record.identity.path, component: .hour, value: 1)
+                    }
+                    Button("+1 Day") {
+                        _ = container.offsetDueDate(path: record.identity.path, component: .day, value: 1)
+                    }
+                    Button("+1 Week") {
+                        _ = container.offsetDueDate(path: record.identity.path, component: .weekOfYear, value: 1)
+                    }
+                }
+
+                Menu("Add to Project") {
+                    if quickProjects.isEmpty {
+                        Button("No Recent Projects") {}
+                            .disabled(true)
+                    } else {
+                        ForEach(quickProjects, id: \.self) { project in
+                            Button(project) {
+                                _ = container.moveTask(
+                                    path: record.identity.path,
+                                    area: record.document.frontmatter.area,
+                                    project: project
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Divider()
+
+            if !isDone {
+                Button("Mark Done") {
+                    completeWithAnimation(path: record.identity.path)
+                }
             }
 
             Button("Defer to Tomorrow") {
@@ -914,12 +948,14 @@ struct RootView: View {
             }
         }
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
-            Button {
-                completeWithAnimation(path: record.identity.path)
-            } label: {
-                Label("Complete", systemImage: "checkmark.circle.fill")
+            if !isDone {
+                Button {
+                    completeWithAnimation(path: record.identity.path)
+                } label: {
+                    Label("Complete", systemImage: "checkmark.circle.fill")
+                }
+                .tint(.green)
             }
-            .tint(.green)
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button {
@@ -946,14 +982,9 @@ struct RootView: View {
         }
         .opacity(isSlidingOut ? 0.0 : (isCompleting ? 0.86 : 1.0))
         .offset(x: isSlidingOut ? 700 : 0)
-        .listRowBackground(theme.surfaceColor.opacity(0.78))
+        .listRowInsets(EdgeInsets(top: 7, leading: 12, bottom: 7, trailing: 12))
+        .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
-        .shadow(
-            color: (editMode?.wrappedValue.isEditing ?? false) ? .black.opacity(0.06) : .clear,
-            radius: (editMode?.wrappedValue.isEditing ?? false) ? 4 : 0,
-            x: 0,
-            y: 2
-        )
         .animation(.spring(response: 0.34, dampingFraction: 0.82), value: pathsCompleting)
         .animation(.spring(response: 0.35, dampingFraction: 0.86), value: pathsSlidingOut)
     }
@@ -1063,77 +1094,75 @@ struct RootView: View {
 private struct TaskRow: View {
     let record: TaskRecord
     let isCompleting: Bool
-    let onCompletionTap: () -> Void
     @EnvironmentObject private var theme: ThemeManager
 
     var body: some View {
         let frontmatter = record.document.frontmatter
 
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 10) {
-                completionIndicator(isDone: frontmatter.status == .done)
+        HStack(alignment: .top, spacing: 10) {
+            completionStripe(isDone: frontmatter.status == .done)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        if frontmatter.isBlocked {
-                            Image(systemName: "lock.fill")
-                                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            if frontmatter.isBlocked {
+                                Image(systemName: "lock.fill")
+                                    .foregroundStyle(.orange)
+                            }
+                            Text(frontmatter.title)
+                                .font(.system(.body, design: .rounded).weight(.medium))
+                                .foregroundStyle(theme.textPrimaryColor)
+                                .lineLimit(1)
                         }
-                        Text(frontmatter.title)
-                            .font(.system(.body, design: .rounded).weight(.medium))
-                            .foregroundStyle(theme.textPrimaryColor)
-                            .lineLimit(1)
+
+                        if let description = frontmatter.description, !description.isEmpty {
+                            Text(description)
+                                .font(.system(.subheadline, design: .rounded))
+                                .foregroundStyle(theme.textSecondaryColor)
+                                .lineLimit(1)
+                        }
                     }
 
-                    if let description = frontmatter.description, !description.isEmpty {
-                        Text(description)
-                            .font(.system(.subheadline, design: .rounded))
-                            .foregroundStyle(theme.textSecondaryColor)
-                            .lineLimit(1)
+                    Spacer(minLength: 8)
+
+                    if frontmatter.flagged {
+                        Image(systemName: "flag.fill")
+                            .foregroundStyle(.orange)
                     }
                 }
 
-                Spacer(minLength: 8)
-
-                if frontmatter.flagged {
-                    Image(systemName: "flag.fill")
-                        .foregroundStyle(.orange)
-                }
+                metadata(frontmatter)
             }
-
-            metadata(frontmatter)
         }
-        .padding(.vertical, 4)
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(theme.surfaceColor.opacity(0.94))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(theme.textSecondaryColor.opacity(0.14), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.08), radius: 8, x: 0, y: 3)
     }
 
     @ViewBuilder
-    private func completionIndicator(isDone: Bool) -> some View {
-        let showFilled = isDone || isCompleting
-
-        Button {
-            onCompletionTap()
-        } label: {
-            ZStack {
-                Circle()
-                    .stroke(showFilled ? Color.clear : theme.textSecondaryColor, lineWidth: 1.5)
-
-                Circle()
-                    .fill(theme.accentColor)
-                    .scaleEffect(showFilled ? 1.0 : 0.01)
-                    .opacity(showFilled ? 1.0 : 0.0)
-
-                Image(systemName: "checkmark")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.white)
-                    .scaleEffect(showFilled ? (isCompleting ? 0.84 : 1.0) : 0.7)
-                    .opacity(showFilled ? 1.0 : 0.0)
+    private func completionStripe(isDone: Bool) -> some View {
+        let fillColor: Color = {
+            if isDone || isCompleting {
+                return .green
             }
-        }
-        .frame(width: 20, height: 20)
-        .scaleEffect(isCompleting ? 0.84 : 1.0)
-        .buttonStyle(.plain)
-        .animation(.spring(response: 0.28, dampingFraction: 0.74), value: showFilled)
-        .animation(.spring(response: 0.22, dampingFraction: 0.68), value: isCompleting)
+            if record.document.frontmatter.flagged {
+                return .orange
+            }
+            return theme.accentColor
+        }()
+        RoundedRectangle(cornerRadius: 4, style: .continuous)
+            .fill(fillColor)
+            .frame(width: 5)
+            .padding(.vertical, 2)
+            .animation(.spring(response: 0.24, dampingFraction: 0.76), value: isCompleting)
     }
 
     @ViewBuilder

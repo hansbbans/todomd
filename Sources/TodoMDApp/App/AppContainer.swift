@@ -1200,6 +1200,91 @@ final class AppContainer: ObservableObject {
     }
 
     @discardableResult
+    func offsetDueDate(path: String, component: Calendar.Component, value: Int) -> Bool {
+        do {
+            let calendar = Calendar.current
+            let updated = try repository.update(path: path) { document in
+                let existingDueDate = dateFromLocalDate(document.frontmatter.due)
+                let existingDueTime = dateFromLocalTime(document.frontmatter.dueTime)
+
+                let baseDate: Date = {
+                    guard let existingDueDate else { return Date() }
+                    guard let existingDueTime else { return existingDueDate }
+
+                    let dueDateParts = calendar.dateComponents([.year, .month, .day], from: existingDueDate)
+                    let dueTimeParts = calendar.dateComponents([.hour, .minute], from: existingDueTime)
+                    var merged = DateComponents()
+                    merged.year = dueDateParts.year
+                    merged.month = dueDateParts.month
+                    merged.day = dueDateParts.day
+                    merged.hour = dueTimeParts.hour
+                    merged.minute = dueTimeParts.minute
+                    merged.second = 0
+                    merged.calendar = calendar
+                    return calendar.date(from: merged) ?? existingDueDate
+                }()
+
+                guard let shifted = calendar.date(byAdding: component, value: value, to: baseDate) else { return }
+                document.frontmatter.due = localDateFromDate(shifted)
+
+                let shouldPersistTime: Bool
+                switch component {
+                case .hour, .minute, .second:
+                    shouldPersistTime = true
+                default:
+                    shouldPersistTime = document.frontmatter.dueTime != nil
+                }
+                document.frontmatter.dueTime = shouldPersistTime ? localTimeFromDate(shifted) : nil
+                document.frontmatter.modified = Date()
+            }
+            markSelfWrite(path: updated.identity.path)
+            refresh()
+            return true
+        } catch {
+            logger.error("Offset due date failed", metadata: [
+                "path": path,
+                "component": "\(component)",
+                "value": "\(value)",
+                "error": error.localizedDescription
+            ])
+            return false
+        }
+    }
+
+    func recentProjects(limit: Int = 3, excluding projectToExclude: String? = nil) -> [String] {
+        let normalizedExclusion = projectToExclude?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+
+        var latestByProject: [String: Date] = [:]
+        for record in allIndexedRecords {
+            guard let rawProject = record.document.frontmatter.project else { continue }
+            let project = rawProject.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !project.isEmpty else { continue }
+            if let normalizedExclusion, project.caseInsensitiveCompare(normalizedExclusion) == .orderedSame {
+                continue
+            }
+
+            let recency = record.document.frontmatter.modified ?? record.document.frontmatter.created
+            if let existing = latestByProject[project], existing >= recency {
+                continue
+            }
+            latestByProject[project] = recency
+        }
+
+        return latestByProject
+            .sorted { lhs, rhs in
+                if lhs.value != rhs.value {
+                    return lhs.value > rhs.value
+                }
+                return lhs.key.localizedCaseInsensitiveCompare(rhs.key) == .orderedAscending
+            }
+            .map(\.key)
+            .prefix(max(0, limit))
+            .map { $0 }
+    }
+
+    @discardableResult
     func moveTask(path: String, area: String?, project: String?) -> Bool {
         do {
             let updated = try repository.update(path: path) { document in
