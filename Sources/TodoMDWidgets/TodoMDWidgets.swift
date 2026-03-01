@@ -390,7 +390,9 @@ struct TodoMDTimelineProvider: AppIntentTimelineProvider {
 
     func timeline(for configuration: TodoMDWidgetConfigurationIntent, in _: Context) async -> Timeline<TodoMDWidgetEntry> {
         let entry = (try? WidgetTaskLoader().load(configuration: configuration)) ?? placeholderEntry()
-        let nextRefresh = Calendar.current.date(byAdding: .minute, value: 30, to: Date()) ?? Date().addingTimeInterval(1800)
+        let refreshMinutes = configuration.source == .today ? 5 : 15
+        let nextRefresh = Calendar.current.date(byAdding: .minute, value: refreshMinutes, to: Date())
+            ?? Date().addingTimeInterval(TimeInterval(refreshMinutes * 60))
         return Timeline(entries: [entry], policy: .after(nextRefresh))
     }
 

@@ -70,6 +70,45 @@ final class TaskFolderLocatorTests: XCTestCase {
         XCTAssertNil(defaults.string(forKey: TaskFolderPreferences.selectedFolderPathKey))
     }
 
+    func testLocatorAutoDetectsNestedFolderWithTasksOverEmptyPreferredFolder() throws {
+        let root = try TestSupport.tempDirectory(prefix: "TaskFolderLocatorRoot")
+        let emptyPreferred = root.appendingPathComponent("todo.md", isDirectory: true)
+        let nestedTaskFolder = root
+            .appendingPathComponent("Projects", isDirectory: true)
+            .appendingPathComponent("WorkTasks", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: emptyPreferred, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: nestedTaskFolder, withIntermediateDirectories: true)
+
+        let taskFile = nestedTaskFolder.appendingPathComponent("today-task.md")
+        try """
+        ---
+        title: "Ship widget fix"
+        status: "todo"
+        due: "2026-02-28"
+        ---
+        """.write(to: taskFile, atomically: true, encoding: .utf8)
+
+        let suiteName = "TaskFolderLocatorTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let locator = TaskFolderLocator(
+            folderName: "todo.md",
+            defaults: defaults,
+            documentsRootURL: root
+        )
+        let resolved = try locator.resolveVisibleICloudURL()
+
+        XCTAssertEqual(
+            resolved.standardizedFileURL.resolvingSymlinksInPath().path,
+            nestedTaskFolder.standardizedFileURL.resolvingSymlinksInPath().path
+        )
+    }
+
     private func bookmarkData(for url: URL) throws -> Data {
         #if os(macOS)
         return try url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil)
