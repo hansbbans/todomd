@@ -6,7 +6,7 @@ struct QuickEntrySheet: View {
     @EnvironmentObject private var theme: ThemeManager
     @AppStorage("settings_quick_entry_default_view") private var quickEntryDefaultView = BuiltInView.inbox.rawValue
     @AppStorage(QuickEntrySettings.fieldsKey) private var quickEntryFieldsRawValue = QuickEntrySettings.defaultFieldsRawValue
-    @AppStorage(QuickEntrySettings.defaultDateModeKey) private var quickEntryDefaultDateModeRawValue = QuickEntryDefaultDateMode.today.rawValue
+    @AppStorage(QuickEntrySettings.defaultDateModeKey) private var quickEntryDefaultDateModeRawValue = QuickEntryDefaultDateMode.none.rawValue
 
     @State private var quickEntryText = ""
     @State private var hasDueDate = false
@@ -44,7 +44,7 @@ struct QuickEntrySheet: View {
     }
 
     private var quickEntryDefaultDateMode: QuickEntryDefaultDateMode {
-        QuickEntryDefaultDateMode(rawValue: quickEntryDefaultDateModeRawValue) ?? .today
+        QuickEntryDefaultDateMode(rawValue: quickEntryDefaultDateModeRawValue) ?? .none
     }
 
     private var supportsDueInputs: Bool {

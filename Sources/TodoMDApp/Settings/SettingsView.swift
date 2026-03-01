@@ -80,7 +80,7 @@ struct SettingsView: View {
     @AppStorage("settings_default_priority") private var defaultPriority = TaskPriority.none.rawValue
     @AppStorage("settings_quick_entry_default_view") private var quickEntryDefaultView = BuiltInView.inbox.rawValue
     @AppStorage(QuickEntrySettings.fieldsKey) private var quickEntryFieldsRawValue = QuickEntrySettings.defaultFieldsRawValue
-    @AppStorage(QuickEntrySettings.defaultDateModeKey) private var quickEntryDefaultDateModeRawValue = QuickEntryDefaultDateMode.today.rawValue
+    @AppStorage(QuickEntrySettings.defaultDateModeKey) private var quickEntryDefaultDateModeRawValue = QuickEntryDefaultDateMode.none.rawValue
     @AppStorage(BottomNavigationSettings.sectionsKey) private var bottomNavigationSectionsRawValue = BottomNavigationSettings.defaultSectionsRawValue
     @AppStorage("settings_pomodoro_enabled") private var pomodoroEnabled = false
     @AppStorage("settings_icloud_folder_name") private var iCloudFolderName = "todo.md"

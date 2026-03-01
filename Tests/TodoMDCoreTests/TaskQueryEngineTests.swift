@@ -66,4 +66,23 @@ final class TaskQueryEngineTests: XCTestCase {
         XCTAssertTrue(engine.matches(delegatedRecord, view: .builtIn(.delegated), today: today))
         XCTAssertFalse(engine.matches(delegatedRecord, view: .builtIn(.myTasks), today: today))
     }
+
+    func testProjectViewExcludesDoneAndCancelledTasks() throws {
+        var active = TestSupport.sampleFrontmatter()
+        active.project = "MyProject"
+        let activeRecord = TaskRecord(identity: TaskFileIdentity(path: "/tmp/proj-a.md"), document: .init(frontmatter: active, body: ""))
+
+        var done = TestSupport.sampleFrontmatter(status: .done)
+        done.project = "MyProject"
+        let doneRecord = TaskRecord(identity: TaskFileIdentity(path: "/tmp/proj-b.md"), document: .init(frontmatter: done, body: ""))
+
+        var cancelled = TestSupport.sampleFrontmatter(status: .cancelled)
+        cancelled.project = "MyProject"
+        let cancelledRecord = TaskRecord(identity: TaskFileIdentity(path: "/tmp/proj-c.md"), document: .init(frontmatter: cancelled, body: ""))
+
+        let today = try LocalDate(isoDate: "2025-03-01")
+        XCTAssertTrue(engine.matches(activeRecord, view: .project("MyProject"), today: today))
+        XCTAssertFalse(engine.matches(doneRecord, view: .project("MyProject"), today: today))
+        XCTAssertFalse(engine.matches(cancelledRecord, view: .project("MyProject"), today: today))
+    }
 }

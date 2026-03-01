@@ -40,7 +40,10 @@ public struct TaskQueryEngine {
         case .area(let name):
             return record.document.frontmatter.area == name
         case .project(let name):
+            let status = record.document.frontmatter.status
             return record.document.frontmatter.project == name
+                && status != .done
+                && status != .cancelled
         case .tag(let tag):
             return record.document.frontmatter.tags.contains(tag)
         case .custom:
