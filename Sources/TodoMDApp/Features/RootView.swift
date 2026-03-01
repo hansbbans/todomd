@@ -984,17 +984,7 @@ struct RootView: View {
                 pendingDeletePath = record.identity.path
             }
         }
-        .swipeActions(edge: .leading, allowsFullSwipe: true) {
-            if !isDone {
-                Button {
-                    completeWithAnimation(path: record.identity.path)
-                } label: {
-                    Label("Complete", systemImage: "checkmark.circle.fill")
-                }
-                .tint(.green)
-            }
-        }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+        .swipeActions(edge: .leading, allowsFullSwipe: false) {
             Button {
                 _ = container.setBlocked(path: record.identity.path, blockedBy: .manual)
             } label: {
@@ -1016,6 +1006,16 @@ struct RootView: View {
                 Label("Tomorrow", systemImage: "arrow.turn.down.right")
             }
             .tint(.blue)
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            if !isDone {
+                Button {
+                    completeWithAnimation(path: record.identity.path)
+                } label: {
+                    Label("Complete", systemImage: "checkmark.circle.fill")
+                }
+                .tint(.green)
+            }
         }
         .opacity(isSlidingOut ? 0.0 : (isCompleting ? 0.86 : 1.0))
         .offset(x: isSlidingOut ? 700 : 0)
