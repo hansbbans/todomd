@@ -23,6 +23,7 @@ struct QuickEntrySheet: View {
     @State private var showingTagsEditor = false
     @State private var reminderDraftDate = Date()
     @State private var didApplyDefaults = false
+    @State private var showAllFields = false
 
     private let descriptionInputHeight: CGFloat = 44
 
@@ -30,12 +31,24 @@ struct QuickEntrySheet: View {
         QuickEntrySettings.decodeFields(quickEntryFieldsRawValue)
     }
 
+    private var displayedFields: [QuickEntryField] {
+        if showAllFields {
+            let extraFields = QuickEntryField.allCases.filter { !selectedFields.contains($0) }
+            return selectedFields + extraFields
+        }
+        return selectedFields
+    }
+
+    private var activeFieldSet: Set<QuickEntryField> {
+        Set(displayedFields)
+    }
+
     private var quickEntryDefaultDateMode: QuickEntryDefaultDateMode {
         QuickEntryDefaultDateMode(rawValue: quickEntryDefaultDateModeRawValue) ?? .today
     }
 
     private var supportsDueInputs: Bool {
-        selectedFields.contains(.dueDate) || selectedFields.contains(.reminder)
+        activeFieldSet.contains(.dueDate) || activeFieldSet.contains(.reminder)
     }
 
     private var canSubmit: Bool {
@@ -118,7 +131,7 @@ struct QuickEntrySheet: View {
 
     private var descriptionField: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
                 RoundedRectangle(cornerRadius: 3)
                     .fill(theme.accentColor)
                     .frame(width: 4, height: descriptionInputHeight)
@@ -127,11 +140,12 @@ struct QuickEntrySheet: View {
                     .font(.system(.title2, design: .rounded).weight(.regular))
                     .textInputAutocapitalization(.sentences)
                     .autocorrectionDisabled(false)
-                    .frame(maxWidth: .infinity, minHeight: descriptionInputHeight, alignment: .bottomLeading)
+                    .frame(maxWidth: .infinity, minHeight: descriptionInputHeight, alignment: .leading)
                     .accessibilityIdentifier("quickEntry.titleField")
             }
             .accessibilityIdentifier("quickEntry.titleField")
-            .padding(18)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
         }
         .background(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
@@ -145,18 +159,38 @@ struct QuickEntrySheet: View {
 
     @ViewBuilder
     private var configurableFieldsRow: some View {
-        if selectedFields.isEmpty {
-            EmptyView()
-        } else {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(selectedFields, id: \.self) { field in
-                        fieldChip(field)
-                    }
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(displayedFields, id: \.self) { field in
+                    fieldChip(field)
                 }
-                .padding(.vertical, 2)
+                showAllFieldsButton
             }
+            .padding(.vertical, 2)
         }
+    }
+
+    private var showAllFieldsButton: some View {
+        Button {
+            showAllFields.toggle()
+        } label: {
+            Text("...")
+                .font(.system(size: 20, weight: .bold, design: .rounded))
+                .foregroundStyle(showAllFields ? theme.accentColor : theme.textPrimaryColor)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(theme.surfaceColor.opacity(0.94))
+                )
+                .overlay(
+                    Capsule(style: .continuous)
+                        .stroke(showAllFields ? theme.accentColor.opacity(0.45) : theme.textSecondaryColor.opacity(0.32), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("quickEntry.showAllFieldsButton")
+        .accessibilityLabel(showAllFields ? "Show default fields" : "Show all fields")
     }
 
     @ViewBuilder
@@ -463,13 +497,14 @@ struct QuickEntrySheet: View {
         let defaultView = BuiltInView(rawValue: quickEntryDefaultView)
         let explicitDue = (supportsDueInputs && hasDueDate) ? localDate(from: dueDate) : nil
         let explicitDueTime = (supportsDueInputs && hasDueDate && hasDueTime) ? localTime(from: dueTime) : nil
+        let activeFields = activeFieldSet
         let created = container.createTask(
             fromQuickEntryText: trimmedEntry,
             explicitDue: explicitDue,
             explicitDueTime: explicitDueTime,
-            priority: selectedFields.contains(.priority) ? priorityOverride : nil,
-            flagged: selectedFields.contains(.flag) ? flagged : false,
-            tags: selectedFields.contains(.tags) ? parsedTags(from: tagsText) : [],
+            priority: activeFields.contains(.priority) ? priorityOverride : nil,
+            flagged: activeFields.contains(.flag) ? flagged : false,
+            tags: activeFields.contains(.tags) ? parsedTags(from: tagsText) : [],
             area: selectedArea,
             project: selectedProject,
             defaultView: defaultView
