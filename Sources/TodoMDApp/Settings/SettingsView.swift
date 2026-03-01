@@ -1,5 +1,8 @@
 import SwiftUI
 import UniformTypeIdentifiers
+#if canImport(UserNotifications)
+import UserNotifications
+#endif
 
 private struct BottomNavigationOption: Identifiable, Hashable {
     let id: String
@@ -84,6 +87,7 @@ struct SettingsView: View {
     @State private var selectedFolderPath = UserDefaults.standard.string(forKey: TaskFolderPreferences.selectedFolderPathKey)
     @State private var showingFolderPicker = false
     @State private var folderSelectionErrorMessage: String?
+    @State private var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
 
     var body: some View {
         List {
@@ -312,6 +316,40 @@ struct SettingsView: View {
 
     private var notificationsSettingsView: some View {
         Form {
+#if canImport(UserNotifications)
+            if notificationAuthorizationStatus == .denied {
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Notifications are disabled", systemImage: "bell.slash.fill")
+                            .font(.headline)
+                            .foregroundStyle(.red)
+                        Text("You won't receive any reminders until you enable notifications for todo.md in iOS Settings.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Button("Open iOS Settings") {
+                            if let url = URL(string: UIApplication.openSettingsURLString) {
+                                UIApplication.shared.open(url)
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .padding(.top, 4)
+                    }
+                    .padding(.vertical, 4)
+                }
+            } else if notificationAuthorizationStatus == .notDetermined {
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Permission not yet granted", systemImage: "bell.badge.slash")
+                            .font(.headline)
+                            .foregroundStyle(.orange)
+                        Text("Open the app and add a task with a due date to trigger the notification permission prompt.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+#endif
             Section {
                 DatePicker(
                     "Default time",
@@ -346,6 +384,18 @@ struct SettingsView: View {
             }
         }
         .navigationTitle(SettingsSection.notifications.title)
+#if canImport(UserNotifications)
+        .task {
+            let settings = await UNUserNotificationCenter.current().notificationSettings()
+            notificationAuthorizationStatus = settings.authorizationStatus
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            Task {
+                let settings = await UNUserNotificationCenter.current().notificationSettings()
+                notificationAuthorizationStatus = settings.authorizationStatus
+            }
+        }
+#endif
     }
 
     private var taskBehaviorSettingsView: some View {
