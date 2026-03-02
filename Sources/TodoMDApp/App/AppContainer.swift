@@ -83,6 +83,16 @@ struct UpcomingSection: Identifiable, Equatable {
     var id: String { date.isoString }
 }
 
+struct UpcomingAgendaSection: Identifiable, Equatable {
+    let date: Date
+    let events: [CalendarEventItem]
+    let records: [TaskRecord]
+
+    var id: String {
+        String(Calendar.current.startOfDay(for: date).timeIntervalSinceReferenceDate)
+    }
+}
+
 struct LocationFavorite: Identifiable, Codable, Equatable {
     var id: String
     var name: String
@@ -141,6 +151,7 @@ final class AppContainer: ObservableObject {
     @Published var calendarStatusMessage: String?
     @Published private(set) var userProjects: [String] = []
     @Published private(set) var projectColorsByProject: [String: String] = [:]
+    @Published private(set) var projectIconsByProject: [String: String] = [:]
     @Published private(set) var calendarSources: [CalendarSource] = []
     @Published private(set) var selectedCalendarSourceIDs: Set<String> = []
     @Published var calendarTodayEvents: [CalendarEventItem] = []
@@ -202,6 +213,7 @@ final class AppContainer: ObservableObject {
     private static let settingsLocationFavoritesKey = "settings_location_favorites_v1"
     private static let settingsProjectsKey = "settings_projects_v1"
     private static let settingsProjectColorsKey = "settings_project_colors_v1"
+    private static let settingsProjectIconsKey = "settings_project_icons_v1"
     private static let hashtagRegex = try? NSRegularExpression(pattern: "#([A-Za-z0-9_-]+)")
 
     init(logger: RuntimeLogging = ConsoleRuntimeLogger()) {
@@ -227,6 +239,7 @@ final class AppContainer: ObservableObject {
         loadLocationFavorites()
         loadUserProjects()
         loadProjectColors()
+        loadProjectIcons()
         loadPerspectivesFromDisk()
         migrateLegacyPerspectivesFromSettingsIfNeeded()
         isCalendarConnected = appleCalendarService.isConnected
@@ -755,6 +768,42 @@ final class AppContainer: ObservableObject {
         return Array(ordered.prefix(limit))
     }
 
+    func upcomingAgendaSections(dayCount: Int = 3, referenceDate: Date = Date()) -> [UpcomingAgendaSection] {
+        guard dayCount > 0 else { return [] }
+
+        let calendar = Calendar.current
+        let startOfReference = calendar.startOfDay(for: referenceDate)
+        guard let firstUpcomingDay = calendar.date(byAdding: .day, value: 1, to: startOfReference) else {
+            return []
+        }
+
+        let normalizedToday = localDateFromDate(startOfReference)
+        let upcomingTaskSections = upcomingSections(today: normalizedToday)
+
+        var tasksByDay: [Date: [TaskRecord]] = [:]
+        for section in upcomingTaskSections {
+            guard let sectionDate = dateFromLocalDate(section.date) else { continue }
+            tasksByDay[calendar.startOfDay(for: sectionDate)] = section.records
+        }
+
+        var eventsByDay: [Date: [CalendarEventItem]] = [:]
+        for section in calendarUpcomingSections {
+            eventsByDay[calendar.startOfDay(for: section.date)] = section.events
+        }
+
+        return (0..<dayCount).compactMap { dayOffset in
+            guard let day = calendar.date(byAdding: .day, value: dayOffset, to: firstUpcomingDay) else {
+                return nil
+            }
+            let startOfDay = calendar.startOfDay(for: day)
+            return UpcomingAgendaSection(
+                date: startOfDay,
+                events: eventsByDay[startOfDay] ?? [],
+                records: tasksByDay[startOfDay] ?? []
+            )
+        }
+    }
+
     func allProjects() -> [String] {
         let taskProjects = allIndexedRecords.compactMap { $0.document.frontmatter.project?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -784,6 +833,23 @@ final class AppContainer: ObservableObject {
         })?.value
     }
 
+    func projectIconSymbol(for project: String) -> String {
+        let normalizedProject = project.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProject.isEmpty else { return "folder" }
+
+        if let exact = projectIconsByProject[normalizedProject],
+           let sanitized = sanitizeProjectIconSymbol(exact) {
+            return sanitized
+        }
+        if let matched = projectIconsByProject.first(where: {
+            $0.key.compare(normalizedProject, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+        })?.value,
+           let sanitized = sanitizeProjectIconSymbol(matched) {
+            return sanitized
+        }
+        return "folder"
+    }
+
     func setProjectColor(project: String, hex: String?) {
         let normalizedProject = project.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProject.isEmpty else { return }
@@ -806,6 +872,27 @@ final class AppContainer: ObservableObject {
         persistProjectColors()
     }
 
+    func setProjectIcon(project: String, symbol: String?) {
+        let normalizedProject = project.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProject.isEmpty else { return }
+        let resolvedProject = resolvedProjectName(for: normalizedProject) ?? normalizedProject
+
+        let duplicateKeys = projectIconsByProject.keys.filter {
+            $0.compare(resolvedProject, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+                && $0 != resolvedProject
+        }
+        for key in duplicateKeys {
+            projectIconsByProject.removeValue(forKey: key)
+        }
+
+        if let sanitizedSymbol = sanitizeProjectIconSymbol(symbol), sanitizedSymbol != "folder" {
+            projectIconsByProject[resolvedProject] = sanitizedSymbol
+        } else {
+            projectIconsByProject.removeValue(forKey: resolvedProject)
+        }
+        persistProjectIcons()
+    }
+
     @discardableResult
     func createProject(name: String, colorHex: String) -> String? {
         let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -822,7 +909,98 @@ final class AppContainer: ObservableObject {
         }
 
         setProjectColor(project: resolvedName, hex: sanitizedColor)
+        setProjectIcon(project: resolvedName, symbol: "folder")
         return resolvedName
+    }
+
+    @discardableResult
+    func updateProject(
+        originalName: String,
+        newName: String,
+        colorHex: String?,
+        iconSymbol: String?
+    ) -> String? {
+        let normalizedOriginal = originalName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedNew = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedOriginal.isEmpty, !normalizedNew.isEmpty else { return nil }
+
+        let resolvedOriginal = resolvedProjectName(for: normalizedOriginal) ?? normalizedOriginal
+        let resolvedExistingTarget = resolvedProjectName(for: normalizedNew)
+        let resolvedTarget: String
+        if let resolvedExistingTarget,
+           resolvedExistingTarget.compare(resolvedOriginal, options: [.caseInsensitive, .diacriticInsensitive]) != .orderedSame {
+            resolvedTarget = resolvedExistingTarget
+        } else {
+            resolvedTarget = normalizedNew
+        }
+
+        let matchingPaths = allIndexedRecords.compactMap { record -> String? in
+            guard let project = record.document.frontmatter.project?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !project.isEmpty,
+                  project.compare(resolvedOriginal, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame else {
+                return nil
+            }
+            return record.identity.path
+        }
+
+        do {
+            for path in matchingPaths {
+                let updated = try repository.update(path: path) { document in
+                    document.frontmatter.project = resolvedTarget
+                    document.frontmatter.modified = Date()
+                }
+                markSelfWrite(path: updated.identity.path)
+            }
+        } catch {
+            logger.error("Project update failed", metadata: [
+                "original": resolvedOriginal,
+                "target": resolvedTarget,
+                "error": error.localizedDescription
+            ])
+            refresh()
+            return nil
+        }
+
+        let removeColorKeys = projectColorsByProject.keys.filter {
+            $0.compare(resolvedOriginal, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+                && $0.compare(resolvedTarget, options: [.caseInsensitive, .diacriticInsensitive]) != .orderedSame
+        }
+        for key in removeColorKeys {
+            projectColorsByProject.removeValue(forKey: key)
+        }
+        persistProjectColors()
+
+        let removeIconKeys = projectIconsByProject.keys.filter {
+            $0.compare(resolvedOriginal, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+                && $0.compare(resolvedTarget, options: [.caseInsensitive, .diacriticInsensitive]) != .orderedSame
+        }
+        for key in removeIconKeys {
+            projectIconsByProject.removeValue(forKey: key)
+        }
+        persistProjectIcons()
+
+        var updatedUserProjects = userProjects.filter {
+            $0.compare(resolvedOriginal, options: [.caseInsensitive, .diacriticInsensitive]) != .orderedSame
+        }
+        if !updatedUserProjects.contains(where: {
+            $0.compare(resolvedTarget, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+        }) {
+            updatedUserProjects.append(resolvedTarget)
+        }
+        userProjects = updatedUserProjects
+        sortUserProjects()
+        persistUserProjects()
+
+        setProjectColor(project: resolvedTarget, hex: colorHex)
+        setProjectIcon(project: resolvedTarget, symbol: iconSymbol)
+
+        if case .project(let selectedProject) = selectedView,
+           selectedProject.compare(resolvedOriginal, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame {
+            selectedView = .project(resolvedTarget)
+        }
+
+        refresh()
+        return resolvedTarget
     }
 
     func availableProjects(inArea area: String?) -> [String] {
@@ -2047,6 +2225,23 @@ final class AppContainer: ObservableObject {
         projectColorsByProject = sanitized
     }
 
+    private func loadProjectIcons() {
+        let defaults = UserDefaults.standard
+        guard let raw = defaults.dictionary(forKey: Self.settingsProjectIconsKey) as? [String: String] else {
+            projectIconsByProject = [:]
+            return
+        }
+
+        var sanitized: [String: String] = [:]
+        for (project, symbol) in raw {
+            let normalizedProject = project.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedProject.isEmpty else { continue }
+            guard let sanitizedSymbol = sanitizeProjectIconSymbol(symbol), sanitizedSymbol != "folder" else { continue }
+            sanitized[normalizedProject] = sanitizedSymbol
+        }
+        projectIconsByProject = sanitized
+    }
+
     private func loadUserProjects() {
         let defaults = UserDefaults.standard
         guard let raw = defaults.array(forKey: Self.settingsProjectsKey) as? [String] else {
@@ -2101,6 +2296,11 @@ final class AppContainer: ObservableObject {
         defaults.set(projectColorsByProject, forKey: Self.settingsProjectColorsKey)
     }
 
+    private func persistProjectIcons() {
+        let defaults = UserDefaults.standard
+        defaults.set(projectIconsByProject, forKey: Self.settingsProjectIconsKey)
+    }
+
     private func persistUserProjects() {
         let defaults = UserDefaults.standard
         defaults.set(userProjects, forKey: Self.settingsProjectsKey)
@@ -2152,6 +2352,15 @@ final class AppContainer: ObservableObject {
             .trimmingCharacters(in: CharacterSet(charactersIn: "#").union(.whitespacesAndNewlines))
             .uppercased()
         guard normalized.count == 6, Int(normalized, radix: 16) != nil else {
+            return nil
+        }
+        return normalized
+    }
+
+    private func sanitizeProjectIconSymbol(_ symbol: String?) -> String? {
+        guard let symbol else { return nil }
+        let normalized = symbol.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty, normalized.count <= 100 else {
             return nil
         }
         return normalized

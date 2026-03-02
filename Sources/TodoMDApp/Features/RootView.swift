@@ -21,6 +21,12 @@ private struct ProjectColorChoice: Identifiable {
     var id: String { hex }
 }
 
+private struct ProjectIconChoice: Identifiable {
+    let symbol: String
+    let name: String
+    var id: String { symbol }
+}
+
 struct RootView: View {
     @EnvironmentObject private var container: AppContainer
     @EnvironmentObject private var theme: ThemeManager
@@ -33,6 +39,11 @@ struct RootView: View {
     @State private var showingCreateProjectSheet = false
     @State private var newProjectName = ""
     @State private var newProjectColorHex = "1E88E5"
+    @State private var showingProjectSettingsSheet = false
+    @State private var editingProjectOriginalName = ""
+    @State private var editingProjectName = ""
+    @State private var editingProjectColorHex: String?
+    @State private var editingProjectIconSymbol = "folder"
     @State private var pathsCompleting: Set<String> = []
     @State private var pathsSlidingOut: Set<String> = []
     @State private var completionAnimationTasks: [String: Task<Void, Never>] = [:]
@@ -120,6 +131,11 @@ struct RootView: View {
             .sheet(isPresented: $showingCreateProjectSheet) {
                 NavigationStack {
                     createProjectSheet
+                }
+            }
+            .sheet(isPresented: $showingProjectSettingsSheet) {
+                NavigationStack {
+                    projectSettingsSheet
                 }
             }
             .sheet(item: $deferDateTarget) { target in
@@ -336,7 +352,7 @@ struct RootView: View {
                             navButton(
                                 view: .project(project),
                                 label: project,
-                                icon: "folder",
+                                icon: container.projectIconSymbol(for: project),
                                 isIndented: true,
                                 tintHex: container.projectColorHex(for: project)
                             )
@@ -401,7 +417,7 @@ struct RootView: View {
                     prompt: "Search tasks, sections, tags"
                 )
         } else if container.selectedView == .builtIn(.upcoming) {
-            UpcomingCalendarView(sections: container.calendarUpcomingSections)
+            UpcomingCalendarView(sections: container.upcomingAgendaSections())
         } else if container.selectedView == .builtIn(.pomodoro) {
             PomodoroTimerView()
         } else {
@@ -503,12 +519,20 @@ struct RootView: View {
                             browseFilterButton(
                                 view: .project(project),
                                 label: project,
-                                icon: "folder",
+                                icon: container.projectIconSymbol(for: project),
                                 tintHex: container.projectColorHex(for: project)
                             )
                             .frame(maxWidth: .infinity, alignment: .leading)
 
-                            projectColorMenu(for: project)
+                            Button {
+                                openProjectSettings(for: project)
+                            } label: {
+                                Image(systemName: "gearshape")
+                                    .foregroundStyle(theme.textSecondaryColor)
+                                    .frame(width: 24, height: 24)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Edit \(project)")
                         }
                     }
                 }
@@ -535,22 +559,35 @@ struct RootView: View {
                         .foregroundStyle(theme.textSecondaryColor)
                 } else {
                     ForEach(container.perspectives) { perspective in
-                        browseFilterButton(
-                            view: container.perspectiveViewIdentifier(for: perspective.id),
-                            label: perspective.name,
-                            icon: perspective.icon,
-                            tintHex: perspective.color
-                        )
-                        .contextMenu {
-                            Button("Edit") {
+                        HStack(spacing: 8) {
+                            browseFilterButton(
+                                view: container.perspectiveViewIdentifier(for: perspective.id),
+                                label: perspective.name,
+                                icon: perspective.icon,
+                                tintHex: perspective.color
+                            )
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contextMenu {
+                                Button("Edit") {
+                                    editingPerspective = perspective
+                                }
+                                Button("Duplicate") {
+                                    editingPerspective = container.duplicatePerspective(id: perspective.id)
+                                }
+                                Button("Delete", role: .destructive) {
+                                    pendingDeletePerspective = perspective
+                                }
+                            }
+
+                            Button {
                                 editingPerspective = perspective
+                            } label: {
+                                Image(systemName: "gearshape")
+                                    .foregroundStyle(theme.textSecondaryColor)
+                                    .frame(width: 24, height: 24)
                             }
-                            Button("Duplicate") {
-                                editingPerspective = container.duplicatePerspective(id: perspective.id)
-                            }
-                            Button("Delete", role: .destructive) {
-                                pendingDeletePerspective = perspective
-                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Edit \(perspective.name)")
                         }
                     }
                 }
@@ -670,7 +707,7 @@ struct RootView: View {
                             browseFilterButton(
                                 view: .project(project),
                                 label: project,
-                                icon: "folder",
+                                icon: container.projectIconSymbol(for: project),
                                 tintHex: container.projectColorHex(for: project)
                             )
                         }
@@ -701,6 +738,21 @@ struct RootView: View {
             ProjectColorChoice(hex: "5E35B1", name: "Purple"),
             ProjectColorChoice(hex: "6D4C41", name: "Brown"),
             ProjectColorChoice(hex: "546E7A", name: "Slate")
+        ]
+    }
+
+    private var projectIconChoices: [ProjectIconChoice] {
+        [
+            ProjectIconChoice(symbol: "folder", name: "Folder"),
+            ProjectIconChoice(symbol: "briefcase", name: "Briefcase"),
+            ProjectIconChoice(symbol: "hammer", name: "Hammer"),
+            ProjectIconChoice(symbol: "wrench.and.screwdriver", name: "Tools"),
+            ProjectIconChoice(symbol: "book.closed", name: "Book"),
+            ProjectIconChoice(symbol: "graduationcap", name: "Learning"),
+            ProjectIconChoice(symbol: "house", name: "Home"),
+            ProjectIconChoice(symbol: "cart", name: "Cart"),
+            ProjectIconChoice(symbol: "paperplane", name: "Launch"),
+            ProjectIconChoice(symbol: "star", name: "Star")
         ]
     }
 
@@ -751,48 +803,71 @@ struct RootView: View {
         }
     }
 
-    private func projectColorMenu(for project: String) -> some View {
-        let currentHex = container.projectColorHex(for: project)
-
-        return Menu {
-            Button {
-                container.setProjectColor(project: project, hex: nil)
-            } label: {
-                HStack {
-                    Image(systemName: currentHex == nil ? "checkmark.circle.fill" : "circle")
-                    Text("No Color")
-                }
+    private var projectSettingsSheet: some View {
+        Form {
+            Section("Name") {
+                TextField("Project name", text: $editingProjectName)
+                    .textInputAutocapitalization(.words)
+                    .autocorrectionDisabled()
             }
 
-            ForEach(projectColorChoices) { choice in
-                Button {
-                    container.setProjectColor(project: project, hex: choice.hex)
-                } label: {
-                    HStack {
-                        Circle()
-                            .fill(color(forHex: choice.hex) ?? theme.textSecondaryColor)
-                            .frame(width: 10, height: 10)
-                        Text(choice.name)
-                        if currentHex == choice.hex {
-                            Image(systemName: "checkmark")
-                        }
+            Section("Icon") {
+                Picker("Icon", selection: $editingProjectIconSymbol) {
+                    ForEach(projectIconChoices) { choice in
+                        Label(choice.name, systemImage: choice.symbol)
+                            .tag(choice.symbol)
                     }
                 }
             }
-        } label: {
-            Group {
-                if let tint = color(forHex: currentHex) {
-                    Circle()
-                        .fill(tint)
-                } else {
-                    Image(systemName: "paintpalette")
-                        .foregroundStyle(theme.textSecondaryColor)
+
+            Section("Color") {
+                Button {
+                    editingProjectColorHex = nil
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: editingProjectColorHex == nil ? "checkmark.circle.fill" : "circle")
+                        Text("No Color")
+                        Spacer()
+                    }
+                }
+                .buttonStyle(.plain)
+
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 40), spacing: 12)], spacing: 12) {
+                    ForEach(projectColorChoices) { choice in
+                        Button {
+                            editingProjectColorHex = choice.hex
+                        } label: {
+                            Circle()
+                                .fill(color(forHex: choice.hex) ?? theme.textSecondaryColor)
+                                .frame(width: 28, height: 28)
+                                .overlay {
+                                    if editingProjectColorHex == choice.hex {
+                                        Image(systemName: "checkmark")
+                                            .font(.caption2.weight(.bold))
+                                            .foregroundStyle(.white)
+                                    }
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(choice.name)
+                    }
                 }
             }
-            .frame(width: 24, height: 24)
-            .contentShape(Rectangle())
         }
-        .accessibilityLabel("Set color for \(project)")
+        .navigationTitle("Project Settings")
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") {
+                    showingProjectSettingsSheet = false
+                }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Save") {
+                    saveProjectSettings()
+                }
+                .disabled(editingProjectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
     }
 
     private func browseFilterButton(view: ViewIdentifier, label: String, icon: String, tintHex: String? = nil) -> some View {
@@ -911,7 +986,7 @@ struct RootView: View {
         case .area(let area):
             return (area, "square.grid.2x2", nil)
         case .project(let project):
-            return (project, "folder", container.projectColorHex(for: project))
+            return (project, container.projectIconSymbol(for: project), container.projectColorHex(for: project))
         case .tag(let tag):
             return ("#\(tag)", "number", nil)
         case .custom(let rawValue):
@@ -975,6 +1050,30 @@ struct RootView: View {
         newProjectColorHex = "1E88E5"
         showingCreateProjectSheet = false
         applyFilter(.project(created))
+    }
+
+    private func openProjectSettings(for project: String) {
+        editingProjectOriginalName = project
+        editingProjectName = project
+        editingProjectColorHex = container.projectColorHex(for: project)
+        editingProjectIconSymbol = container.projectIconSymbol(for: project)
+        showingProjectSettingsSheet = true
+    }
+
+    private func saveProjectSettings() {
+        let trimmedName = editingProjectName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+        guard let updatedProject = container.updateProject(
+            originalName: editingProjectOriginalName,
+            newName: trimmedName,
+            colorHex: editingProjectColorHex,
+            iconSymbol: editingProjectIconSymbol
+        ) else { return }
+
+        showingProjectSettingsSheet = false
+        if case .project = container.selectedView {
+            applyFilter(.project(updatedProject))
+        }
     }
 
     private func applyFilter(_ view: ViewIdentifier) {

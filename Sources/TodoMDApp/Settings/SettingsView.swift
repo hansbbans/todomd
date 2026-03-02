@@ -669,7 +669,11 @@ struct SettingsView: View {
         }
 
         for project in container.allProjects() {
-            appendOption(view: .project(project), label: "Project: \(project)", icon: "folder")
+            appendOption(
+                view: .project(project),
+                label: "Project: \(project)",
+                icon: container.projectIconSymbol(for: project)
+            )
         }
 
         for tag in container.availableTags() {

@@ -12,7 +12,7 @@ struct PerspectivesView: View {
                 ContentUnavailableView(
                     "No Perspectives",
                     systemImage: "line.3.horizontal.decrease.circle",
-                    description: Text("Create saved filters with nested AND / OR / NOT rules.")
+                    description: Text("Create saved filters with natural-language queries.")
                 )
             } else {
                 ForEach(container.perspectives) { perspective in
@@ -154,7 +154,6 @@ struct PerspectiveEditorSheet: View {
     @State private var naturalLanguageQuery: String
     @State private var naturalLanguageSummary: String
     @State private var naturalLanguageNeedsFallback: Bool
-    @StateObject private var dragState = PerspectiveRuleDragState()
     private let nlParser = NaturalLanguagePerspectiveParser()
 
     private let iconChoices = ["list.bullet", "briefcase", "house", "star", "heart", "bolt", "clock", "tag", "flag", "checkmark.circle"]
@@ -257,15 +256,6 @@ struct PerspectiveEditorSheet: View {
                         Text(layoutLabel(value)).tag(value)
                     }
                 }
-            }
-
-            Section("Rules") {
-                PerspectiveRuleGroupEditor(
-                    group: $rootRules,
-                    rootGroup: $rootRules,
-                    depth: 0,
-                    dragState: dragState
-                )
             }
         }
         .navigationTitle("Edit Perspective")
