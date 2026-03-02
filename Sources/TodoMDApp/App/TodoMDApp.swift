@@ -74,5 +74,6 @@ struct TodoMDApp: App {
         defaults.removeObject(forKey: "did_complete_onboarding")
         defaults.removeObject(forKey: TaskFolderPreferences.legacyFolderNameKey)
         TaskFolderPreferences.clearSelectedFolder(defaults: defaults)
+        TaskFolderPreferences.clearSelectedFolder()
     }
 }

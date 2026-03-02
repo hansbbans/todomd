@@ -4,10 +4,15 @@ public enum TaskFolderPreferences {
     public static let selectedFolderBookmarkKey = "settings_notes_folder_bookmark"
     public static let selectedFolderPathKey = "settings_notes_folder_path"
     public static let legacyFolderNameKey = "settings_icloud_folder_name"
+    public static let appGroupIdentifier = "group.com.hans.todomd"
+    public static var shared: UserDefaults {
+        UserDefaults(suiteName: appGroupIdentifier) ?? .standard
+    }
+
     private static let securityScopeQueue = DispatchQueue(label: "TaskFolderPreferences.SecurityScope")
     nonisolated(unsafe) private static var activeSecurityScopedURL: URL?
 
-    public static func saveSelectedFolder(_ url: URL, defaults: UserDefaults = .standard) throws {
+    public static func saveSelectedFolder(_ url: URL, defaults: UserDefaults = TaskFolderPreferences.shared) throws {
         let didAccess = url.startAccessingSecurityScopedResource()
         defer {
             if didAccess {
@@ -24,14 +29,21 @@ public enum TaskFolderPreferences {
         defaults.set(url.path, forKey: selectedFolderPathKey)
     }
 
-    public static func clearSelectedFolder(defaults: UserDefaults = .standard) {
+    public static func clearSelectedFolder(defaults: UserDefaults = TaskFolderPreferences.shared) {
         endSecurityScopedAccess()
         defaults.removeObject(forKey: selectedFolderBookmarkKey)
         defaults.removeObject(forKey: selectedFolderPathKey)
     }
 
-    public static func selectedFolderURL(defaults: UserDefaults = .standard) -> URL? {
+    public static func selectedFolderURL(defaults: UserDefaults = TaskFolderPreferences.shared) -> URL? {
         guard let data = defaults.data(forKey: selectedFolderBookmarkKey) else {
+            // Migration: if the shared defaults has no bookmark, check .standard (written by older versions)
+            if defaults !== UserDefaults.standard,
+               let legacyData = UserDefaults.standard.data(forKey: selectedFolderBookmarkKey),
+               let url = resolveBookmarkData(legacyData, savingStaleBookmarkTo: defaults) {
+                try? saveSelectedFolder(url, defaults: defaults)
+                return url
+            }
             return fallbackPathURL(defaults: defaults)
         }
 
@@ -59,6 +71,21 @@ public enum TaskFolderPreferences {
             clearSelectedFolder(defaults: defaults)
             return nil
         }
+    }
+
+    private static func resolveBookmarkData(_ data: Data, savingStaleBookmarkTo _: UserDefaults) -> URL? {
+        var isStale = false
+        guard let url = try? URL(
+            resolvingBookmarkData: data,
+            options: bookmarkResolutionOptions(),
+            relativeTo: nil,
+            bookmarkDataIsStale: &isStale
+        ) else {
+            return nil
+        }
+        let normalized = url.standardizedFileURL.resolvingSymlinksInPath()
+        beginSecurityScopedAccessIfNeeded(for: normalized)
+        return normalized
     }
 
     private static func fallbackPathURL(defaults: UserDefaults) -> URL? {

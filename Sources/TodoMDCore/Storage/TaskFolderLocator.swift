@@ -9,7 +9,7 @@ public struct TaskFolderLocator {
     public init(
         folderName: String = "todo.md",
         fileManager: FileManager = .default,
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = TaskFolderPreferences.shared,
         documentsRootURL: URL? = nil
     ) {
         self.folderName = folderName
