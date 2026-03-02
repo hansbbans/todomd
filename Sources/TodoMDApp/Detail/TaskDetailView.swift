@@ -276,6 +276,42 @@ struct TaskDetailView: View {
             }
             .buttonStyle(.plain)
             Divider().padding(.leading, 52)
+
+            // Due
+            PropertyRow(
+                icon: "calendar",
+                label: "Due",
+                valueText: editState.map { dueDateText($0) } ?? "",
+                isExpanded: expandedRow == .due,
+                onTap: { expandedRow = expandedRow == .due ? nil : .due }
+            ) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle("Set due date", isOn: binding(\.hasDue))
+                    if editState?.hasDue == true {
+                        DatePicker("Date", selection: binding(\.dueDate), displayedComponents: .date)
+                        Toggle("Include time", isOn: binding(\.hasDueTime))
+                        if editState?.hasDueTime == true {
+                            DatePicker("Time", selection: binding(\.dueTime), displayedComponents: .hourAndMinute)
+                        }
+                    }
+                }
+            }
+
+            // Scheduled
+            PropertyRow(
+                icon: "calendar.badge.clock",
+                label: "Scheduled",
+                valueText: editState.map { scheduledDateText($0) } ?? "",
+                isExpanded: expandedRow == .scheduled,
+                onTap: { expandedRow = expandedRow == .scheduled ? nil : .scheduled }
+            ) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle("Set scheduled date", isOn: binding(\.hasScheduled))
+                    if editState?.hasScheduled == true {
+                        DatePicker("Date", selection: binding(\.scheduledDate), displayedComponents: .date)
+                    }
+                }
+            }
         }
     }
 
@@ -829,6 +865,21 @@ struct TaskDetailView: View {
         let current = order.firstIndex(of: s.priority) ?? 0
         s.priority = order[(current + 1) % order.count]
         editState = s
+    }
+
+    private func dueDateText(_ s: TaskEditState) -> String {
+        guard s.hasDue else { return "" }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = s.hasDueTime ? .short : .none
+        return formatter.string(from: s.dueDate)
+    }
+
+    private func scheduledDateText(_ s: TaskEditState) -> String {
+        guard s.hasScheduled else { return "" }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        return formatter.string(from: s.scheduledDate)
     }
 
     private func currentTags() -> [String] {
