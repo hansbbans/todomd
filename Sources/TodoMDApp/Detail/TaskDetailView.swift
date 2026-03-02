@@ -23,6 +23,15 @@ private enum RecurrenceFrequencyOption: String, CaseIterable {
     }
 }
 
+private enum ExpandedRow: Equatable {
+    case due
+    case scheduled
+    case tags
+    case estimate
+    case assignee
+    case blockedBy
+}
+
 struct TaskDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var container: AppContainer
@@ -44,6 +53,7 @@ struct TaskDetailView: View {
     @State private var recurrenceWeekdays: Set<String> = []
     @State private var showingRepeatPresetMenu = false
     @State private var showingCustomRepeatEditor = false
+    @State private var expandedRow: ExpandedRow?
 
     @AppStorage("taskDetail.expandedDependencies") private var expandedDependencies = false
     @AppStorage("taskDetail.expandedLocationReminder") private var expandedLocationReminder = false
