@@ -100,6 +100,9 @@ struct TaskDetailView: View {
         .fullScreenCover(isPresented: $showNotesEditor) {
             notesEditorView
         }
+        .sheet(isPresented: $expandedLocationReminder) {
+            locationEditorView
+        }
         .sheet(isPresented: $showingCustomRepeatEditor) {
             customRepeatView
         }
@@ -237,7 +240,7 @@ struct TaskDetailView: View {
                     Text("Priority")
                         .foregroundStyle(.primary)
                     Spacer()
-                    Text(editState?.priority == .none ? "—" : (editState?.priority.rawValue.capitalized ?? "—"))
+                    Text(editState?.priority == TaskPriority.none ? "—" : (editState?.priority.rawValue.capitalized ?? "—"))
                         .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 20)
@@ -568,6 +571,69 @@ struct TaskDetailView: View {
                         showingCustomRepeatEditor = false
                     }
                     .disabled(recurrenceFrequency == .weekly && recurrenceWeekdays.isEmpty)
+                }
+            }
+        }
+    }
+
+    private var locationEditorView: some View {
+        NavigationStack {
+            Form {
+                Section("Location Reminder") {
+                    Toggle("Enable", isOn: binding(\.hasLocationReminder))
+
+                    if editState?.hasLocationReminder == true {
+                        Picker("Trigger", selection: binding(\.locationTrigger)) {
+                            Text("On Arrival").tag(TaskLocationReminderTrigger.onArrival)
+                            Text("On Departure").tag(TaskLocationReminderTrigger.onDeparture)
+                        }
+                        .pickerStyle(.segmented)
+
+                        TextField("Name", text: binding(\.locationName))
+                        TextField("Latitude", text: binding(\.locationLatitude))
+                            .keyboardType(.decimalPad)
+                        TextField("Longitude", text: binding(\.locationLongitude))
+                            .keyboardType(.decimalPad)
+                        Stepper(
+                            "Radius: \(editState?.locationRadiusMeters ?? 100) m",
+                            value: binding(\.locationRadiusMeters),
+                            in: 50...1000,
+                            step: 50
+                        )
+                    }
+                }
+
+                if !container.locationFavorites.isEmpty {
+                    Section("Saved Locations") {
+                        Picker("Favorite", selection: $selectedLocationFavoriteID) {
+                            ForEach(container.locationFavorites) { fav in
+                                Text(fav.name).tag(fav.id)
+                            }
+                        }
+                        .pickerStyle(.menu)
+
+                        HStack {
+                            Button("Apply") { applySelectedLocationFavorite() }
+                            Spacer()
+                            Button("Delete", role: .destructive) { deleteSelectedLocationFavorite() }
+                        }
+                    }
+                }
+
+                if editState?.hasLocationReminder == true {
+                    Section("Save as Preset") {
+                        TextField("Preset name", text: $locationPresetName)
+                        Button("Save Preset") { saveCurrentLocationAsPreset() }
+                            .disabled(locationPresetName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                                      (editState?.locationName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true))
+                    }
+                }
+            }
+            .navigationTitle("Location")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { expandedLocationReminder = false }
                 }
             }
         }
