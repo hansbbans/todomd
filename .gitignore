@@ -13,3 +13,6 @@ Package.resolved
 
 # Tools
 .swiftlint.cache
+
+# Worktrees
+.worktrees/
