@@ -276,21 +276,49 @@ struct QuickEntrySheet: View {
 
     @ViewBuilder
     private var destinationMenuActions: some View {
+        let groupedAreas = container.projectsByArea()
+        let groupedProjects = groupedAreas.flatMap(\.projects)
+        let ungroupedProjects = container.allProjects().filter { candidate in
+            !groupedProjects.contains(where: {
+                $0.compare(candidate, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+            })
+        }
+
         Button("Inbox") {
             selectedArea = nil
             selectedProject = nil
         }
 
-        ForEach(container.projectsByArea(), id: \.area) { group in
-            Menu(group.area) {
-                Button("Area Only") {
-                    selectedArea = group.area
-                    selectedProject = nil
+        if groupedAreas.isEmpty {
+            ForEach(container.allProjects(), id: \.self) { project in
+                Button(project) {
+                    selectedArea = nil
+                    selectedProject = project
                 }
-                ForEach(group.projects, id: \.self) { project in
-                    Button(project) {
+            }
+        } else {
+            ForEach(groupedAreas, id: \.area) { group in
+                Menu(group.area) {
+                    Button("Area Only") {
                         selectedArea = group.area
-                        selectedProject = project
+                        selectedProject = nil
+                    }
+                    ForEach(group.projects, id: \.self) { project in
+                        Button(project) {
+                            selectedArea = group.area
+                            selectedProject = project
+                        }
+                    }
+                }
+            }
+
+            if !ungroupedProjects.isEmpty {
+                Menu("No Area") {
+                    ForEach(ungroupedProjects, id: \.self) { project in
+                        Button(project) {
+                            selectedArea = nil
+                            selectedProject = project
+                        }
                     }
                 }
             }
