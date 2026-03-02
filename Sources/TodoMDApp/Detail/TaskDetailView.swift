@@ -312,6 +312,63 @@ struct TaskDetailView: View {
                     }
                 }
             }
+
+            // Repeat
+            Divider().padding(.leading, 52)
+            Button {
+                showingRepeatPresetMenu = true
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "arrow.clockwise")
+                        .frame(width: 20)
+                        .foregroundStyle(.secondary)
+                    Text("Repeat")
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Text(editState?.recurrence.isEmpty == false ? recurrenceSummaryText() : "—")
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+            }
+            .buttonStyle(.plain)
+            Divider().padding(.leading, 52)
+
+            // Tags
+            PropertyRow(
+                icon: "tag",
+                label: "Tags",
+                valueText: editState?.tagsText ?? "",
+                isExpanded: expandedRow == .tags,
+                onTap: { expandedRow = expandedRow == .tags ? nil : .tags }
+            ) {
+                VStack(alignment: .leading, spacing: 8) {
+                    let tags = (editState?.tagsText ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                    if !tags.isEmpty {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 80))], spacing: 6) {
+                            ForEach(tags, id: \.self) { tag in
+                                HStack(spacing: 4) {
+                                    Text(tag).font(.caption)
+                                    Button { removeTag(tag) } label: {
+                                        Image(systemName: "xmark").font(.caption2)
+                                    }
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(theme.surfaceColor)
+                                .clipShape(Capsule())
+                            }
+                        }
+                    }
+                    HStack {
+                        TextField("Add tag", text: $newTagText)
+                            .onSubmit { addTag() }
+                        Button("Add", action: addTag)
+                            .disabled(newTagText.isEmpty)
+                    }
+                }
+            }
         }
     }
 
@@ -898,6 +955,11 @@ struct TaskDetailView: View {
             tags.append(trimmed)
             binding(\.tagsText).wrappedValue = tags.joined(separator: ", ")
         }
+    }
+
+    private func addTag() {
+        addTag(newTagText)
+        newTagText = ""
     }
 
     private func removeTag(_ tag: String) {
