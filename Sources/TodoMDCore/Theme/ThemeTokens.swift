@@ -29,6 +29,8 @@ public struct ThemeTokens: Equatable, Sendable {
         public var priorityMediumDark: String
         public var priorityLowLight: String
         public var priorityLowDark: String
+        public var separatorLight: String
+        public var separatorDark: String
 
         public init(
             backgroundPrimaryLight: String,
@@ -45,7 +47,9 @@ public struct ThemeTokens: Equatable, Sendable {
             priorityMediumLight: String,
             priorityMediumDark: String,
             priorityLowLight: String,
-            priorityLowDark: String
+            priorityLowDark: String,
+            separatorLight: String,
+            separatorDark: String
         ) {
             self.backgroundPrimaryLight = backgroundPrimaryLight
             self.backgroundPrimaryDark = backgroundPrimaryDark
@@ -62,6 +66,8 @@ public struct ThemeTokens: Equatable, Sendable {
             self.priorityMediumDark = priorityMediumDark
             self.priorityLowLight = priorityLowLight
             self.priorityLowDark = priorityLowDark
+            self.separatorLight = separatorLight
+            self.separatorDark = separatorDark
         }
     }
 
@@ -112,25 +118,27 @@ public struct ThemeTokenStore: ThemeTokenLoading {
         case .classic:
             return ThemeTokens(
                 colors: .init(
-                    backgroundPrimaryLight: "#FFFFFF",
+                    backgroundPrimaryLight: "#F2F2F7",
                     backgroundPrimaryDark: "#1C1C1E",
-                    surfaceLight: "#F8F8F8",
+                    surfaceLight: "#FFFFFF",
                     surfaceDark: "#2C2C2E",
-                    textPrimaryLight: "#000000",
-                    textPrimaryDark: "#FFFFFF",
+                    textPrimaryLight: "#1C1C1E",
+                    textPrimaryDark: "#F2F2F7",
                     textSecondary: "#8E8E93",
-                    accentLight: "#4A90D9",
-                    accentDark: "#5AA3F0",
-                    overdueLight: "#E74C3C",
+                    accentLight: "#4A7FD4",
+                    accentDark: "#5E9BF5",
+                    overdueLight: "#D94F3D",
                     overdueDark: "#FF6B6B",
                     priorityMediumLight: "#F5A623",
                     priorityMediumDark: "#FFB84D",
                     priorityLowLight: "#7ED321",
-                    priorityLowDark: "#98E44A"
+                    priorityLowDark: "#98E44A",
+                    separatorLight: "#E5E5EA",
+                    separatorDark: "#38383A"
                 ),
-                spacing: .init(rowVertical: 10, rowHorizontal: 14, sectionGap: 18),
-                shape: .init(cornerRadius: 10),
-                motion: .init(completionSpringResponse: 0.34, completionSpringDamping: 0.82)
+                spacing: .init(rowVertical: 14, rowHorizontal: 16, sectionGap: 28),
+                shape: .init(cornerRadius: 12),
+                motion: .init(completionSpringResponse: 0.28, completionSpringDamping: 0.78)
             )
         }
     }

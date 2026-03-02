@@ -146,6 +146,15 @@ struct SettingsView: View {
                 Label(SettingsSection.maintenance.title, systemImage: SettingsSection.maintenance.systemImage)
             }
             .accessibilityIdentifier("settings.section.\(SettingsSection.maintenance.rawValue)")
+
+            Section {
+                NavigationLink {
+                    DebugView()
+                } label: {
+                    Label("Debug", systemImage: "ladybug")
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
         .navigationTitle("Settings")
         .fileImporter(

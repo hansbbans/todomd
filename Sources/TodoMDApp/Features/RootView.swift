@@ -27,6 +27,38 @@ private struct ProjectIconChoice: Identifiable {
     var id: String { symbol }
 }
 
+private struct SectionHeaderView: View {
+    let title: String
+    let count: Int?
+    @EnvironmentObject private var theme: ThemeManager
+
+    init(_ title: String, count: Int? = nil) {
+        self.title = title
+        self.count = count
+    }
+
+    var body: some View {
+        HStack {
+            Text(displayText)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(theme.textSecondaryColor)
+                .textCase(nil)
+                .tracking(0.4)
+            Spacer()
+        }
+        .padding(.top, 16)
+        .padding(.bottom, 2)
+    }
+
+    private var displayText: String {
+        let upper = title.uppercased()
+        if let count {
+            return "\(upper)  \(count)"
+        }
+        return upper
+    }
+}
+
 struct RootView: View {
     @EnvironmentObject private var container: AppContainer
     @EnvironmentObject private var theme: ThemeManager
@@ -69,7 +101,7 @@ struct RootView: View {
                 }
             }
         }
-        .animation(.easeInOut(duration: 0.22), value: container.selectedView)
+        .animation(.easeInOut(duration: 0.18), value: container.selectedView)
         .background(theme.backgroundColor.ignoresSafeArea())
     }
 
@@ -93,18 +125,6 @@ struct RootView: View {
                         } label: {
                             Image(systemName: "square.grid.2x2")
                         }
-                    }
-                }
-
-                ToolbarItem(placement: .topBarLeading) {
-                    EditButton()
-                }
-
-                ToolbarItem(placement: .topBarLeading) {
-                    NavigationLink {
-                        DebugView()
-                    } label: {
-                        Image(systemName: "ladybug")
                     }
                 }
 
@@ -469,23 +489,27 @@ struct RootView: View {
                             }
 
                             ForEach(container.todaySections()) { section in
-                                Section(section.group.rawValue) {
+                                Section {
                                     ForEach(section.records) { record in
                                         taskRowItem(record)
                                     }
+                                } header: {
+                                    SectionHeaderView(section.group.rawValue, count: section.records.count)
                                 }
                             }
                         }
                     } else if container.selectedView == .builtIn(.upcoming) {
                         ForEach(container.upcomingSections()) { section in
-                            Section(formattedDate(section.date)) {
+                            Section {
                                 ForEach(section.records) { record in
                                     taskRowItem(record)
                                 }
+                            } header: {
+                                SectionHeaderView(formattedDate(section.date))
                             }
                         }
                     } else {
-                        Section(titleForCurrentView()) {
+                        Section {
                             ForEach(records) { record in
                                 taskRowItem(record)
                             }
@@ -495,6 +519,8 @@ struct RootView: View {
                                 reordered.move(fromOffsets: source, toOffset: destination)
                                 container.saveManualOrder(filenames: reordered.map { $0.identity.filename })
                             }
+                        } header: {
+                            SectionHeaderView(titleForCurrentView())
                         }
                     }
                 }
@@ -933,15 +959,10 @@ struct RootView: View {
                 Button {
                     applyFilter(section.view)
                 } label: {
-                    VStack(spacing: 2) {
-                        Image(systemName: item.icon)
-                            .font(.system(size: 15, weight: .semibold))
-                        Text(item.title)
-                            .font(.caption2.weight(.semibold))
-                            .lineLimit(1)
-                    }
+                    Image(systemName: item.icon)
+                        .font(.system(size: 22, weight: .regular))
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
+                    .padding(.vertical, 10)
                     .foregroundStyle(
                         container.selectedView == section.view
                             ? (color(forHex: item.tintHex) ?? theme.accentColor)
@@ -954,10 +975,7 @@ struct RootView: View {
         .padding(.horizontal, 10)
         .padding(.top, 8)
         .padding(.bottom, 10)
-        .background(theme.surfaceColor.opacity(0.96))
-        .overlay(alignment: .top) {
-            Divider()
-        }
+        .background(.ultraThinMaterial)
     }
 
     private func bottomNavigationItem(for view: ViewIdentifier) -> (title: String, icon: String, tintHex: String?) {
@@ -1018,7 +1036,7 @@ struct RootView: View {
                 .frame(width: 56, height: 56)
                 .background(Circle().fill(theme.accentColor))
                 .foregroundStyle(.white)
-                .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 4)
+                .shadow(color: .black.opacity(0.14), radius: 12, x: 0, y: 5)
         }
         .keyboardShortcut("n", modifiers: .command)
         .accessibilityIdentifier("root.quickAddButton")
@@ -1077,7 +1095,7 @@ struct RootView: View {
     }
 
     private func applyFilter(_ view: ViewIdentifier) {
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(.easeInOut(duration: 0.18)) {
             container.selectedView = view
         }
         universalSearchText = ""
@@ -1118,7 +1136,7 @@ struct RootView: View {
         let task = Task { @MainActor in
             defer { completionAnimationTasks[path] = nil }
 
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.76)) {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) {
                 _ = pathsCompleting.insert(path)
             }
 
@@ -1127,7 +1145,7 @@ struct RootView: View {
                 return
             }
 
-            withAnimation(.spring(response: 0.34, dampingFraction: 0.88)) {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) {
                 _ = pathsSlidingOut.insert(path)
             }
 
@@ -1164,7 +1182,8 @@ struct RootView: View {
         let isSlidingOut = pathsSlidingOut.contains(path)
         return TaskRow(
             record: record,
-            isCompleting: isCompleting || isSlidingOut
+            isCompleting: isCompleting || isSlidingOut,
+            onComplete: { completeWithAnimation(path: path) }
         )
         .accessibilityIdentifier("taskRow.\(record.document.frontmatter.title)")
         .accessibilityHint("Swipe right for quick actions. Swipe left to complete. Long press for more options.")
@@ -1284,10 +1303,10 @@ struct RootView: View {
         .opacity(isSlidingOut ? 0.0 : (isCompleting ? 0.86 : 1.0))
         .offset(x: isSlidingOut ? 700 : 0)
         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-        .listRowBackground(Color.clear)
+        .listRowBackground(theme.surfaceColor)
         .listRowSeparator(.hidden)
-        .animation(.spring(response: 0.34, dampingFraction: 0.82), value: pathsCompleting)
-        .animation(.spring(response: 0.35, dampingFraction: 0.86), value: pathsSlidingOut)
+        .animation(.spring(response: 0.28, dampingFraction: 0.78), value: pathsCompleting)
+        .animation(.spring(response: 0.28, dampingFraction: 0.78), value: pathsSlidingOut)
     }
 
     private func navButton(
@@ -1400,56 +1419,80 @@ struct RootView: View {
 private struct TaskRow: View {
     let record: TaskRecord
     let isCompleting: Bool
-    @EnvironmentObject private var container: AppContainer
+    let onComplete: () -> Void
     @EnvironmentObject private var theme: ThemeManager
 
     var body: some View {
         let frontmatter = record.document.frontmatter
 
-        HStack(spacing: 0) {
-            Rectangle()
-                .fill(projectBarColor(for: frontmatter))
-                .frame(width: 5)
+        HStack(alignment: .top, spacing: 12) {
+            Button(action: onComplete) {
+                checkboxImage(frontmatter: frontmatter)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 2)
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(frontmatter.title)
-                        .font(.system(size: 18, weight: .regular, design: .rounded))
-                        .foregroundStyle(theme.textPrimaryColor)
-                        .lineLimit(1)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(frontmatter.title)
+                    .font(.body)
+                    .foregroundStyle(isCompleting ? theme.textSecondaryColor : theme.textPrimaryColor)
+                    .strikethrough(isCompleting, color: theme.textSecondaryColor)
+                    .lineLimit(2)
 
-                    Spacer(minLength: 8)
-
-                    if let dueText = dueDisplayText(for: frontmatter) {
-                        Text(dueText)
-                            .font(.system(size: 18, weight: .regular, design: .rounded))
-                            .foregroundStyle(theme.textSecondaryColor)
-                            .lineLimit(1)
-                    }
-                }
-
-                if let recurrenceText = recurrenceDisplayText(for: frontmatter) {
-                    Text(recurrenceText)
-                        .font(.system(size: 16, weight: .regular, design: .rounded))
+                let meta = metadataLine(frontmatter: frontmatter)
+                if !meta.isEmpty {
+                    Text(meta)
+                        .font(.caption)
                         .foregroundStyle(theme.textSecondaryColor)
                         .lineLimit(1)
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 14)
-            .frame(minHeight: 84, alignment: .center)
+
+            Spacer(minLength: 0)
         }
-        .background(theme.surfaceColor.opacity(0.88))
-        .opacity(isCompleting ? 0.9 : 1.0)
+        .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+        .opacity(isCompleting ? 0.86 : 1.0)
     }
 
-    private func projectBarColor(for frontmatter: TaskFrontmatterV1) -> Color {
-        guard let project = frontmatter.project?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !project.isEmpty else {
-            return theme.textSecondaryColor.opacity(0.35)
+    @ViewBuilder
+    private func checkboxImage(frontmatter: TaskFrontmatterV1) -> some View {
+        let (symbol, tint): (String, Color) = {
+            if isCompleting || frontmatter.status == .done || frontmatter.status == .cancelled {
+                return ("checkmark.circle.fill", theme.textSecondaryColor)
+            }
+            let priorityTint: Color = {
+                switch frontmatter.priority {
+                case .high: return theme.overdueColor
+                case .medium: return theme.priorityColor(.medium)
+                case .low: return theme.priorityColor(.low)
+                case .none: return theme.accentColor
+                }
+            }()
+            if frontmatter.status == .inProgress {
+                return ("circle.dashed", priorityTint)
+            }
+            return ("circle", priorityTint)
+        }()
+
+        Image(systemName: symbol)
+            .font(.system(size: 22, weight: .light))
+            .foregroundStyle(tint)
+            .frame(width: 28, height: 28)
+    }
+
+    private func metadataLine(frontmatter: TaskFrontmatterV1) -> String {
+        var parts: [String] = []
+        if let dueText = dueDisplayText(for: frontmatter) {
+            parts.append(dueText)
         }
-        return color(forHex: container.projectColorHex(for: project))
-            ?? theme.textSecondaryColor.opacity(0.35)
+        if let project = frontmatter.project?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !project.isEmpty {
+            parts.append(project)
+        }
+        let tagParts = frontmatter.tags.prefix(2).map { "#\($0)" }
+        parts.append(contentsOf: tagParts)
+        return parts.joined(separator: "  ·  ")
     }
 
     private func dueDisplayText(for frontmatter: TaskFrontmatterV1) -> String? {

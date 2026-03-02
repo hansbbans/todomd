@@ -31,6 +31,10 @@ final class ThemeManager: ObservableObject {
         dynamic(lightHex: tokens.colors.overdueLight, darkHex: tokens.colors.overdueDark)
     }
 
+    var separatorColor: Color {
+        dynamic(lightHex: tokens.colors.separatorLight, darkHex: tokens.colors.separatorDark)
+    }
+
     func priorityColor(_ priority: TaskPriority) -> Color {
         switch priority {
         case .none:
