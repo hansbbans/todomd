@@ -1156,3 +1156,42 @@ struct TaskDetailView: View {
         )
     }
 }
+
+private struct PropertyRow<Content: View>: View {
+    let icon: String
+    let label: String
+    let valueText: String
+    let isExpanded: Bool
+    let onTap: () -> Void
+    @ViewBuilder let expandedContent: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: onTap) {
+                HStack(spacing: 12) {
+                    Image(systemName: icon)
+                        .frame(width: 20)
+                        .foregroundStyle(.secondary)
+                    Text(label)
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Text(valueText.isEmpty ? "—" : valueText)
+                        .foregroundStyle(valueText.isEmpty ? .tertiary : .secondary)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                expandedContent()
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 12)
+            }
+
+            Divider()
+                .padding(.leading, 52)
+        }
+    }
+}
