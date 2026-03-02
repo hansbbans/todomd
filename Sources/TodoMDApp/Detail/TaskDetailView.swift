@@ -372,6 +372,126 @@ struct TaskDetailView: View {
         }
     }
 
+    private var moreDetailsSection: some View {
+        DisclosureGroup(isExpanded: $expandedMetadata) {
+            VStack(spacing: 0) {
+                // Assignee
+                PropertyRow(
+                    icon: "person",
+                    label: "Assignee",
+                    valueText: editState?.assignee ?? "",
+                    isExpanded: expandedRow == .assignee,
+                    onTap: { expandedRow = expandedRow == .assignee ? nil : .assignee }
+                ) {
+                    TextField("Assignee", text: binding(\.assignee))
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                // Blocked by
+                PropertyRow(
+                    icon: "link",
+                    label: "Blocked by",
+                    valueText: editState?.blockedByRefsText ?? "",
+                    isExpanded: expandedRow == .blockedBy,
+                    onTap: { expandedRow = expandedRow == .blockedBy ? nil : .blockedBy }
+                ) {
+                    TextField("Refs (comma-separated)", text: binding(\.blockedByRefsText))
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                // Project — always-expanded inline text field
+                PropertyRow(
+                    icon: "folder",
+                    label: "Project",
+                    valueText: editState?.project ?? "",
+                    isExpanded: true,
+                    onTap: {}
+                ) {
+                    TextField("Project", text: binding(\.project))
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                // Estimate
+                PropertyRow(
+                    icon: "timer",
+                    label: "Estimate",
+                    valueText: editState?.hasEstimatedMinutes == true ? "\(editState!.estimatedMinutes) min" : "",
+                    isExpanded: expandedRow == .estimate,
+                    onTap: { expandedRow = expandedRow == .estimate ? nil : .estimate }
+                ) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle("Set estimate", isOn: binding(\.hasEstimatedMinutes))
+                        if editState?.hasEstimatedMinutes == true {
+                            Stepper("\(editState?.estimatedMinutes ?? 15) minutes",
+                                    value: binding(\.estimatedMinutes),
+                                    in: 5...480, step: 5)
+                        }
+                    }
+                }
+
+                // Location
+                Button {
+                    expandedLocationReminder = true
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "location")
+                            .frame(width: 20)
+                            .foregroundStyle(.secondary)
+                        Text("Location")
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        Text(editState?.hasLocationReminder == true ? locationSummary() : "—")
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                }
+                .buttonStyle(.plain)
+                Divider().padding(.leading, 52)
+
+                // Read-only metadata
+                if let s = editState {
+                    HStack(spacing: 12) {
+                        Image(systemName: "info.circle")
+                            .frame(width: 20)
+                            .foregroundStyle(.secondary)
+                        Text("Created")
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        Text(s.createdAt, style: .date)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    Divider().padding(.leading, 52)
+
+                    if let modified = s.modifiedAt {
+                        HStack(spacing: 12) {
+                            Image(systemName: "pencil.circle")
+                                .frame(width: 20)
+                                .foregroundStyle(.secondary)
+                            Text("Updated")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Text(modified, style: .date)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 12)
+                        Divider().padding(.leading, 52)
+                    }
+                }
+            }
+        } label: {
+            Text("More details")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(theme.textSecondaryColor)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+        }
+    }
+
     private var readOnlyView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
