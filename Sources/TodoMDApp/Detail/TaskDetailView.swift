@@ -197,6 +197,26 @@ struct TaskDetailView: View {
         .padding(.vertical, 16)
     }
 
+    private var notesSection: some View {
+        ZStack(alignment: .topLeading) {
+            if editState?.body.isEmpty ?? true {
+                Text("Add notes...")
+                    .font(.body)
+                    .foregroundStyle(theme.textSecondaryColor)
+                    .padding(.top, 8)
+                    .padding(.leading, 4)
+                    .allowsHitTesting(false)
+            }
+            TextEditor(text: binding(\.body))
+                .font(.body)
+                .foregroundStyle(theme.textPrimaryColor)
+                .frame(minHeight: 72)
+                .scrollContentBackground(.hidden)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+    }
+
     private var readOnlyView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
