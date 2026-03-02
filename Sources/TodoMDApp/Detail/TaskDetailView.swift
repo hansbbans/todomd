@@ -217,6 +217,68 @@ struct TaskDetailView: View {
         .padding(.vertical, 12)
     }
 
+    private var corePropertiesSection: some View {
+        VStack(spacing: 0) {
+            // Status
+            Button(action: cycleStatus) {
+                HStack(spacing: 12) {
+                    Image(systemName: "circle.badge.checkmark")
+                        .frame(width: 20)
+                        .foregroundStyle(.secondary)
+                    Text("Status")
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Text(editState?.status.rawValue.capitalized ?? "—")
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+            }
+            .buttonStyle(.plain)
+            Divider().padding(.leading, 52)
+
+            // Priority
+            Button(action: cyclePriority) {
+                HStack(spacing: 12) {
+                    Image(systemName: "flag")
+                        .frame(width: 20)
+                        .foregroundStyle(.secondary)
+                    Text("Priority")
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Text(editState?.priority == .none ? "—" : (editState?.priority.rawValue.capitalized ?? "—"))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+            }
+            .buttonStyle(.plain)
+            Divider().padding(.leading, 52)
+
+            // Flag
+            Button {
+                guard var s = editState else { return }
+                s.flagged.toggle()
+                editState = s
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: editState?.flagged == true ? "star.fill" : "star")
+                        .frame(width: 20)
+                        .foregroundStyle(editState?.flagged == true ? .yellow : .secondary)
+                    Text("Flagged")
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Text(editState?.flagged == true ? "Yes" : "—")
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+            }
+            .buttonStyle(.plain)
+            Divider().padding(.leading, 52)
+        }
+    }
+
     private var readOnlyView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -751,6 +813,22 @@ struct TaskDetailView: View {
                 }
             }
         }
+    }
+
+    private func cycleStatus() {
+        guard var s = editState else { return }
+        let order: [TaskStatus] = [.todo, .inProgress, .done, .cancelled]
+        let current = order.firstIndex(of: s.status) ?? 0
+        s.status = order[(current + 1) % order.count]
+        editState = s
+    }
+
+    private func cyclePriority() {
+        guard var s = editState else { return }
+        let order: [TaskPriority] = [.none, .low, .medium, .high]
+        let current = order.firstIndex(of: s.priority) ?? 0
+        s.priority = order[(current + 1) % order.count]
+        editState = s
     }
 
     private func currentTags() -> [String] {
