@@ -68,28 +68,20 @@ struct TaskDetailView: View {
     var body: some View {
         Group {
             if editState != nil {
-                if isEditing {
-                    editForm
-                } else {
-                    readOnlyView
-                }
+                unifiedView
             } else {
-                ContentUnavailableView("Task Unavailable", systemImage: "exclamationmark.triangle")
+                ContentUnavailableView("Task not found", systemImage: "doc.questionmark")
             }
         }
         .navigationTitle("Task")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(isEditing ? "Done" : "Edit") {
-                    if isEditing {
-                        isEditing = false
-                    } else {
-                        syncRecurrenceBuilderFromEditState()
-                        isEditing = true
-                    }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(role: .destructive) {
+                    showDeleteConfirmation = true
+                } label: {
+                    Image(systemName: "trash")
                 }
-                .keyboardShortcut(isEditing ? KeyEquivalent.return : KeyEquivalent("e"), modifiers: .command)
             }
         }
         .onAppear {
@@ -490,6 +482,21 @@ struct TaskDetailView: View {
                 .padding(.horizontal, 20)
                 .padding(.vertical, 14)
         }
+    }
+
+    private var unifiedView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                headerSection
+                Divider()
+                notesSection
+                Divider()
+                corePropertiesSection
+                moreDetailsSection
+            }
+            .padding(.bottom, 40)
+        }
+        .background(theme.backgroundColor.ignoresSafeArea())
     }
 
     private var readOnlyView: some View {
