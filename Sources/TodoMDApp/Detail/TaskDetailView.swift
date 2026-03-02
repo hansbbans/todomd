@@ -100,6 +100,9 @@ struct TaskDetailView: View {
             }
             syncSelectedLocationFavorite()
         }
+        .onDisappear {
+            autoSave()
+        }
         .onChange(of: container.locationFavorites.map(\.id), initial: false) { _, _ in
             syncSelectedLocationFavorite()
         }
@@ -979,6 +982,15 @@ struct TaskDetailView: View {
         } else {
             errorMessage = "Could not save this task. Please check required fields and try again."
         }
+    }
+
+    private func autoSave() {
+        guard let editState else { return }
+        if let locationError = validateLocationReminder(editState) {
+            errorMessage = locationError
+            return
+        }
+        container.updateTask(path: path, editState: editState)
     }
 
     private func locationSummary() -> String {
