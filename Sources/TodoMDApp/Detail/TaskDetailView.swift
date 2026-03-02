@@ -42,10 +42,11 @@ struct TaskDetailView: View {
     @State private var recurrenceFrequency: RecurrenceFrequencyOption = .none
     @State private var recurrenceInterval = 1
     @State private var recurrenceWeekdays: Set<String> = []
+    @State private var showingRepeatPresetMenu = false
+    @State private var showingCustomRepeatEditor = false
 
     @AppStorage("taskDetail.expandedDependencies") private var expandedDependencies = false
     @AppStorage("taskDetail.expandedLocationReminder") private var expandedLocationReminder = false
-    @AppStorage("taskDetail.expandedRecurrence") private var expandedRecurrence = false
     @AppStorage("taskDetail.expandedMetadata") private var expandedMetadata = false
 
     @State private var latitudeError: String?
@@ -95,6 +96,9 @@ struct TaskDetailView: View {
         .fullScreenCover(isPresented: $showNotesEditor) {
             notesEditorView
         }
+        .sheet(isPresented: $showingCustomRepeatEditor) {
+            customRepeatView
+        }
         .alert(
             "Delete Task",
             isPresented: $showDeleteConfirmation,
@@ -116,6 +120,38 @@ struct TaskDetailView: View {
             actions: { Button("OK", role: .cancel) { errorMessage = nil } },
             message: { Text(errorMessage ?? "") }
         )
+        .confirmationDialog(
+            "Repeating Task",
+            isPresented: $showingRepeatPresetMenu,
+            titleVisibility: .visible
+        ) {
+            let anchorDate = recurrenceAnchorDate()
+            Button("Every day") {
+                applyRecurrencePreset(rule: "FREQ=DAILY")
+            }
+            Button("Every week on \(weekdayShortText(for: anchorDate))") {
+                applyRecurrencePreset(rule: "FREQ=WEEKLY;BYDAY=\(weekdayToken(for: anchorDate))")
+            }
+            Button("Every weekday (Mon - Fri)") {
+                applyRecurrencePreset(rule: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR")
+            }
+            Button("Every month on the \(ordinal(dayOfMonth(from: anchorDate)))") {
+                applyRecurrencePreset(rule: "FREQ=MONTHLY")
+            }
+            Button("Every year on \(monthDayText(for: anchorDate))") {
+                applyRecurrencePreset(rule: "FREQ=YEARLY")
+            }
+            Button("Custom") {
+                syncRecurrenceBuilderFromEditState()
+                showingCustomRepeatEditor = true
+            }
+            if !(editState?.recurrence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) {
+                Button("Never", role: .destructive) {
+                    clearRecurrence()
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
     }
 
     private var readOnlyView: some View {
@@ -516,57 +552,28 @@ struct TaskDetailView: View {
                 }
             }
 
-            Section("Recurrence") {
-                DisclosureGroup(isExpanded: $expandedRecurrence) {
-                    Picker("Pattern", selection: $recurrenceFrequency) {
-                        ForEach(RecurrenceFrequencyOption.allCases, id: \.self) { option in
-                            Text(option.rawValue.capitalized).tag(option)
-                        }
-                    }
-
-                    if recurrenceFrequency != .none {
-                        Stepper("Every \(recurrenceInterval)", value: $recurrenceInterval, in: 1...365)
-
-                        if recurrenceFrequency == .weekly {
-                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 44), spacing: 8)], spacing: 8) {
-                                ForEach(recurrenceWeekdayOptions, id: \.self) { day in
-                                    Button(day) {
-                                        if recurrenceWeekdays.contains(day) {
-                                            recurrenceWeekdays.remove(day)
-                                        } else {
-                                            recurrenceWeekdays.insert(day)
-                                        }
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .tint(recurrenceWeekdays.contains(day) ? .accentColor : .secondary)
-                                }
-                            }
-                        }
-                    }
-
-                    Button("Apply Pattern") {
-                        applyRecurrenceBuilder()
-                    }
-                    .disabled(recurrenceFrequency == .weekly && recurrenceWeekdays.isEmpty)
-
-                    if let preview = recurrenceBuilderPreview() {
-                        Text(preview)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    TextField("Recurrence RRULE", text: binding(\.recurrence))
-                        .textInputAutocapitalization(.never)
-
-                    let rawRule = binding(\.recurrence).wrappedValue
-                    if !rawRule.isEmpty, let rawPreview = RecurrenceService.humanReadableDescription(for: rawRule) {
-                        Text(rawPreview)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
+            Section("Repeating Task") {
+                Button {
+                    showingRepeatPresetMenu = true
                 } label: {
-                    Text("Recurrence")
-                        .font(.headline)
+                    HStack(spacing: 12) {
+                        Text("Pattern")
+                        Spacer(minLength: 12)
+                        Text(recurrenceSummaryText())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .buttonStyle(.plain)
+
+                if !binding(\.recurrence).wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Button("Custom") {
+                        syncRecurrenceBuilderFromEditState()
+                        showingCustomRepeatEditor = true
+                    }
+                    Button("Clear Repeat", role: .destructive) {
+                        clearRecurrence()
+                    }
                 }
             }
 
@@ -622,6 +629,67 @@ struct TaskDetailView: View {
         }
     }
 
+    private var customRepeatView: some View {
+        NavigationStack {
+            Form {
+                Section("Pattern") {
+                    Picker("Frequency", selection: $recurrenceFrequency) {
+                        ForEach(RecurrenceFrequencyOption.allCases, id: \.self) { option in
+                            Text(option.rawValue.capitalized).tag(option)
+                        }
+                    }
+
+                    if recurrenceFrequency != .none {
+                        Stepper(
+                            "Every \(recurrenceInterval) \(recurrenceUnitText())",
+                            value: $recurrenceInterval,
+                            in: 1...365
+                        )
+
+                        if recurrenceFrequency == .weekly {
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 44), spacing: 8)], spacing: 8) {
+                                ForEach(recurrenceWeekdayOptions, id: \.self) { day in
+                                    Button(day) {
+                                        if recurrenceWeekdays.contains(day) {
+                                            recurrenceWeekdays.remove(day)
+                                        } else {
+                                            recurrenceWeekdays.insert(day)
+                                        }
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .tint(recurrenceWeekdays.contains(day) ? .accentColor : .secondary)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Section("Preview") {
+                    Text(recurrenceBuilderPreview() ?? "Never")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("Custom Repeat")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        showingCustomRepeatEditor = false
+                    } label: {
+                        Image(systemName: "chevron.left")
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Save") {
+                        applyRecurrenceBuilder()
+                        showingCustomRepeatEditor = false
+                    }
+                    .disabled(recurrenceFrequency == .weekly && recurrenceWeekdays.isEmpty)
+                }
+            }
+        }
+    }
+
     private func currentTags() -> [String] {
         let value = binding(\.tagsText).wrappedValue
         return value
@@ -656,7 +724,8 @@ struct TaskDetailView: View {
             fields.append("INTERVAL=\(recurrenceInterval)")
         }
         if recurrenceFrequency == .weekly && !recurrenceWeekdays.isEmpty {
-            fields.append("BYDAY=\(recurrenceWeekdays.sorted().joined(separator: ","))")
+            let ordered = recurrenceWeekdayOptions.filter { recurrenceWeekdays.contains($0) }
+            fields.append("BYDAY=\(ordered.joined(separator: ","))")
         }
 
         binding(\.recurrence).wrappedValue = fields.joined(separator: ";")
@@ -717,6 +786,134 @@ struct TaskDetailView: View {
             recurrenceInterval = 1
             recurrenceWeekdays = []
         }
+    }
+
+    private func applyRecurrencePreset(rule: String) {
+        binding(\.recurrence).wrappedValue = rule
+        syncRecurrenceBuilderFromEditState()
+    }
+
+    private func clearRecurrence() {
+        binding(\.recurrence).wrappedValue = ""
+        recurrenceFrequency = .none
+        recurrenceInterval = 1
+        recurrenceWeekdays = []
+    }
+
+    private func recurrenceSummaryText() -> String {
+        let rule = editState?.recurrence.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !rule.isEmpty else { return "Never" }
+        guard let parsed = try? RecurrenceRule.parse(rule) else { return rule }
+
+        let anchorDate = recurrenceAnchorDate()
+        switch parsed.frequency {
+        case .daily:
+            return parsed.interval == 1 ? "Every day" : "Every \(parsed.interval) days"
+        case .weekly:
+            if parsed.byDay.isEmpty {
+                return parsed.interval == 1 ? "Every week" : "Every \(parsed.interval) weeks"
+            }
+            let dayNames = parsed.byDay
+                .compactMap(weekdayShortText(fromToken:))
+                .joined(separator: ", ")
+            if parsed.interval == 1 {
+                return dayNames.isEmpty ? "Every week" : "Every week on \(dayNames)"
+            }
+            return dayNames.isEmpty ? "Every \(parsed.interval) weeks" : "Every \(parsed.interval) weeks on \(dayNames)"
+        case .monthly:
+            let dayText = ordinal(dayOfMonth(from: anchorDate))
+            return parsed.interval == 1 ? "Every month on the \(dayText)" : "Every \(parsed.interval) months on the \(dayText)"
+        case .yearly:
+            let dateText = monthDayText(for: anchorDate)
+            return parsed.interval == 1 ? "Every year on \(dateText)" : "Every \(parsed.interval) years on \(dateText)"
+        }
+    }
+
+    private func recurrenceAnchorDate() -> Date {
+        guard let editState else { return Date() }
+        if editState.hasScheduled {
+            return editState.scheduledDate
+        }
+        if editState.hasDue {
+            return editState.dueDate
+        }
+        return Date()
+    }
+
+    private func recurrenceUnitText() -> String {
+        let singular: String
+        let plural: String
+        switch recurrenceFrequency {
+        case .none, .daily:
+            singular = "day"
+            plural = "days"
+        case .weekly:
+            singular = "week"
+            plural = "weeks"
+        case .monthly:
+            singular = "month"
+            plural = "months"
+        case .yearly:
+            singular = "year"
+            plural = "years"
+        }
+        return recurrenceInterval == 1 ? singular : plural
+    }
+
+    private func dayOfMonth(from date: Date) -> Int {
+        Calendar.current.component(.day, from: date)
+    }
+
+    private func monthDayText(for date: Date) -> String {
+        date.formatted(Date.FormatStyle().month(.abbreviated).day())
+    }
+
+    private func weekdayShortText(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("EEE")
+        return formatter.string(from: date)
+    }
+
+    private func weekdayToken(for date: Date) -> String {
+        switch Calendar.current.component(.weekday, from: date) {
+        case 1: return "SU"
+        case 2: return "MO"
+        case 3: return "TU"
+        case 4: return "WE"
+        case 5: return "TH"
+        case 6: return "FR"
+        case 7: return "SA"
+        default: return "MO"
+        }
+    }
+
+    private func weekdayShortText(fromToken token: String) -> String? {
+        switch token {
+        case "MO": return "Mon"
+        case "TU": return "Tue"
+        case "WE": return "Wed"
+        case "TH": return "Thu"
+        case "FR": return "Fri"
+        case "SA": return "Sat"
+        case "SU": return "Sun"
+        default: return nil
+        }
+    }
+
+    private func ordinal(_ day: Int) -> String {
+        let mod100 = day % 100
+        let suffix: String
+        if (11...13).contains(mod100) {
+            suffix = "th"
+        } else {
+            switch day % 10 {
+            case 1: suffix = "st"
+            case 2: suffix = "nd"
+            case 3: suffix = "rd"
+            default: suffix = "th"
+            }
+        }
+        return "\(day)\(suffix)"
     }
 
     private func detailRow(_ title: String, value: String?) -> some View {
