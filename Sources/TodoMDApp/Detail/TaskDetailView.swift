@@ -167,6 +167,36 @@ struct TaskDetailView: View {
         }
     }
 
+    private var headerSection: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Button {
+                guard var s = editState else { return }
+                s.status = s.status == .done ? .todo : .done
+                editState = s
+            } label: {
+                Image(systemName: editState?.status == .done ? "checkmark.circle.fill" : "circle")
+                    .font(.title2)
+                    .foregroundStyle(editState?.status == .done ? theme.accentColor : theme.textSecondaryColor)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 4)
+
+            VStack(alignment: .leading, spacing: 4) {
+                TextField("Title", text: binding(\.title), axis: .vertical)
+                    .font(.system(.title2, design: .rounded).weight(.semibold))
+                    .foregroundStyle(theme.textPrimaryColor)
+
+                if let ref = editState?.ref, !ref.isEmpty {
+                    Text(ref)
+                        .font(.caption)
+                        .foregroundStyle(theme.textSecondaryColor)
+                }
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+    }
+
     private var readOnlyView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
