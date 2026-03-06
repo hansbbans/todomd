@@ -165,6 +165,7 @@ final class AppContainer: ObservableObject {
     private var repository: FileTaskRepository
     private var fileWatcher: FileWatcherService
     private var manualOrderService: ManualOrderService
+    private var projectMetadataRepository: ProjectMetadataRepository
     private var perspectivesRepository: PerspectivesRepository
     private let queryEngine = TaskQueryEngine()
     private let weeklyReviewEngine = WeeklyReviewEngine()
@@ -240,14 +241,14 @@ final class AppContainer: ObservableObject {
         self.repository = repository
         self.fileWatcher = FileWatcherService(rootURL: rootURL, repository: repository)
         self.manualOrderService = ManualOrderService(rootURL: rootURL)
+        self.projectMetadataRepository = ProjectMetadataRepository()
         self.perspectivesRepository = PerspectivesRepository()
 
         loadCalendarSourceSelection()
         loadReminderListSelection()
         loadLocationFavorites()
-        loadUserProjects()
-        loadProjectColors()
-        loadProjectIcons()
+        loadProjectMetadataFromDisk()
+        migrateLegacyProjectMetadataFromSettingsIfNeeded()
         loadPerspectivesFromDisk()
         migrateLegacyPerspectivesFromSettingsIfNeeded()
         isCalendarConnected = appleCalendarService.isConnected
@@ -781,6 +782,7 @@ final class AppContainer: ObservableObject {
         repository = FileTaskRepository(rootURL: rootURL)
         fileWatcher = FileWatcherService(rootURL: rootURL, repository: repository)
         manualOrderService = ManualOrderService(rootURL: rootURL)
+        projectMetadataRepository = ProjectMetadataRepository()
         perspectivesRepository = PerspectivesRepository()
 
         canonicalByPath = [:]
@@ -795,9 +797,14 @@ final class AppContainer: ObservableObject {
         notificationsPrimed = false
 #endif
         conflicts = []
+        userProjects = []
+        projectColorsByProject = [:]
+        projectIconsByProject = [:]
         cachedPerspectivesDocument = PerspectivesDocument()
         perspectives = []
         perspectivesWarningMessage = nil
+        loadProjectMetadataFromDisk()
+        migrateLegacyProjectMetadataFromSettingsIfNeeded()
         loadPerspectivesFromDisk()
         hydrateInitialStateFromSnapshot()
 
@@ -2390,60 +2397,55 @@ final class AppContainer: ObservableObject {
         sortLocationFavorites()
     }
 
-    private func loadProjectColors() {
-        let defaults = UserDefaults.standard
-        guard let raw = defaults.dictionary(forKey: Self.settingsProjectColorsKey) as? [String: String] else {
-            projectColorsByProject = [:]
-            return
-        }
-
-        var sanitized: [String: String] = [:]
-        for (project, hex) in raw {
-            let normalizedProject = project.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !normalizedProject.isEmpty else { continue }
-            guard let normalizedHex = sanitizeProjectColorHex(hex) else { continue }
-            sanitized[normalizedProject] = normalizedHex
-        }
-        projectColorsByProject = sanitized
-    }
-
-    private func loadProjectIcons() {
-        let defaults = UserDefaults.standard
-        guard let raw = defaults.dictionary(forKey: Self.settingsProjectIconsKey) as? [String: String] else {
-            projectIconsByProject = [:]
-            return
-        }
-
-        var sanitized: [String: String] = [:]
-        for (project, symbol) in raw {
-            let normalizedProject = project.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !normalizedProject.isEmpty else { continue }
-            guard let sanitizedSymbol = sanitizeProjectIconSymbol(symbol), sanitizedSymbol != "folder" else { continue }
-            sanitized[normalizedProject] = sanitizedSymbol
-        }
-        projectIconsByProject = sanitized
-    }
-
-    private func loadUserProjects() {
-        let defaults = UserDefaults.standard
-        guard let raw = defaults.array(forKey: Self.settingsProjectsKey) as? [String] else {
+    private func loadProjectMetadataFromDisk() {
+        do {
+            let document = try projectMetadataRepository.load(rootURL: rootURL)
+            applyProjectMetadata(document)
+        } catch {
             userProjects = []
+            projectColorsByProject = [:]
+            projectIconsByProject = [:]
+            logger.error("Failed to load project metadata", metadata: ["error": error.localizedDescription])
+        }
+    }
+
+    private func applyProjectMetadata(_ document: ProjectMetadataDocument) {
+        userProjects = sanitizedProjectList(document.projects)
+        projectColorsByProject = sanitizedProjectColorMap(document.colors)
+        projectIconsByProject = sanitizedProjectIconMap(document.icons)
+        sortUserProjects()
+    }
+
+    private func migrateLegacyProjectMetadataFromSettingsIfNeeded() {
+        let defaults = UserDefaults.standard
+        let metadataURL = projectMetadataRepository.metadataURL(rootURL: rootURL)
+        let hasLegacyData = defaults.object(forKey: Self.settingsProjectsKey) != nil
+            || defaults.object(forKey: Self.settingsProjectColorsKey) != nil
+            || defaults.object(forKey: Self.settingsProjectIconsKey) != nil
+        guard hasLegacyData else { return }
+
+        if FileManager.default.fileExists(atPath: metadataURL.path) {
+            clearLegacyProjectMetadataSettings(defaults: defaults)
             return
         }
 
-        var unique: [String] = []
-        for project in raw {
-            let normalizedProject = project.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !normalizedProject.isEmpty else { continue }
-            if unique.contains(where: {
-                $0.compare(normalizedProject, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
-            }) {
-                continue
-            }
-            unique.append(normalizedProject)
+        let document = ProjectMetadataDocument(
+            projects: legacyUserProjects(defaults: defaults),
+            colors: legacyProjectColors(defaults: defaults),
+            icons: legacyProjectIcons(defaults: defaults)
+        )
+        guard !document.projects.isEmpty || !document.colors.isEmpty || !document.icons.isEmpty else {
+            clearLegacyProjectMetadataSettings(defaults: defaults)
+            return
         }
-        userProjects = unique
-        sortUserProjects()
+
+        applyProjectMetadata(document)
+        do {
+            try projectMetadataRepository.save(document, rootURL: rootURL)
+            clearLegacyProjectMetadataSettings(defaults: defaults)
+        } catch {
+            logger.error("Failed to migrate project metadata", metadata: ["error": error.localizedDescription])
+        }
     }
 
     private func syncSelectedReminderList(with lists: [ReminderList]) {
@@ -2474,18 +2476,88 @@ final class AppContainer: ObservableObject {
     }
 
     private func persistProjectColors() {
-        let defaults = UserDefaults.standard
-        defaults.set(projectColorsByProject, forKey: Self.settingsProjectColorsKey)
+        persistProjectMetadataToDisk()
     }
 
     private func persistProjectIcons() {
-        let defaults = UserDefaults.standard
-        defaults.set(projectIconsByProject, forKey: Self.settingsProjectIconsKey)
+        persistProjectMetadataToDisk()
     }
 
     private func persistUserProjects() {
-        let defaults = UserDefaults.standard
-        defaults.set(userProjects, forKey: Self.settingsProjectsKey)
+        persistProjectMetadataToDisk()
+    }
+
+    private func persistProjectMetadataToDisk() {
+        let document = ProjectMetadataDocument(
+            version: 1,
+            projects: userProjects,
+            colors: projectColorsByProject,
+            icons: projectIconsByProject
+        )
+
+        do {
+            try projectMetadataRepository.save(document, rootURL: rootURL)
+        } catch {
+            logger.error("Failed to persist project metadata", metadata: ["error": error.localizedDescription])
+        }
+    }
+
+    private func sanitizedProjectList(_ projects: [String]) -> [String] {
+        var unique: [String] = []
+        for project in projects {
+            let normalizedProject = project.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedProject.isEmpty else { continue }
+            if unique.contains(where: {
+                $0.compare(normalizedProject, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+            }) {
+                continue
+            }
+            unique.append(normalizedProject)
+        }
+        return unique
+    }
+
+    private func sanitizedProjectColorMap(_ raw: [String: String]) -> [String: String] {
+        var sanitized: [String: String] = [:]
+        for (project, hex) in raw {
+            let normalizedProject = project.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedProject.isEmpty else { continue }
+            guard let normalizedHex = sanitizeProjectColorHex(hex) else { continue }
+            sanitized[normalizedProject] = normalizedHex
+        }
+        return sanitized
+    }
+
+    private func sanitizedProjectIconMap(_ raw: [String: String]) -> [String: String] {
+        var sanitized: [String: String] = [:]
+        for (project, symbol) in raw {
+            let normalizedProject = project.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedProject.isEmpty else { continue }
+            guard let sanitizedSymbol = sanitizeProjectIconSymbol(symbol), sanitizedSymbol != "folder" else { continue }
+            sanitized[normalizedProject] = sanitizedSymbol
+        }
+        return sanitized
+    }
+
+    private func legacyUserProjects(defaults: UserDefaults) -> [String] {
+        let raw = defaults.array(forKey: Self.settingsProjectsKey) as? [String] ?? []
+        return sanitizedProjectList(raw)
+    }
+
+    private func legacyProjectColors(defaults: UserDefaults) -> [String: String] {
+        let raw = defaults.dictionary(forKey: Self.settingsProjectColorsKey) as? [String: String] ?? [:]
+        return sanitizedProjectColorMap(raw)
+    }
+
+    private func legacyProjectIcons(defaults: UserDefaults) -> [String: String] {
+        let raw = defaults.dictionary(forKey: Self.settingsProjectIconsKey) as? [String: String] ?? [:]
+        return sanitizedProjectIconMap(raw)
+    }
+
+    private func clearLegacyProjectMetadataSettings(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: Self.settingsProjectsKey)
+        defaults.removeObject(forKey: Self.settingsProjectColorsKey)
+        defaults.removeObject(forKey: Self.settingsProjectIconsKey)
     }
 
     private func sortLocationFavorites() {

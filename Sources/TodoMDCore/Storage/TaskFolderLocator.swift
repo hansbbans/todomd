@@ -215,6 +215,10 @@ public struct TaskFolderLocator {
             score += 220
         }
 
+        if fileManager.fileExists(atPath: url.appendingPathComponent(".projects.json").path) {
+            score += 200
+        }
+
         let inspection = inspectMarkdownFiles(in: url, maxFiles: 40)
         if inspection.fileCount > 0 {
             score += min(inspection.fileCount, 20) * 10
