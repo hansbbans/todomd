@@ -648,6 +648,9 @@ struct SettingsView: View {
             case .upcoming:
                 label = "Upcoming"
                 icon = "calendar"
+            case .review:
+                label = "Review"
+                icon = "checklist"
             case .anytime:
                 label = "Anytime"
                 icon = "list.bullet"
@@ -732,6 +735,7 @@ struct SettingsView: View {
             .builtIn(.inbox),
             .builtIn(.today),
             .builtIn(.upcoming),
+            .builtIn(.review),
             .builtIn(.anytime),
             .builtIn(.flagged),
             .builtIn(.someday)

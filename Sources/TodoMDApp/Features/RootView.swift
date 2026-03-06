@@ -358,6 +358,7 @@ struct RootView: View {
                     .keyboardShortcut("4", modifiers: .command)
                 builtInNavButton(.upcoming, label: "Upcoming", icon: "calendar")
                     .keyboardShortcut("5", modifiers: .command)
+                builtInNavButton(.review, label: "Review", icon: "checklist")
                 builtInNavButton(.anytime, label: "Anytime", icon: "list.bullet")
                 builtInNavButton(.someday, label: "Someday", icon: "clock")
                 builtInNavButton(.flagged, label: "Flagged", icon: "flag")
@@ -438,6 +439,8 @@ struct RootView: View {
                 )
         } else if container.selectedView == .builtIn(.upcoming) {
             UpcomingCalendarView(sections: container.upcomingAgendaSections())
+        } else if container.selectedView == .builtIn(.review) {
+            weeklyReviewContent()
         } else if container.selectedView == .builtIn(.pomodoro) {
             PomodoroTimerView()
         } else {
@@ -675,6 +678,7 @@ struct RootView: View {
             ("Delegated", .builtIn(.delegated), "person.2"),
             ("Today", .builtIn(.today), "sun.max"),
             ("Upcoming", .builtIn(.upcoming), "calendar"),
+            ("Review", .builtIn(.review), "checklist"),
             ("Anytime", .builtIn(.anytime), "list.bullet"),
             ("Someday", .builtIn(.someday), "clock"),
             ("Flagged", .builtIn(.flagged), "flag")
@@ -994,6 +998,8 @@ struct RootView: View {
                 return ("Today", "sun.max", nil)
             case .upcoming:
                 return ("Upcoming", "calendar", nil)
+            case .review:
+                return ("Review", "checklist", nil)
             case .anytime:
                 return ("Anytime", "list.bullet", nil)
             case .someday:
@@ -1371,6 +1377,8 @@ struct RootView: View {
                 return "Today"
             case .upcoming:
                 return "Upcoming"
+            case .review:
+                return "Review"
             case .anytime:
                 return "Anytime"
             case .someday:
@@ -1415,6 +1423,99 @@ struct RootView: View {
             return localDate.isoString
         }
         return date.formatted(date: .abbreviated, time: .omitted)
+    }
+}
+
+extension RootView {
+    @ViewBuilder
+    private func weeklyReviewContent() -> some View {
+        let sections = container.weeklyReviewSections()
+
+        if sections.isEmpty {
+            ContentUnavailableView(
+                "Review Is Clear",
+                systemImage: "checkmark.circle",
+                description: Text("Nothing is stale, overdue, deferred into someday, or missing a next action.")
+            )
+        } else {
+            List {
+                ForEach(sections) { section in
+                    Section {
+                        switch section.kind {
+                        case .projectsWithoutNextAction:
+                            ForEach(section.projects) { summary in
+                                reviewProjectRow(summary)
+                            }
+                        case .overdue, .stale, .someday:
+                            ForEach(section.records) { record in
+                                taskRowItem(record)
+                            }
+                        }
+                    } header: {
+                        SectionHeaderView(section.kind.title, count: section.count)
+                    }
+                }
+            }
+            .id(container.selectedView.rawValue)
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .transition(.move(edge: .trailing).combined(with: .opacity))
+        }
+    }
+
+    private func reviewProjectRow(_ summary: WeeklyReviewProjectSummary) -> some View {
+        Button {
+            applyFilter(.project(summary.project))
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: container.projectIconSymbol(for: summary.project))
+                    .font(.system(size: 18, weight: .semibold))
+                    .frame(width: 28, height: 28)
+                    .foregroundStyle(color(forHex: container.projectColorHex(for: summary.project)) ?? theme.accentColor)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(summary.project)
+                        .font(.body)
+                        .foregroundStyle(theme.textPrimaryColor)
+                        .lineLimit(2)
+
+                    Text(reviewProjectSummaryText(summary))
+                        .font(.caption)
+                        .foregroundStyle(theme.textSecondaryColor)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.textSecondaryColor)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+        }
+        .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+        .listRowBackground(theme.surfaceColor)
+        .listRowSeparator(.hidden)
+    }
+
+    private func reviewProjectSummaryText(_ summary: WeeklyReviewProjectSummary) -> String {
+        var parts = ["\(summary.taskCount) open"]
+        if summary.blockedCount > 0 {
+            parts.append("\(summary.blockedCount) blocked")
+        }
+        if summary.delegatedCount > 0 {
+            parts.append("\(summary.delegatedCount) delegated")
+        }
+        if summary.deferredCount > 0 {
+            parts.append("\(summary.deferredCount) deferred")
+        }
+        if summary.somedayCount > 0 {
+            parts.append("\(summary.somedayCount) someday")
+        }
+        parts.append("no current next action")
+        return parts.joined(separator: "  ·  ")
     }
 }
 
