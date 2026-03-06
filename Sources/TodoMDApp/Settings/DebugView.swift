@@ -2,6 +2,7 @@ import SwiftUI
 
 struct DebugView: View {
     @EnvironmentObject private var container: AppContainer
+    private let widgetDiagnostic = TaskFolderPreferences.lastWidgetLoadDiagnostic()
 
     var body: some View {
         Form {
@@ -33,6 +34,18 @@ struct DebugView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+                }
+            }
+
+            Section("Widget") {
+                if let widgetDiagnostic {
+                    LabeledContent("Last widget error", value: widgetDiagnostic.message)
+                    if let context = widgetDiagnostic.context {
+                        LabeledContent("Context", value: context)
+                    }
+                    LabeledContent("Timestamp", value: widgetDiagnostic.timestamp.map(DateCoding.encode) ?? "Unknown")
+                } else {
+                    Text("No widget load errors")
                 }
             }
         }

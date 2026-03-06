@@ -191,7 +191,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             do {
                 let rootURL = try TaskFolderLocator().ensureFolderExists()
                 let repository = FileTaskRepository(rootURL: rootURL)
-                let records = try repository.loadAll()
+                let records = try TaskRecordSnapshotStore().hydrate(rootURL: rootURL, repository: repository).records
                 let planner = Self.notificationPlannerFromSettings()
                 let hasLocationReminders = records.contains { $0.document.frontmatter.locationReminder != nil }
                 let scheduler = await MainActor.run { UserNotificationScheduler() }
@@ -298,7 +298,7 @@ enum NotificationBackgroundRefreshCoordinator {
         do {
             let rootURL = try TaskFolderLocator().ensureFolderExists()
             let repository = FileTaskRepository(rootURL: rootURL)
-            let records = try repository.loadAll()
+            let records = try TaskRecordSnapshotStore().hydrate(rootURL: rootURL, repository: repository).records
             let planner = plannerFromSettings()
             let hasLocationReminders = records.contains { $0.document.frontmatter.locationReminder != nil }
             let scheduler = await MainActor.run { UserNotificationScheduler() }

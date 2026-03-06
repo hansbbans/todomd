@@ -140,4 +140,102 @@ final class FileTaskRepositoryAndWatcherTests: XCTestCase {
             return false
         })
     }
+
+    func testSnapshotHydrationPrimesWatcherWithoutColdReparse() throws {
+        let root = try TestSupport.tempDirectory(prefix: "SnapshotPrime")
+        let repository = FileTaskRepository(rootURL: root)
+        let snapshotStore = TaskRecordSnapshotStore()
+
+        _ = try repository.create(
+            document: .init(frontmatter: TestSupport.sampleFrontmatter(title: "One"), body: "body-1"),
+            preferredFilename: "one.md"
+        )
+        _ = try repository.create(
+            document: .init(frontmatter: TestSupport.sampleFrontmatter(title: "Two"), body: "body-2"),
+            preferredFilename: "two.md"
+        )
+
+        let hydration = try snapshotStore.hydrate(rootURL: root, repository: repository)
+        let watcher = FileWatcherService(rootURL: root, repository: repository)
+        watcher.prime(fingerprints: hydration.fingerprints)
+
+        let sync = try watcher.synchronize(now: Date())
+        XCTAssertEqual(hydration.records.count, 2)
+        XCTAssertEqual(sync.summary.ingestedCount, 0)
+    }
+
+    func testSnapshotHydrationReloadsChangedFiles() throws {
+        let root = try TestSupport.tempDirectory(prefix: "SnapshotRefresh")
+        let repository = FileTaskRepository(rootURL: root)
+        let snapshotStore = TaskRecordSnapshotStore()
+
+        let created = try repository.create(
+            document: .init(frontmatter: TestSupport.sampleFrontmatter(title: "Before"), body: "body"),
+            preferredFilename: "task.md"
+        )
+
+        _ = try snapshotStore.hydrate(rootURL: root, repository: repository)
+
+        _ = try repository.update(path: created.identity.path) { document in
+            document.frontmatter.title = "After"
+        }
+
+        let refreshed = try snapshotStore.hydrate(rootURL: root, repository: repository)
+        XCTAssertEqual(refreshed.records.first?.document.frontmatter.title, "After")
+    }
+
+    func testSnapshotDeltaPersistenceUpdatesAndDeletesWithoutFullRewrite() throws {
+        let root = try TestSupport.tempDirectory(prefix: "SnapshotDelta")
+        let repository = FileTaskRepository(rootURL: root)
+        let snapshotStore = TaskRecordSnapshotStore()
+        let fileIO = TaskFileIO()
+
+        let first = try repository.create(
+            document: .init(frontmatter: TestSupport.sampleFrontmatter(title: "First"), body: "body-1"),
+            preferredFilename: "first.md"
+        )
+        let second = try repository.create(
+            document: .init(frontmatter: TestSupport.sampleFrontmatter(title: "Second"), body: "body-2"),
+            preferredFilename: "second.md"
+        )
+
+        _ = try snapshotStore.hydrate(rootURL: root, repository: repository)
+
+        let updated = try repository.update(path: first.identity.path) { document in
+            document.frontmatter.title = "First Updated"
+        }
+        try repository.delete(path: second.identity.path)
+
+        try snapshotStore.applyDelta(
+            upsertedRecords: [updated],
+            deletedPaths: Set([second.identity.path]),
+            fingerprints: try fileIO.enumerateMarkdownFingerprints(rootURL: root),
+            rootURL: root
+        )
+
+        let refreshed = try snapshotStore.hydrate(rootURL: root, repository: repository)
+        XCTAssertEqual(refreshed.records.map(\.document.frontmatter.title), ["First Updated"])
+    }
+
+    func testOptimisticSnapshotHydrationRestoresPersistedMetadata() throws {
+        let root = try TestSupport.tempDirectory(prefix: "SnapshotOptimistic")
+        let repository = FileTaskRepository(rootURL: root)
+        let snapshotStore = TaskRecordSnapshotStore()
+
+        _ = try repository.create(
+            document: .init(frontmatter: TestSupport.sampleFrontmatter(title: "One", source: "agent"), body: "body-1"),
+            preferredFilename: "one.md"
+        )
+        _ = try repository.create(
+            document: .init(frontmatter: TestSupport.sampleFrontmatter(title: "Two", source: "agent"), body: "body-2"),
+            preferredFilename: "two.md"
+        )
+
+        _ = try snapshotStore.hydrate(rootURL: root, repository: repository, mode: .validated)
+        let optimistic = try snapshotStore.hydrate(rootURL: root, repository: repository, mode: .optimistic)
+
+        XCTAssertEqual(optimistic.records.count, 2)
+        XCTAssertEqual(Set(optimistic.metadataEntries.map(\.title)), Set(["One", "Two"]))
+        XCTAssertEqual(optimistic.fingerprints.count, 2)
+    }
 }

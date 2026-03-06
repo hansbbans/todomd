@@ -174,6 +174,7 @@ final class AppContainer: ObservableObject {
     private let appleCalendarService = AppleCalendarService()
     private let remindersImportService: any RemindersImportServicing
     private let logger: RuntimeLogging
+    private let snapshotStore = TaskRecordSnapshotStore()
     private(set) var rootURL: URL
 
 #if canImport(SwiftData)
@@ -183,11 +184,16 @@ final class AppContainer: ObservableObject {
 
 #if canImport(UserNotifications)
     private let notificationScheduler = UserNotificationScheduler()
+    private var notificationPlanCountByPath: [String: Int] = [:]
+    private var locationNotificationCountByPath: [String: Int] = [:]
+    private var notificationsPrimed = false
 #endif
 
     private var canonicalByPath: [String: TaskRecord] = [:]
     private var allIndexedRecords: [TaskRecord] = []
+    private var metadataIndex = TaskMetadataIndex.build(from: [TaskRecord]())
     private var cachedPerspectivesDocument = PerspectivesDocument()
+    private var snapshotDiagnostics: [ParseFailureDiagnostic] = []
 
     private var metadataQuery: NSMetadataQuery?
     private var metadataObserverTokens: [NSObjectProtocol] = []
@@ -196,6 +202,7 @@ final class AppContainer: ObservableObject {
     private var suppressMetadataRefreshUntil: Date?
     private var calendarRefreshTask: Task<Void, Never>?
     private var lastCalendarSyncAt: Date?
+    private var startupValidationPending = false
 
     private static let settingsNotificationHourKey = "settings_notification_hour"
     private static let settingsNotificationMinuteKey = "settings_notification_minute"
@@ -243,9 +250,10 @@ final class AppContainer: ObservableObject {
         loadPerspectivesFromDisk()
         migrateLegacyPerspectivesFromSettingsIfNeeded()
         isCalendarConnected = appleCalendarService.isConnected
+        hydrateInitialStateFromSnapshot()
         configureLifecycleObservers()
         startMetadataQuery()
-        refresh()
+        scheduleInitialRefresh()
     }
 
     private static func makeRemindersImportServiceForCurrentProcess() -> any RemindersImportServicing {
@@ -313,65 +321,76 @@ final class AppContainer: ObservableObject {
         refresh()
     }
 
-    func refresh() {
+    func refresh(forceFullScan: Bool = false) {
         do {
             loadPerspectivesFromDisk()
-            let sync = try fileWatcher.synchronize()
-            let canonicalLoad = try loadCanonicalRecordsBestEffort(timestamp: sync.summary.timestamp)
-            var canonicalRecords = canonicalLoad.records
+            let sync = try fileWatcher.synchronize(forceFullScan: forceFullScan)
+            applySyncDelta(sync)
+            var canonicalRecords = canonicalByPath.values.sorted { $0.identity.path < $1.identity.path }
+            var notificationUpserts = Dictionary(uniqueKeysWithValues: sync.records.map { ($0.identity.path, $0) })
+            let notificationDeletedPaths = Set(sync.events.compactMap { event -> String? in
+                switch event {
+                case .deleted(let path, _), .unparseable(let path, _, _):
+                    return path
+                default:
+                    return nil
+                }
+            })
 
-            let backfilledRefCount = try backfillMissingRefs(in: canonicalRecords)
-            if backfilledRefCount > 0 {
-                canonicalRecords = try repository.loadAll()
+            let backfilledRecords = try backfillMissingRefs(in: canonicalRecords)
+            if !backfilledRecords.isEmpty {
+                replaceCanonicalRecords(backfilledRecords)
+                for record in backfilledRecords {
+                    notificationUpserts[record.identity.path] = record
+                }
+                canonicalRecords = canonicalByPath.values.sorted { $0.identity.path < $1.identity.path }
             }
 
-            let autoUnblockedPaths = try autoResolveBlockedDependencies(in: canonicalRecords)
-            if !autoUnblockedPaths.isEmpty {
-                canonicalRecords = try repository.loadAll()
-                notifyAutoUnblockedTasksIfEnabled(paths: autoUnblockedPaths, records: canonicalRecords)
+            let autoUnblockResult = try autoResolveBlockedDependencies(in: canonicalRecords)
+            if !autoUnblockResult.updatedRecords.isEmpty {
+                replaceCanonicalRecords(autoUnblockResult.updatedRecords)
+                for record in autoUnblockResult.updatedRecords {
+                    notificationUpserts[record.identity.path] = record
+                }
+                canonicalRecords = canonicalByPath.values.sorted { $0.identity.path < $1.identity.path }
+                notifyAutoUnblockedTasksIfEnabled(paths: autoUnblockResult.fullyUnblockedPaths, records: canonicalRecords)
             }
 
             let completionMetadataUpdates = try inferCompletionMetadata(in: canonicalRecords)
-            if completionMetadataUpdates > 0 {
-                canonicalRecords = try repository.loadAll()
+            if !completionMetadataUpdates.isEmpty {
+                replaceCanonicalRecords(completionMetadataUpdates)
+                for record in completionMetadataUpdates {
+                    notificationUpserts[record.identity.path] = record
+                }
+                canonicalRecords = canonicalByPath.values.sorted { $0.identity.path < $1.identity.path }
             }
-
-            canonicalByPath = Dictionary(uniqueKeysWithValues: canonicalRecords.map { ($0.identity.path, $0) })
 
             let indexStart = ContinuousClock.now
-#if canImport(SwiftData)
-            do {
-                try syncSwiftDataIndex(from: canonicalRecords)
-                allIndexedRecords = try loadAllFromSwiftDataIndex()
-            } catch {
-                logger.error("Index sync failed; using canonical records", metadata: ["error": error.localizedDescription])
-                allIndexedRecords = canonicalRecords
-            }
-#else
             allIndexedRecords = canonicalRecords
-#endif
             let indexMilliseconds = elapsedMilliseconds(since: indexStart)
 
             diagnostics = mergedParseDiagnostics(
                 watcherDiagnostics: fileWatcher.parseDiagnostics,
-                fullScanDiagnostics: canonicalLoad.failures
+                supplementalDiagnostics: snapshotDiagnostics
             )
             conflicts = buildConflictSummaries(from: sync.events)
 
             let queryMilliseconds = applyCurrentViewFilter()
 
             let planner = notificationPlannerForCurrentSettings()
+            updateNotificationCounts(
+                upsertedRecords: Array(notificationUpserts.values),
+                deletedPaths: notificationDeletedPaths,
+                planner: planner,
+                allRecords: canonicalRecords
+            )
             let enumerateMilliseconds = fileWatcher.lastPerformance?.enumerateMilliseconds ?? 0
             let parseMilliseconds = fileWatcher.lastPerformance?.parseMilliseconds ?? 0
             counters = RuntimeCounters(
                 lastSync: sync.summary.timestamp,
                 totalFilesIndexed: allIndexedRecords.count,
                 parseFailureCount: diagnostics.count,
-                pendingNotificationCount: canonicalRecords.flatMap { planner.planNotifications(for: $0) }.count
-                    + canonicalRecords.filter { record in
-                        let status = record.document.frontmatter.status
-                        return (status == .todo || status == .inProgress) && record.document.frontmatter.locationReminder != nil
-                    }.count,
+                pendingNotificationCount: pendingNotificationCount,
                 enumerateMilliseconds: enumerateMilliseconds,
                 parseMilliseconds: parseMilliseconds,
                 indexMilliseconds: indexMilliseconds,
@@ -404,12 +423,23 @@ final class AppContainer: ObservableObject {
                 "query_ms": String(format: "%.2f", queryMilliseconds)
             ])
 
+            persistSnapshotBestEffort(
+                upsertedRecords: Array(notificationUpserts.values),
+                deletedPaths: notificationDeletedPaths,
+                fingerprints: fileWatcher.currentFingerprints()
+            )
+
 #if canImport(UserNotifications)
             let hasLocationReminders = canonicalRecords.contains { $0.document.frontmatter.locationReminder != nil }
             Task {
                 await notificationScheduler.requestAuthorizationIfNeeded(requestLocation: hasLocationReminders)
-                await notificationScheduler.synchronize(records: canonicalRecords, planner: planner)
+                await notificationScheduler.synchronize(
+                    upsertedRecords: notificationsPrimed ? Array(notificationUpserts.values) : canonicalRecords,
+                    deletedPaths: notificationsPrimed ? Array(notificationDeletedPaths) : [],
+                    planner: planner
+                )
             }
+            notificationsPrimed = true
 #endif
 
             scheduleCalendarRefresh()
@@ -418,29 +448,12 @@ final class AppContainer: ObservableObject {
         }
     }
 
-    private func loadCanonicalRecordsBestEffort(timestamp: Date) throws -> (records: [TaskRecord], failures: [ParseFailureDiagnostic]) {
-        let urls = try TaskFileIO().enumerateMarkdownFiles(rootURL: rootURL)
-        var records: [TaskRecord] = []
-        var failures: [ParseFailureDiagnostic] = []
-        records.reserveCapacity(urls.count)
-
-        for url in urls {
-            do {
-                records.append(try repository.load(path: url.path))
-            } catch {
-                failures.append(ParseFailureDiagnostic(path: url.path, reason: error.localizedDescription, timestamp: timestamp))
-            }
-        }
-
-        return (records, failures)
-    }
-
     private func mergedParseDiagnostics(
         watcherDiagnostics: [ParseFailureDiagnostic],
-        fullScanDiagnostics: [ParseFailureDiagnostic]
+        supplementalDiagnostics: [ParseFailureDiagnostic]
     ) -> [ParseFailureDiagnostic] {
         var byKey: [String: ParseFailureDiagnostic] = [:]
-        for diagnostic in watcherDiagnostics + fullScanDiagnostics {
+        for diagnostic in watcherDiagnostics + supplementalDiagnostics {
             let key = "\(diagnostic.path)|\(diagnostic.reason)"
             if let existing = byKey[key], existing.timestamp >= diagnostic.timestamp {
                 continue
@@ -456,7 +469,126 @@ final class AppContainer: ObservableObject {
         }
     }
 
-    private func backfillMissingRefs(in records: [TaskRecord]) throws -> Int {
+    private func hydrateInitialStateFromSnapshot() {
+        do {
+            let hydration = try snapshotStore.hydrate(
+                rootURL: rootURL,
+                repository: repository,
+                mode: .optimistic
+            )
+            fileWatcher.prime(fingerprints: hydration.fingerprints)
+            canonicalByPath = Dictionary(uniqueKeysWithValues: hydration.records.map { ($0.identity.path, $0) })
+            allIndexedRecords = hydration.records
+            metadataIndex = TaskMetadataIndex.build(from: hydration.metadataEntries)
+            snapshotDiagnostics = hydration.failures
+            diagnostics = hydration.failures
+            startupValidationPending = hydration.requiresValidation
+            _ = applyCurrentViewFilter()
+        } catch {
+            logger.error("Snapshot hydration failed", metadata: ["error": error.localizedDescription])
+        }
+    }
+
+    private func scheduleInitialRefresh() {
+        let needsValidation = startupValidationPending
+        startupValidationPending = false
+        DispatchQueue.main.async { [weak self] in
+            self?.refresh(forceFullScan: needsValidation)
+        }
+    }
+
+    private func applySyncDelta(_ sync: (summary: SyncSummary, events: [FileWatcherEvent], records: [TaskRecord])) {
+        if canonicalByPath.isEmpty && !sync.records.isEmpty {
+            canonicalByPath = Dictionary(uniqueKeysWithValues: sync.records.map { ($0.identity.path, $0) })
+            metadataIndex = TaskMetadataIndex.build(from: sync.records)
+        }
+
+        var clearedDiagnosticPaths = Set(sync.records.map(\.identity.path))
+        for record in sync.records {
+            canonicalByPath[record.identity.path] = record
+            metadataIndex.update(record: record)
+        }
+
+        for event in sync.events {
+            switch event {
+            case .deleted(let path, _), .unparseable(let path, _, _):
+                canonicalByPath.removeValue(forKey: path)
+                metadataIndex.remove(path: path)
+                clearedDiagnosticPaths.insert(path)
+            default:
+                continue
+            }
+        }
+
+        snapshotDiagnostics = snapshotDiagnostics.filter { !clearedDiagnosticPaths.contains($0.path) }
+    }
+
+    private func replaceCanonicalRecords(_ updatedRecords: [TaskRecord]) {
+        for record in updatedRecords {
+            canonicalByPath[record.identity.path] = record
+            metadataIndex.update(record: record)
+        }
+    }
+
+    private func persistSnapshotBestEffort(
+        upsertedRecords: [TaskRecord],
+        deletedPaths: Set<String>,
+        fingerprints: [TaskFileFingerprint]
+    ) {
+        let rootURL = self.rootURL
+        Task.detached(priority: .utility) {
+            let fileIO = TaskFileIO()
+            let snapshotStore = TaskRecordSnapshotStore(fileIO: fileIO)
+            do {
+                try snapshotStore.applyDelta(
+                    upsertedRecords: upsertedRecords,
+                    deletedPaths: deletedPaths,
+                    fingerprints: fingerprints,
+                    rootURL: rootURL
+                )
+            } catch {
+                // Best effort cache; ignore persistence failures.
+            }
+        }
+    }
+
+    private func updateNotificationCounts(
+        upsertedRecords: [TaskRecord],
+        deletedPaths: Set<String>,
+        planner: NotificationPlanner,
+        allRecords: [TaskRecord]
+    ) {
+#if canImport(UserNotifications)
+        let seedRecords = notificationsPrimed ? upsertedRecords : allRecords
+
+        for path in deletedPaths {
+            notificationPlanCountByPath.removeValue(forKey: path)
+            locationNotificationCountByPath.removeValue(forKey: path)
+        }
+
+        for record in seedRecords {
+            notificationPlanCountByPath[record.identity.path] = planner.planNotifications(for: record).count
+            let status = record.document.frontmatter.status
+            let hasLocationReminder = (status == .todo || status == .inProgress) && record.document.frontmatter.locationReminder != nil
+            locationNotificationCountByPath[record.identity.path] = hasLocationReminder ? 1 : 0
+        }
+#else
+        _ = upsertedRecords
+        _ = deletedPaths
+        _ = planner
+        _ = allRecords
+#endif
+    }
+
+    private var pendingNotificationCount: Int {
+#if canImport(UserNotifications)
+        notificationPlanCountByPath.values.reduce(0, +) + locationNotificationCountByPath.values.reduce(0, +)
+#else
+        0
+#endif
+    }
+
+    private func backfillMissingRefs(in records: [TaskRecord]) throws -> [TaskRecord] {
         let generator = TaskRefGenerator()
         var existingRefs: Set<String> = Set(records.compactMap { record in
             guard let ref = record.document.frontmatter.ref?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -466,7 +598,7 @@ final class AppContainer: ObservableObject {
             return ref
         })
 
-        var backfilledCount = 0
+        var updatedRecords: [TaskRecord] = []
         for record in records.sorted(by: { $0.identity.path < $1.identity.path }) {
             let existing = record.document.frontmatter.ref?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             if TaskRefGenerator.isValid(ref: existing) {
@@ -481,7 +613,7 @@ final class AppContainer: ObservableObject {
                     document.frontmatter.ref = generated
                 }
                 markSelfWrite(path: updated.identity.path)
-                backfilledCount += 1
+                updatedRecords.append(updated)
             } catch {
                 logger.error("Ref backfill failed", metadata: [
                     "path": record.identity.path,
@@ -490,10 +622,10 @@ final class AppContainer: ObservableObject {
             }
         }
 
-        return backfilledCount
+        return updatedRecords
     }
 
-    private func autoResolveBlockedDependencies(in records: [TaskRecord]) throws -> [String] {
+    private func autoResolveBlockedDependencies(in records: [TaskRecord]) throws -> (updatedRecords: [TaskRecord], fullyUnblockedPaths: [String]) {
         let recordsByRef = Dictionary(uniqueKeysWithValues: records.compactMap { record -> (String, TaskRecord)? in
             guard let ref = record.document.frontmatter.ref?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !ref.isEmpty else {
@@ -502,6 +634,7 @@ final class AppContainer: ObservableObject {
             return (ref, record)
         })
 
+        var updatedRecords: [TaskRecord] = []
         var fullyUnblockedPaths: [String] = []
 
         for record in records {
@@ -529,6 +662,7 @@ final class AppContainer: ObservableObject {
                     }
                 }
                 markSelfWrite(path: updated.identity.path)
+                updatedRecords.append(updated)
                 if unresolvedRefs.isEmpty {
                     fullyUnblockedPaths.append(updated.identity.path)
                 }
@@ -540,11 +674,11 @@ final class AppContainer: ObservableObject {
             }
         }
 
-        return fullyUnblockedPaths
+        return (updatedRecords, fullyUnblockedPaths)
     }
 
-    private func inferCompletionMetadata(in records: [TaskRecord]) throws -> Int {
-        var updatedCount = 0
+    private func inferCompletionMetadata(in records: [TaskRecord]) throws -> [TaskRecord] {
+        var updatedRecords: [TaskRecord] = []
 
         for record in records {
             let frontmatter = record.document.frontmatter
@@ -574,7 +708,7 @@ final class AppContainer: ObservableObject {
                         }
                     }
                     markSelfWrite(path: updated.identity.path)
-                    updatedCount += 1
+                    updatedRecords.append(updated)
                 } catch {
                     logger.error("Completion metadata inference failed", metadata: [
                         "path": record.identity.path,
@@ -594,7 +728,7 @@ final class AppContainer: ObservableObject {
                     document.frontmatter.completedBy = nil
                 }
                 markSelfWrite(path: updated.identity.path)
-                updatedCount += 1
+                updatedRecords.append(updated)
             } catch {
                 logger.error("Completion metadata clear failed", metadata: [
                     "path": record.identity.path,
@@ -603,7 +737,7 @@ final class AppContainer: ObservableObject {
             }
         }
 
-        return updatedCount
+        return updatedRecords
     }
 
 #if canImport(UserNotifications)
@@ -650,13 +784,21 @@ final class AppContainer: ObservableObject {
 
         canonicalByPath = [:]
         allIndexedRecords = []
+        metadataIndex = TaskMetadataIndex.build(from: [TaskRecord]())
         records = []
         diagnostics = []
+        snapshotDiagnostics = []
+#if canImport(UserNotifications)
+        notificationPlanCountByPath = [:]
+        locationNotificationCountByPath = [:]
+        notificationsPrimed = false
+#endif
         conflicts = []
         cachedPerspectivesDocument = PerspectivesDocument()
         perspectives = []
         perspectivesWarningMessage = nil
         loadPerspectivesFromDisk()
+        hydrateInitialStateFromSnapshot()
 
         startMetadataQuery()
         return true
@@ -729,38 +871,18 @@ final class AppContainer: ObservableObject {
     }
 
     func availableAreas() -> [String] {
-        Set(allIndexedRecords.compactMap { $0.document.frontmatter.area?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty })
-            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        metadataIndex.distinctAreas()
     }
 
     func availableTags() -> [String] {
-        Set(allIndexedRecords.flatMap { $0.document.frontmatter.tags }
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty })
-            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        metadataIndex.distinctTags()
     }
 
     func searchRecords(query: String, limit: Int = 150) -> [TaskRecord] {
         let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return [] }
-        let lowered = normalized.lowercased()
-
-        let matches = allIndexedRecords.filter { record in
-            let frontmatter = record.document.frontmatter
-            let components: [String] = [
-                frontmatter.title,
-                frontmatter.description ?? "",
-                frontmatter.area ?? "",
-                frontmatter.project ?? "",
-                frontmatter.source,
-                frontmatter.tags.joined(separator: " "),
-                record.identity.filename
-            ]
-
-            return components.contains { $0.lowercased().contains(lowered) }
-        }
-
+        let candidatePaths = Set(metadataIndex.candidatePaths(forSearchQuery: normalized))
+        let matches = candidatePaths.compactMap { canonicalByPath[$0] }
         let ordered = manualOrderService.ordered(records: matches, view: selectedView)
         if ordered.count <= limit {
             return ordered
@@ -2490,7 +2612,13 @@ final class AppContainer: ObservableObject {
         let orderedRecords: [TaskRecord]
         if let perspectiveID = perspectiveID(for: selectedView),
            let perspective = perspectives.first(where: { $0.id == perspectiveID }) {
-            filtered = allIndexedRecords.filter { perspectiveQueryEngine.matches($0, perspective: perspective, today: today) }
+            let candidateRecords: [TaskRecord]
+            if let candidatePaths = perspectiveQueryEngine.candidatePaths(for: perspective, using: metadataIndex, today: today) {
+                candidateRecords = candidatePaths.compactMap { canonicalByPath[$0] }
+            } else {
+                candidateRecords = allIndexedRecords
+            }
+            filtered = candidateRecords.filter { perspectiveQueryEngine.matches($0, perspective: perspective, today: today) }
             orderedRecords = order(records: filtered, for: perspective, today: today)
         } else {
             filtered = allIndexedRecords.filter { queryEngine.matches($0, view: selectedView, today: today) }

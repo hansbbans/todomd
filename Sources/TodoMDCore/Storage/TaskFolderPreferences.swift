@@ -5,8 +5,23 @@ public enum TaskFolderPreferences {
     public static let selectedFolderPathKey = "settings_notes_folder_path"
     public static let legacyFolderNameKey = "settings_icloud_folder_name"
     public static let appGroupIdentifier = "group.com.hans.todomd"
+    public static let widgetLastLoadErrorKey = "widget_last_load_error"
+    public static let widgetLastLoadTimestampKey = "widget_last_load_timestamp"
+    public static let widgetLastLoadContextKey = "widget_last_load_context"
     public static var shared: UserDefaults {
         UserDefaults(suiteName: appGroupIdentifier) ?? .standard
+    }
+
+    public struct WidgetLoadDiagnostic: Equatable, Sendable {
+        public let message: String
+        public let timestamp: Date?
+        public let context: String?
+
+        public init(message: String, timestamp: Date?, context: String?) {
+            self.message = message
+            self.timestamp = timestamp
+            self.context = context
+        }
     }
 
     private static let securityScopeQueue = DispatchQueue(label: "TaskFolderPreferences.SecurityScope")
@@ -33,6 +48,12 @@ public enum TaskFolderPreferences {
         endSecurityScopedAccess()
         defaults.removeObject(forKey: selectedFolderBookmarkKey)
         defaults.removeObject(forKey: selectedFolderPathKey)
+    }
+
+    public static func sharedContainerURL(fileManager: FileManager = .default) -> URL? {
+        fileManager.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier)?
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
     }
 
     public static func selectedFolderURL(defaults: UserDefaults = TaskFolderPreferences.shared) -> URL? {
@@ -128,6 +149,43 @@ public enum TaskFolderPreferences {
                 activeSecurityScopedURL = nil
             }
         }
+    }
+
+    public static func saveLastWidgetLoadError(
+        _ message: String,
+        context: String? = nil,
+        defaults: UserDefaults = TaskFolderPreferences.shared
+    ) {
+        defaults.set(message, forKey: widgetLastLoadErrorKey)
+        defaults.set(DateCoding.encode(Date()), forKey: widgetLastLoadTimestampKey)
+        if let context, !context.isEmpty {
+            defaults.set(context, forKey: widgetLastLoadContextKey)
+        } else {
+            defaults.removeObject(forKey: widgetLastLoadContextKey)
+        }
+    }
+
+    public static func clearLastWidgetLoadError(defaults: UserDefaults = TaskFolderPreferences.shared) {
+        defaults.removeObject(forKey: widgetLastLoadErrorKey)
+        defaults.removeObject(forKey: widgetLastLoadTimestampKey)
+        defaults.removeObject(forKey: widgetLastLoadContextKey)
+    }
+
+    public static func lastWidgetLoadDiagnostic(defaults: UserDefaults = TaskFolderPreferences.shared) -> WidgetLoadDiagnostic? {
+        guard let message = defaults.string(forKey: widgetLastLoadErrorKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !message.isEmpty else {
+            return nil
+        }
+
+        let timestamp = defaults.string(forKey: widgetLastLoadTimestampKey).flatMap(DateCoding.decode)
+        let context = defaults.string(forKey: widgetLastLoadContextKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return WidgetLoadDiagnostic(
+            message: message,
+            timestamp: timestamp,
+            context: (context?.isEmpty == false) ? context : nil
+        )
     }
 
     private static func bookmarkCreationOptions() -> URL.BookmarkCreationOptions {
