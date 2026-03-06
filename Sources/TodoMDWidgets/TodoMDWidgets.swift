@@ -124,7 +124,7 @@ struct CompleteTaskFromWidgetIntent: AppIntent {
     }
 }
 
-struct WidgetTaskItem: Identifiable, Hashable {
+struct WidgetTaskItem: Identifiable, Hashable, Codable {
     let id: String
     let path: String
     let title: String
@@ -159,7 +159,7 @@ private enum WidgetSelection {
     }
 }
 
-struct TodoMDWidgetEntry: TimelineEntry {
+struct TodoMDWidgetEntry: TimelineEntry, Codable {
     let date: Date
     let viewTitle: String
     let viewRawValue: String
@@ -167,10 +167,47 @@ struct TodoMDWidgetEntry: TimelineEntry {
     let tasks: [WidgetTaskItem]
 }
 
+private struct WidgetEntryCache {
+    private let defaults = TaskFolderPreferences.shared
+    private let keyPrefix = "widget_entry_cache_v1"
+
+    func load(for configuration: TodoMDWidgetConfigurationIntent) -> TodoMDWidgetEntry? {
+        guard let data = defaults.data(forKey: cacheKey(for: configuration)) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(TodoMDWidgetEntry.self, from: data)
+    }
+
+    func save(_ entry: TodoMDWidgetEntry, for configuration: TodoMDWidgetConfigurationIntent) {
+        guard let data = try? JSONEncoder().encode(entry) else {
+            return
+        }
+        defaults.set(data, forKey: cacheKey(for: configuration))
+    }
+
+    private func cacheKey(for configuration: TodoMDWidgetConfigurationIntent) -> String {
+        let perspectiveID = configuration.perspective?.id ?? ""
+        let area = configuration.area.trimmingCharacters(in: .whitespacesAndNewlines)
+        let project = configuration.project.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tag = configuration.tag.trimmingCharacters(in: .whitespacesAndNewlines)
+        let taskLimit = max(1, min(50, configuration.taskLimit))
+        return [
+            keyPrefix,
+            configuration.source.rawValue,
+            perspectiveID,
+            String(taskLimit),
+            area,
+            project,
+            tag
+        ].joined(separator: "|")
+    }
+}
+
 private struct WidgetTaskLoader {
     private let locator = TaskFolderLocator()
     private let queryEngine = TaskQueryEngine()
     private let perspectiveQueryEngine = PerspectiveQueryEngine()
+    private let snapshotStore = TaskRecordSnapshotStore()
 
     func load(configuration: TodoMDWidgetConfigurationIntent) throws -> TodoMDWidgetEntry {
         let root = try locator.ensureFolderExists()
@@ -183,7 +220,7 @@ private struct WidgetTaskLoader {
         let selection = resolveSelection(configuration: configuration, perspectivesByID: perspectivesByID)
 
         let today = LocalDate.today(in: .current)
-        var records = try repository.loadAll()
+        var records = try snapshotStore.hydrate(rootURL: root, repository: repository, mode: .optimistic).records
 
         switch selection {
         case .builtIn(let view):
@@ -380,20 +417,93 @@ private struct WidgetTaskLoader {
 }
 
 struct TodoMDTimelineProvider: AppIntentTimelineProvider {
+    private let entryCache = WidgetEntryCache()
+
     func placeholder(in _: Context) -> TodoMDWidgetEntry {
         placeholderEntry()
     }
 
-    func snapshot(for configuration: TodoMDWidgetConfigurationIntent, in _: Context) async -> TodoMDWidgetEntry {
-        (try? WidgetTaskLoader().load(configuration: configuration)) ?? placeholderEntry()
+    func snapshot(for configuration: TodoMDWidgetConfigurationIntent, in context: Context) async -> TodoMDWidgetEntry {
+        resolveEntry(configuration: configuration, allowsPlaceholder: context.isPreview)
     }
 
     func timeline(for configuration: TodoMDWidgetConfigurationIntent, in _: Context) async -> Timeline<TodoMDWidgetEntry> {
-        let entry = (try? WidgetTaskLoader().load(configuration: configuration)) ?? placeholderEntry()
+        let entry = resolveEntry(configuration: configuration, allowsPlaceholder: false)
         let refreshMinutes = configuration.source == .today ? 5 : 15
         let nextRefresh = Calendar.current.date(byAdding: .minute, value: refreshMinutes, to: Date())
             ?? Date().addingTimeInterval(TimeInterval(refreshMinutes * 60))
         return Timeline(entries: [entry], policy: .after(nextRefresh))
+    }
+
+    private func resolveEntry(configuration: TodoMDWidgetConfigurationIntent, allowsPlaceholder: Bool) -> TodoMDWidgetEntry {
+        do {
+            let loaded = try WidgetTaskLoader().load(configuration: configuration)
+            entryCache.save(loaded, for: configuration)
+            TaskFolderPreferences.clearLastWidgetLoadError()
+            return loaded
+        } catch {
+            TaskFolderPreferences.saveLastWidgetLoadError(
+                error.localizedDescription,
+                context: widgetLoadContext(for: configuration)
+            )
+        }
+
+        if let cached = entryCache.load(for: configuration) {
+            return cached
+        }
+
+        if allowsPlaceholder {
+            return placeholderEntry()
+        }
+
+        return emptyEntry(configuration: configuration)
+    }
+
+    private func emptyEntry(configuration: TodoMDWidgetConfigurationIntent) -> TodoMDWidgetEntry {
+        TodoMDWidgetEntry(
+            date: Date(),
+            viewTitle: runtimeViewTitle(for: configuration),
+            viewRawValue: runtimeViewRawValue(for: configuration),
+            taskLimit: max(1, min(50, configuration.taskLimit)),
+            tasks: []
+        )
+    }
+
+    private func runtimeViewTitle(for configuration: TodoMDWidgetConfigurationIntent) -> String {
+        switch configuration.source {
+        case .today:
+            return "Today"
+        case .inbox:
+            return "Inbox"
+        case .perspective:
+            let trimmed = configuration.perspective?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return trimmed.isEmpty ? "Today" : trimmed
+        }
+    }
+
+    private func runtimeViewRawValue(for configuration: TodoMDWidgetConfigurationIntent) -> String {
+        switch configuration.source {
+        case .today:
+            return BuiltInView.today.rawValue
+        case .inbox:
+            return BuiltInView.inbox.rawValue
+        case .perspective:
+            if let perspectiveID = configuration.perspective?.id, !perspectiveID.isEmpty {
+                return "perspective:\(perspectiveID)"
+            }
+            return BuiltInView.today.rawValue
+        }
+    }
+
+    private func widgetLoadContext(for configuration: TodoMDWidgetConfigurationIntent) -> String {
+        let selectedFolder = TaskFolderPreferences.selectedFolderURL()?.path ?? "<auto>"
+        let perspectiveID = configuration.perspective?.id ?? ""
+        return [
+            "source=\(configuration.source.rawValue)",
+            "perspective=\(perspectiveID)",
+            "limit=\(max(1, min(50, configuration.taskLimit)))",
+            "folder=\(selectedFolder)"
+        ].joined(separator: " ")
     }
 
     private func placeholderEntry() -> TodoMDWidgetEntry {

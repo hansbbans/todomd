@@ -25,8 +25,7 @@ struct TaskIntentEntity: AppEntity, Hashable {
 struct TaskIntentEntityQuery: EntityQuery {
     func entities(for identifiers: [TaskIntentEntity.ID]) async throws -> [TaskIntentEntity] {
         let services = IntentServices()
-        let repository = try services.makeRepository()
-        let records = try repository.loadAll()
+        let records = try services.loadRecords()
         let idSet = Set(identifiers)
 
         return records
@@ -36,18 +35,24 @@ struct TaskIntentEntityQuery: EntityQuery {
 
     func suggestedEntities() async throws -> [TaskIntentEntity] {
         let services = IntentServices()
-        let repository = try services.makeRepository()
-        return try repository.loadAll().map(services.makeIntentEntity(from:))
+        return try services.loadRecords().map(services.makeIntentEntity(from:))
     }
 }
 
 private struct IntentServices {
     let locator = TaskFolderLocator()
     let query = TaskQueryEngine()
+    let snapshotStore = TaskRecordSnapshotStore()
 
     func makeRepository() throws -> FileTaskRepository {
         let root = try locator.ensureFolderExists()
         return FileTaskRepository(rootURL: root)
+    }
+
+    func loadRecords() throws -> [TaskRecord] {
+        let root = try locator.ensureFolderExists()
+        let repository = FileTaskRepository(rootURL: root)
+        return try snapshotStore.hydrate(rootURL: root, repository: repository).records
     }
 
     func resolveView(_ raw: String) -> ViewIdentifier {
@@ -149,7 +154,7 @@ struct CompleteTaskIntent: AppIntent {
     func perform() async throws -> some IntentResult & ReturnsValue<TaskIntentEntity> {
         let services = IntentServices()
         let repository = try services.makeRepository()
-        let records = try repository.loadAll()
+        let records = try services.loadRecords()
 
         guard let match = services.findRecord(identifier: identifier, in: records) else {
             throw TaskError.invalidURLParameters("No task matched '\(identifier)'")
@@ -170,12 +175,10 @@ struct GetTasksIntent: AppIntent {
 
     func perform() async throws -> some IntentResult & ReturnsValue<[TaskIntentEntity]> {
         let services = IntentServices()
-        let repository = try services.makeRepository()
-
         let viewIdentifier = services.resolveView(view)
         let today = LocalDate.today(in: .current)
 
-        let tasks = try repository.loadAll()
+        let tasks = try services.loadRecords()
             .filter { services.query.matches($0, view: viewIdentifier, today: today) }
             .filter { record in
                 let trimmed = area.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -203,10 +206,9 @@ struct GetOverdueTasksIntent: AppIntent {
 
     func perform() async throws -> some IntentResult & ReturnsValue<[TaskIntentEntity]> {
         let services = IntentServices()
-        let repository = try services.makeRepository()
         let today = LocalDate.today(in: .current)
 
-        let overdue = try repository.loadAll()
+        let overdue = try services.loadRecords()
             .filter { services.query.todayGroup(for: $0, today: today) == .overdue }
             .map(services.makeIntentEntity(from:))
 

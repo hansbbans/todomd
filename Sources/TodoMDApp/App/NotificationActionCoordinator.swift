@@ -3,6 +3,9 @@ import Foundation
 enum NotificationActionIdentifiers {
     static let category = "TODO_MD_TASK"
     static let done = "TODO_MD_DONE"
+    static let dismiss = "TODO_MD_DISMISS"
+    static let snoozeOneDay = "TODO_MD_SNOOZE_ONE_DAY"
+    static let removeDueDate = "TODO_MD_REMOVE_DUE_DATE"
     static let open = "TODO_MD_OPEN"
 }
 

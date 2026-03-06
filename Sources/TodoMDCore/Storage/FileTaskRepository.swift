@@ -1,6 +1,6 @@
 import Foundation
 
-public final class FileTaskRepository: TaskRepository {
+public final class FileTaskRepository: TaskRepository, @unchecked Sendable {
     private let rootURL: URL
     private let fileIO: TaskFileIO
     private let codec: TaskMarkdownCodec
@@ -8,6 +8,7 @@ public final class FileTaskRepository: TaskRepository {
     private let lifecycleService: TaskLifecycleService
     private let refGenerator: TaskRefGenerator
     private var knownRefsCache: Set<String>?
+    private var knownFilenamesCache: Set<String>?
 
     public init(
         rootURL: URL,
@@ -24,6 +25,7 @@ public final class FileTaskRepository: TaskRepository {
         self.lifecycleService = lifecycleService
         self.refGenerator = refGenerator
         self.knownRefsCache = nil
+        self.knownFilenamesCache = nil
     }
 
     public func create(document: TaskDocument, preferredFilename: String?) throws -> TaskRecord {
@@ -31,12 +33,13 @@ public final class FileTaskRepository: TaskRepository {
         document = try ensureReference(onCreate: document)
         try TaskValidation.validate(document: document)
 
-        let existing = Set(try fileIO.enumerateMarkdownFiles(rootURL: rootURL).map(\.lastPathComponent))
+        let existing = try knownMarkdownFilenames()
         let filename = sanitizeFilename(preferredFilename) ?? filenameGenerator.generate(title: document.frontmatter.title, existingFilenames: existing)
         let path = rootURL.appendingPathComponent(filename).path
 
         let content = try codec.serialize(document: document)
         try fileIO.write(path: path, content: content)
+        knownFilenamesCache?.insert(filename)
 
         return TaskRecord(identity: TaskFileIdentity(path: path), document: document)
     }
@@ -53,6 +56,7 @@ public final class FileTaskRepository: TaskRepository {
 
     public func delete(path: String) throws {
         try fileIO.delete(path: path)
+        knownFilenamesCache?.remove(URL(fileURLWithPath: path).lastPathComponent)
     }
 
     public func load(path: String) throws -> TaskRecord {
@@ -64,12 +68,7 @@ public final class FileTaskRepository: TaskRepository {
 
     public func loadAll() throws -> [TaskRecord] {
         let urls = try fileIO.enumerateMarkdownFiles(rootURL: rootURL)
-        return try urls.map { url in
-            let raw = try fileIO.read(path: url.path)
-            let fallbackTitle = url.deletingPathExtension().lastPathComponent
-            let document = try codec.parse(markdown: raw, fallbackTitle: fallbackTitle)
-            return TaskRecord(identity: TaskFileIdentity(path: url.path), document: document)
-        }
+        return try loadRecords(at: urls)
     }
 
     public func complete(path: String, at completionTime: Date, completedBy: String? = "user") throws -> TaskRecord {
@@ -131,12 +130,8 @@ public final class FileTaskRepository: TaskRepository {
         let urls = try fileIO.enumerateMarkdownFiles(rootURL: rootURL)
         var refs: Set<String> = []
         refs.reserveCapacity(urls.count)
-        for url in urls {
-            let raw = try fileIO.read(path: url.path)
-            let fallbackTitle = url.deletingPathExtension().lastPathComponent
-            guard let document = try? codec.parse(markdown: raw, fallbackTitle: fallbackTitle) else {
-                continue
-            }
+        for record in try loadRecords(at: urls, skipInvalid: true) {
+            let document = record.document
             guard let ref = document.frontmatter.ref?.trimmingCharacters(in: .whitespacesAndNewlines),
                   TaskRefGenerator.isValid(ref: ref) else {
                 continue
@@ -145,5 +140,88 @@ public final class FileTaskRepository: TaskRepository {
         }
         knownRefsCache = refs
         return refs
+    }
+
+    private func knownMarkdownFilenames() throws -> Set<String> {
+        if let knownFilenamesCache {
+            return knownFilenamesCache
+        }
+
+        let filenames = Set(try fileIO.enumerateMarkdownFiles(rootURL: rootURL).map(\.lastPathComponent))
+        knownFilenamesCache = filenames
+        return filenames
+    }
+
+    private func loadRecords(at urls: [URL], skipInvalid: Bool = false) throws -> [TaskRecord] {
+        if urls.count < 64 {
+            return try loadRecordsSerially(at: urls, skipInvalid: skipInvalid)
+        }
+
+        let collector = ParallelRecordCollector()
+
+        DispatchQueue.concurrentPerform(iterations: urls.count) { index in
+            let url = urls[index]
+            do {
+                let record = try loadRecord(at: url)
+                collector.append(index: index, record: record)
+            } catch {
+                if !skipInvalid {
+                    collector.capture(error: error)
+                }
+            }
+        }
+
+        if let firstError = collector.firstError {
+            throw firstError
+        }
+
+        return collector.indexedRecords
+            .sorted { $0.0 < $1.0 }
+            .map(\.1)
+    }
+
+    private func loadRecordsSerially(at urls: [URL], skipInvalid: Bool) throws -> [TaskRecord] {
+        var records: [TaskRecord] = []
+        records.reserveCapacity(urls.count)
+
+        for url in urls {
+            do {
+                records.append(try loadRecord(at: url))
+            } catch {
+                if skipInvalid {
+                    continue
+                }
+                throw error
+            }
+        }
+
+        return records
+    }
+
+    private func loadRecord(at url: URL) throws -> TaskRecord {
+        let raw = try fileIO.read(path: url.path)
+        let fallbackTitle = url.deletingPathExtension().lastPathComponent
+        let document = try codec.parse(markdown: raw, fallbackTitle: fallbackTitle)
+        return TaskRecord(identity: TaskFileIdentity(path: url.path), document: document)
+    }
+}
+
+private final class ParallelRecordCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private(set) var indexedRecords: [(Int, TaskRecord)] = []
+    private(set) var firstError: Error?
+
+    func append(index: Int, record: TaskRecord) {
+        lock.lock()
+        indexedRecords.append((index, record))
+        lock.unlock()
+    }
+
+    func capture(error: Error) {
+        lock.lock()
+        if firstError == nil {
+            firstError = error
+        }
+        lock.unlock()
     }
 }

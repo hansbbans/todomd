@@ -75,16 +75,105 @@ final class SecurityAndPerformanceTests: XCTestCase {
         XCTAssertLessThan(elapsed, 1.0, "Incremental sync for 10 files exceeded budget: \(elapsed)s")
     }
 
-    private func createTasks(count: Int, repository: FileTaskRepository) throws -> [String] {
+    func testColdSync1000NestedFilesStaysWithinPerformanceBudget() throws {
+        let root = try TestSupport.tempDirectory(prefix: "PerfColdNested")
+        let repository = FileTaskRepository(rootURL: root)
+        let watcher = FileWatcherService(rootURL: root, repository: repository)
+
+        _ = try createTasks(count: 1_000, repository: repository, nested: true)
+
+        let start = Date()
+        _ = try watcher.synchronize(now: start)
+        let elapsed = Date().timeIntervalSince(start)
+
+        XCTAssertLessThan(elapsed, 5.0, "Cold sync for 1000 nested files exceeded budget: \(elapsed)s")
+    }
+
+    func testIncrementalSyncTenNestedFilesStaysWithinPerformanceBudget() throws {
+        let root = try TestSupport.tempDirectory(prefix: "PerfIncrementalNested")
+        let repository = FileTaskRepository(rootURL: root)
+        let watcher = FileWatcherService(rootURL: root, repository: repository)
+
+        let paths = try createTasks(count: 1_000, repository: repository, nested: true)
+        _ = try watcher.synchronize(now: Date())
+
+        for path in paths.prefix(10) {
+            _ = try repository.update(path: path) { document in
+                document.frontmatter.title = "\(document.frontmatter.title) updated"
+                document.frontmatter.modified = Date()
+            }
+        }
+
+        let start = Date()
+        _ = try watcher.synchronize(now: start.addingTimeInterval(1))
+        let elapsed = Date().timeIntervalSince(start)
+
+        XCTAssertLessThan(elapsed, 1.5, "Incremental sync for 10 nested files exceeded budget: \(elapsed)s")
+    }
+
+    func testValidatedSnapshotHydrate5000FilesStaysWithinPerformanceBudget() throws {
+        let root = try TestSupport.tempDirectory(prefix: "PerfSnapshotValidated")
+        let repository = FileTaskRepository(rootURL: root)
+        let snapshotStore = TaskRecordSnapshotStore()
+
+        _ = try createTasks(count: 5_000, repository: repository, nested: true)
+
+        let start = Date()
+        let hydration = try snapshotStore.hydrate(rootURL: root, repository: repository, mode: .validated)
+        let elapsed = Date().timeIntervalSince(start)
+
+        XCTAssertEqual(hydration.records.count, 5_000)
+        XCTAssertLessThan(elapsed, 6.0, "Validated snapshot hydrate for 5000 files exceeded budget: \(elapsed)s")
+    }
+
+    func testOptimisticSnapshotHydrate5000FilesStaysWithinPerformanceBudget() throws {
+        let root = try TestSupport.tempDirectory(prefix: "PerfSnapshotWarm5000")
+        let repository = FileTaskRepository(rootURL: root)
+        let snapshotStore = TaskRecordSnapshotStore()
+
+        _ = try createTasks(count: 5_000, repository: repository, nested: true)
+        _ = try snapshotStore.hydrate(rootURL: root, repository: repository, mode: .validated)
+
+        let start = Date()
+        let hydration = try snapshotStore.hydrate(rootURL: root, repository: repository, mode: .optimistic)
+        let elapsed = Date().timeIntervalSince(start)
+
+        XCTAssertEqual(hydration.records.count, 5_000)
+        XCTAssertLessThan(elapsed, 6.0, "Optimistic snapshot hydrate for 5000 files exceeded budget: \(elapsed)s")
+    }
+
+    func testOptimisticSnapshotHydrate10000FilesStaysWithinPerformanceBudget() throws {
+        let root = try TestSupport.tempDirectory(prefix: "PerfSnapshotWarm10000")
+        let repository = FileTaskRepository(rootURL: root)
+        let snapshotStore = TaskRecordSnapshotStore()
+
+        _ = try createTasks(count: 10_000, repository: repository, nested: true)
+        _ = try snapshotStore.hydrate(rootURL: root, repository: repository, mode: .validated)
+
+        let start = Date()
+        let hydration = try snapshotStore.hydrate(rootURL: root, repository: repository, mode: .optimistic)
+        let elapsed = Date().timeIntervalSince(start)
+
+        XCTAssertEqual(hydration.records.count, 10_000)
+        XCTAssertLessThan(elapsed, 12.0, "Optimistic snapshot hydrate for 10000 files exceeded budget: \(elapsed)s")
+    }
+
+    private func createTasks(count: Int, repository: FileTaskRepository, nested: Bool = false) throws -> [String] {
         var paths: [String] = []
         paths.reserveCapacity(count)
 
         for index in 0..<count {
             var frontmatter = TestSupport.sampleFrontmatter(title: "Perf \(index)", source: "perf")
             frontmatter.modified = Date(timeIntervalSince1970: 1_700_000_000 + Double(index))
+            let filename: String
+            if nested {
+                filename = String(format: "bucket-%03d/perf-%04d.md", index / 100, index)
+            } else {
+                filename = String(format: "perf-%04d.md", index)
+            }
             let record = try repository.create(
                 document: TaskDocument(frontmatter: frontmatter, body: "body-\(index)"),
-                preferredFilename: String(format: "perf-%04d.md", index)
+                preferredFilename: filename
             )
             paths.append(record.identity.path)
         }

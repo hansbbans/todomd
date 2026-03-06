@@ -857,13 +857,15 @@ public struct PerspectiveDefinition: Codable, Equatable, Identifiable, Sendable 
 public struct PerspectiveQueryEngine {
     public init() {}
 
+    public func candidatePaths(
+        for perspective: PerspectiveDefinition,
+        using index: TaskMetadataIndex,
+        today: LocalDate
+    ) -> Set<String>? {
+        candidatePaths(for: perspective.effectiveRules, using: index, today: today)
+    }
+
     public func matches(_ record: TaskRecord, perspective: PerspectiveDefinition, today: LocalDate) -> Bool {
-        // TODO: Use TaskMetadataIndex for pre-filtering here
-        // Before evaluating the full rule group, check the metadata index for a fast answer:
-        //   if let entry = index.entry(for: record.identity.path),
-        //      let result = entry.matches(field: rule.field, operator: rule.operator, value: rule.stringValue) {
-        //       return result  // skip full evaluation
-        //   }
         evaluate(group: perspective.effectiveRules, record: record, today: today) ?? true
     }
 
@@ -888,6 +890,53 @@ public struct PerspectiveQueryEngine {
         }
     }
 
+    private func candidatePaths(
+        for group: PerspectiveRuleGroup,
+        using index: TaskMetadataIndex,
+        today: LocalDate
+    ) -> Set<String>? {
+        guard group.isEnabled else { return nil }
+
+        switch group.operator {
+        case .and:
+            var running: Set<String>?
+            for condition in group.conditions {
+                guard let next = candidatePaths(for: condition, using: index, today: today) else {
+                    continue
+                }
+                running = running.map { $0.intersection(next) } ?? next
+            }
+            return running
+        case .or:
+            var union: Set<String> = []
+            var sawIndexedCondition = false
+            for condition in group.conditions {
+                guard let next = candidatePaths(for: condition, using: index, today: today) else {
+                    return nil
+                }
+                sawIndexedCondition = true
+                union.formUnion(next)
+            }
+            return sawIndexedCondition ? union : nil
+        case .not:
+            let allPaths = Set(index.allEntries().map(\.path))
+            guard !allPaths.isEmpty else { return [] }
+
+            var positiveMatches: Set<String> = []
+            var sawIndexedCondition = false
+            for condition in group.conditions {
+                guard let next = candidatePaths(for: condition, using: index, today: today) else {
+                    return nil
+                }
+                sawIndexedCondition = true
+                positiveMatches.formUnion(next)
+            }
+            return sawIndexedCondition ? allPaths.subtracting(positiveMatches) : nil
+        case .unknown:
+            return nil
+        }
+    }
+
     private func evaluate(condition: PerspectiveCondition, record: TaskRecord, today: LocalDate) -> Bool? {
         switch condition {
         case .rule(let rule):
@@ -897,17 +946,20 @@ public struct PerspectiveQueryEngine {
         }
     }
 
+    private func candidatePaths(
+        for condition: PerspectiveCondition,
+        using index: TaskMetadataIndex,
+        today: LocalDate
+    ) -> Set<String>? {
+        switch condition {
+        case .rule(let rule):
+            return candidatePaths(for: rule, using: index, today: today)
+        case .group(let group):
+            return candidatePaths(for: group, using: index, today: today)
+        }
+    }
+
     private func evaluate(rule: PerspectiveRule, record: TaskRecord, today: LocalDate) -> Bool? {
-        // TODO: Use TaskMetadataIndex for pre-filtering here
-        // When a TaskMetadataIndex is available, indexed fields can be evaluated without
-        // touching the full frontmatter. Example integration:
-        //   if let entry = index.entry(for: record.identity.path) {
-        //       if let result = entry.matches(field: rule.field, operator: rule.operator,
-        //                                     value: rule.stringValue) {
-        //           return result
-        //       }
-        //   }
-        // Fall through to full frontmatter evaluation for un-indexed fields.
         guard rule.isEnabled else { return true }
         let frontmatter = record.document.frontmatter
 
@@ -957,6 +1009,21 @@ public struct PerspectiveQueryEngine {
         case .unknown:
             return nil
         }
+    }
+
+    private func candidatePaths(
+        for rule: PerspectiveRule,
+        using index: TaskMetadataIndex,
+        today: LocalDate
+    ) -> Set<String>? {
+        guard rule.isEnabled else { return nil }
+        let matchingPaths = index.paths { entry in
+            guard let result = entry.matches(field: rule.field, operator: rule.operator, value: rule.stringValue) else {
+                return false
+            }
+            return result
+        }
+        return matchingPaths.isEmpty ? [] : Set(matchingPaths)
     }
 
     private func compareBlockedBy(_ value: TaskBlockedBy?, rule: PerspectiveRule) -> Bool? {

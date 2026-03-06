@@ -15,7 +15,7 @@ import Foundation
 
 /// Pre-computed, cheaply-comparable metadata derived from a single TaskRecord.
 /// All date values are stored as ISO-8601 strings for lexicographic comparison.
-public struct TaskMetadataEntry: Sendable {
+public struct TaskMetadataEntry: Codable, Hashable, Sendable {
 
     // MARK: Identity
 
@@ -24,6 +24,15 @@ public struct TaskMetadataEntry: Sendable {
 
     /// Short task reference (e.g. `t-1a2b`), when present.
     public let ref: String?
+
+    /// Canonical filename used for stable identifiers and search.
+    public let filename: String
+
+    /// Display title.
+    public let title: String
+
+    /// Short description, if present.
+    public let description: String?
 
     // MARK: Frequently-filtered fields
 
@@ -298,6 +307,16 @@ public final class TaskMetadataIndex: @unchecked Sendable {
         return TaskMetadataIndex(entriesByPath: map)
     }
 
+    /// Builds a new index directly from persisted metadata entries.
+    public static func build(from entries: [TaskMetadataEntry]) -> TaskMetadataIndex {
+        var map: [String: TaskMetadataEntry] = [:]
+        map.reserveCapacity(entries.count)
+        for entry in entries {
+            map[entry.path] = entry
+        }
+        return TaskMetadataIndex(entriesByPath: map)
+    }
+
     // MARK: - Incremental updates
 
     /// Incrementally updates the index for a single mutated record.
@@ -344,6 +363,47 @@ public final class TaskMetadataIndex: @unchecked Sendable {
         defer { lock.unlock() }
         return entriesByPath.values.filter(predicate).map(\.path)
     }
+
+    /// Returns distinct non-empty areas in case-insensitive order.
+    public func distinctAreas() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return Set(entriesByPath.values.compactMap(\.area))
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    /// Returns distinct non-empty tags in case-insensitive order.
+    public func distinctTags() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return Set(entriesByPath.values.flatMap(\.tags))
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    /// Returns candidate task paths for text search using indexed metadata only.
+    public func candidatePaths(forSearchQuery query: String) -> [String] {
+        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return [] }
+
+        lock.lock()
+        defer { lock.unlock() }
+        return entriesByPath.values
+            .filter { entry in
+                let fields: [String] = [
+                    entry.title,
+                    entry.description ?? "",
+                    entry.area ?? "",
+                    entry.project ?? "",
+                    entry.source,
+                    entry.filename,
+                    entry.assignee ?? "",
+                    entry.ref ?? "",
+                    entry.tags.joined(separator: " ")
+                ]
+                return fields.contains { $0.lowercased().contains(normalized) }
+            }
+            .map(\.path)
+    }
 }
 
 // MARK: - TaskMetadataEntry convenience initialiser
@@ -355,6 +415,9 @@ extension TaskMetadataEntry {
         self.path = record.identity.path
         self.ref = fm.ref?.trimmingCharacters(in: .whitespacesAndNewlines)
             .nilIfEmpty()
+        self.filename = record.identity.filename
+        self.title = fm.title
+        self.description = fm.description?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty()
         self.status = fm.status.rawValue
         self.priority = fm.priority.rawValue
         self.area = fm.area?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty()

@@ -15,11 +15,15 @@ final class UserNotificationScheduler {
     private let catchUpLedgerTTLSeconds: TimeInterval = 7 * 24 * 60 * 60
     private let catchUpLedgerLimit = 1024
     private let catchUpLedgerKey = "notifications_due_catchup_ledger_v1"
+    private var timedPlansByPath: [String: [PlannedNotification]] = [:]
+    private var locationPlansByPath: [String: [PlannedLocationNotification]] = [:]
+    private var scheduledTimedPlansByIdentifier: [String: PlannedNotification] = [:]
+    private var scheduledLocationPlansByIdentifier: [String: PlannedLocationNotification] = [:]
 #if canImport(CoreLocation)
     private let locationAuthorizationRequester = LocationAuthorizationRequester()
 #endif
 
-    private struct PlannedLocationNotification {
+    private struct PlannedLocationNotification: Equatable {
         let identifier: String
         let taskPath: String
         let kind: TaskLocationReminderTrigger
@@ -35,11 +39,38 @@ final class UserNotificationScheduler {
     }
 
     func synchronize(records: [TaskRecord], planner: NotificationPlanner) async {
+        timedPlansByPath = Dictionary(uniqueKeysWithValues: records.map {
+            ($0.identity.path, planner.planNotifications(for: $0, referenceDate: Date()))
+        })
+        locationPlansByPath = Dictionary(uniqueKeysWithValues: records.map {
+            ($0.identity.path, locationNotificationPlans(for: $0))
+        })
+        await applyPendingNotifications(now: Date())
+    }
+
+    func synchronize(upsertedRecords: [TaskRecord], deletedPaths: [String], planner: NotificationPlanner) async {
         let now = Date()
-        let allPlans = records
-            .flatMap { planner.planNotifications(for: $0, referenceDate: now) }
+
+        for path in deletedPaths {
+            timedPlansByPath.removeValue(forKey: path)
+            locationPlansByPath.removeValue(forKey: path)
+        }
+
+        for record in upsertedRecords {
+            timedPlansByPath[record.identity.path] = planner.planNotifications(for: record, referenceDate: now)
+            locationPlansByPath[record.identity.path] = locationNotificationPlans(for: record)
+        }
+
+        await applyPendingNotifications(now: now)
+    }
+
+    private func applyPendingNotifications(now: Date) async {
+        let allPlans = timedPlansByPath.values
+            .flatMap { $0 }
             .sorted { $0.fireDate < $1.fireDate }
-        let allLocationPlans = locationNotificationPlans(records: records)
+        let allLocationPlans = locationPlansByPath.values
+            .flatMap { $0 }
+            .sorted { $0.identifier < $1.identifier }
 
         let futurePlans = allPlans.filter { $0.fireDate > now }
         let catchUpPlans = dueCatchUpPlans(from: allPlans, now: now)
@@ -48,15 +79,44 @@ final class UserNotificationScheduler {
         let selectedFuturePlans = Array(futurePlans.prefix(futureBudget))
         let selectedLocationPlans = Array(allLocationPlans.prefix(maxPendingLocationNotifications))
         let existingIDs = await pendingManagedNotificationIdentifiers()
+        let existingIDSet = Set(existingIDs)
+        let catchUpIdentifiers = Set(catchUpPlans.map(\.identifier))
+        let desiredTimedPlansByIdentifier = Dictionary(
+            uniqueKeysWithValues: (selectedFuturePlans + catchUpPlans).map { ($0.identifier, $0) }
+        )
+        let desiredLocationPlansByIdentifier = Dictionary(
+            uniqueKeysWithValues: selectedLocationPlans.map { ($0.identifier, $0) }
+        )
 
-        let identifiers = Set(selectedFuturePlans.map(\.identifier))
-            .union(selectedLocationPlans.map(\.identifier))
-            .union(catchUpPlans.map(\.identifier))
-            .union(existingIDs)
+        var identifiersToRemove = existingIDSet
+            .subtracting(desiredTimedPlansByIdentifier.keys)
+            .subtracting(desiredLocationPlansByIdentifier.keys)
+        var timedPlansToAdd: [PlannedNotification] = []
+        var locationPlansToAdd: [PlannedLocationNotification] = []
 
-        center.removePendingNotificationRequests(withIdentifiers: Array(identifiers))
+        for plan in desiredTimedPlansByIdentifier.values {
+            let current = scheduledTimedPlansByIdentifier[plan.identifier]
+            let needsReplace = current != plan || (current == nil && existingIDSet.contains(plan.identifier))
+            if needsReplace {
+                identifiersToRemove.insert(plan.identifier)
+                timedPlansToAdd.append(plan)
+            }
+        }
 
-        for plan in selectedFuturePlans {
+        for plan in desiredLocationPlansByIdentifier.values {
+            let current = scheduledLocationPlansByIdentifier[plan.identifier]
+            let needsReplace = current != plan || (current == nil && existingIDSet.contains(plan.identifier))
+            if needsReplace {
+                identifiersToRemove.insert(plan.identifier)
+                locationPlansToAdd.append(plan)
+            }
+        }
+
+        if !identifiersToRemove.isEmpty {
+            center.removePendingNotificationRequests(withIdentifiers: Array(identifiersToRemove))
+        }
+
+        for plan in timedPlansToAdd.sorted(by: { $0.fireDate < $1.fireDate }) {
             let content = notificationContent(
                 title: plan.title,
                 body: plan.body,
@@ -68,30 +128,16 @@ final class UserNotificationScheduler {
             let request = UNNotificationRequest(identifier: plan.identifier, content: content, trigger: trigger)
             do {
                 try await center.add(request)
-            } catch {
-                // Keep non-fatal: notification errors must not block task data flow.
-            }
-        }
-
-        for plan in catchUpPlans {
-            let content = notificationContent(
-                title: plan.title,
-                body: "Due now",
-                taskPath: plan.taskPath,
-                kind: plan.kind.rawValue
-            )
-            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
-            let request = UNNotificationRequest(identifier: plan.identifier, content: content, trigger: trigger)
-            do {
-                try await center.add(request)
-                recordCatchUpIdentifier(plan.identifier, now: now)
+                if catchUpIdentifiers.contains(plan.identifier) {
+                    recordCatchUpIdentifier(plan.identifier, now: now)
+                }
             } catch {
                 // Keep non-fatal: notification errors must not block task data flow.
             }
         }
 
 #if canImport(CoreLocation)
-        for plan in selectedLocationPlans {
+        for plan in locationPlansToAdd.sorted(by: { $0.identifier < $1.identifier }) {
             let content = notificationContent(
                 title: plan.title,
                 body: plan.body,
@@ -111,6 +157,9 @@ final class UserNotificationScheduler {
             }
         }
 #endif
+
+        scheduledTimedPlansByIdentifier = desiredTimedPlansByIdentifier
+        scheduledLocationPlansByIdentifier = desiredLocationPlansByIdentifier
     }
 
     func requestAuthorizationIfNeeded(requestLocation: Bool) async {
@@ -171,7 +220,7 @@ final class UserNotificationScheduler {
                     kind: .due,
                     fireDate: now,
                     title: plan.title,
-                    body: plan.body
+                    body: "Due now"
                 )
             )
 
@@ -237,37 +286,36 @@ final class UserNotificationScheduler {
         return content
     }
 
-    private func locationNotificationPlans(records: [TaskRecord]) -> [PlannedLocationNotification] {
-        records
-            .filter { record in
-                let status = record.document.frontmatter.status
-                return (status == .todo || status == .inProgress) && record.document.frontmatter.locationReminder != nil
-            }
-            .sorted { $0.identity.filename < $1.identity.filename }
-            .compactMap { record in
-                guard let locationReminder = record.document.frontmatter.locationReminder else { return nil }
-                let locationName = locationReminder.name?.trimmingCharacters(in: .whitespacesAndNewlines)
-                let body: String
-                if let locationName, !locationName.isEmpty {
-                    body = locationReminder.trigger == .onArrival ? "Arriving at \(locationName)" : "Leaving \(locationName)"
-                } else {
-                    body = locationReminder.trigger == .onArrival ? "Arrived at location" : "Left location"
-                }
+    private func locationNotificationPlans(for record: TaskRecord) -> [PlannedLocationNotification] {
+        let status = record.document.frontmatter.status
+        guard (status == .todo || status == .inProgress),
+              let locationReminder = record.document.frontmatter.locationReminder else {
+            return []
+        }
 
-                return PlannedLocationNotification(
-                    identifier: locationNotificationIdentifier(
-                        filename: record.identity.filename,
-                        trigger: locationReminder.trigger
-                    ),
-                    taskPath: record.identity.path,
-                    kind: locationReminder.trigger,
-                    title: record.document.frontmatter.title,
-                    body: body,
-                    latitude: locationReminder.latitude,
-                    longitude: locationReminder.longitude,
-                    radiusMeters: min(1_000, max(50, locationReminder.radiusMeters))
-                )
-            }
+        let locationName = locationReminder.name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let body: String
+        if let locationName, !locationName.isEmpty {
+            body = locationReminder.trigger == .onArrival ? "Arriving at \(locationName)" : "Leaving \(locationName)"
+        } else {
+            body = locationReminder.trigger == .onArrival ? "Arrived at location" : "Left location"
+        }
+
+        return [
+            PlannedLocationNotification(
+                identifier: locationNotificationIdentifier(
+                    filename: record.identity.filename,
+                    trigger: locationReminder.trigger
+                ),
+                taskPath: record.identity.path,
+                kind: locationReminder.trigger,
+                title: record.document.frontmatter.title,
+                body: body,
+                latitude: locationReminder.latitude,
+                longitude: locationReminder.longitude,
+                radiusMeters: min(1_000, max(50, locationReminder.radiusMeters))
+            )
+        ]
     }
 
     private func locationNotificationIdentifier(filename: String, trigger: TaskLocationReminderTrigger) -> String {
