@@ -5,23 +5,50 @@ struct TodayCalendarCard: View {
     @EnvironmentObject private var theme: ThemeManager
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            CalendarDayHeaderView(date: Date(), label: "Today")
+        VStack(alignment: .leading, spacing: 10) {
             if events.isEmpty {
-                Text("No calendar events")
-                    .font(.system(size: 16, weight: .medium, design: .rounded))
+                Text("No calendar events today")
+                    .font(.system(size: 18, weight: .regular))
                     .foregroundStyle(theme.textSecondaryColor)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, 4)
             } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(events.prefix(8)) { event in
-                        UpcomingEventLineView(event: event)
+                VStack(alignment: .leading, spacing: 7) {
+                    ForEach(events.prefix(6)) { event in
+                        TodayCalendarEventLineView(event: event)
                     }
                 }
-                .padding(.leading, 4)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 18)
+        .background(cardBackground)
+        .overlay {
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .strokeBorder(.white.opacity(0.04), lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .shadow(color: .black.opacity(0.10), radius: 18, x: 0, y: 10)
+        .accessibilityIdentifier("today.calendarCard")
+    }
+
+    private var cardBackground: some View {
+        RoundedRectangle(cornerRadius: 28, style: .continuous)
+            .fill(theme.surfaceColor)
+            .overlay {
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                .white.opacity(0.03),
+                                .clear,
+                                theme.accentColor.opacity(0.03)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
     }
 }
 
@@ -210,6 +237,36 @@ private struct UpcomingEventLineView: View {
         formatter.timeStyle = .short
         formatter.dateStyle = .none
         return formatter.string(from: date)
+    }
+}
+
+private struct TodayCalendarEventLineView: View {
+    let event: CalendarEventItem
+    @EnvironmentObject private var theme: ThemeManager
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(timeLabel)
+                .frame(width: 92, alignment: .leading)
+                .monospacedDigit()
+
+            Text(event.title)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .font(.system(size: 17, weight: .regular))
+        .foregroundStyle(theme.textSecondaryColor)
+    }
+
+    private var timeLabel: String {
+        if event.isAllDay {
+            return "All-Day"
+        }
+        let formatter = DateFormatter()
+        formatter.locale = Locale.current
+        formatter.timeStyle = .short
+        formatter.dateStyle = .none
+        return formatter.string(from: event.startDate).uppercased()
     }
 }
 

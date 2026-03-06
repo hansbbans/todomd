@@ -13,31 +13,93 @@ final class ThemeManager: ObservableObject {
     }
 
     var backgroundColor: Color {
+        #if canImport(UIKit)
+        Color(UIColor.systemGroupedBackground)
+        #elseif canImport(AppKit)
+        Color(nsColor: NSColor.windowBackgroundColor)
+        #else
         dynamic(lightHex: tokens.colors.backgroundPrimaryLight, darkHex: tokens.colors.backgroundPrimaryDark)
+        #endif
     }
 
     var surfaceColor: Color {
+        #if canImport(UIKit)
+        Color(UIColor.secondarySystemGroupedBackground)
+        #elseif canImport(AppKit)
+        Color(nsColor: NSColor.controlBackgroundColor)
+        #else
         dynamic(lightHex: tokens.colors.surfaceLight, darkHex: tokens.colors.surfaceDark)
+        #endif
     }
 
     var textPrimaryColor: Color {
+        #if canImport(UIKit)
+        Color(UIColor.label)
+        #elseif canImport(AppKit)
+        Color(nsColor: NSColor.labelColor)
+        #else
         dynamic(lightHex: tokens.colors.textPrimaryLight, darkHex: tokens.colors.textPrimaryDark)
+        #endif
     }
 
     var textSecondaryColor: Color {
+        #if canImport(UIKit)
+        Color(UIColor.secondaryLabel)
+        #elseif canImport(AppKit)
+        Color(nsColor: NSColor.secondaryLabelColor)
+        #else
         Color(hex: tokens.colors.textSecondary)
+        #endif
+    }
+
+    var textTertiaryColor: Color {
+        #if canImport(UIKit)
+        Color(UIColor.tertiaryLabel)
+        #elseif canImport(AppKit)
+        Color(nsColor: NSColor.tertiaryLabelColor)
+        #else
+        Color(hex: tokens.colors.textSecondary)
+        #endif
     }
 
     var accentColor: Color {
+        #if canImport(UIKit)
+        Color(UIColor.systemBlue)
+        #elseif canImport(AppKit)
+        Color(nsColor: NSColor.controlAccentColor)
+        #else
         dynamic(lightHex: tokens.colors.accentLight, darkHex: tokens.colors.accentDark)
+        #endif
     }
 
     var overdueColor: Color {
+        #if canImport(UIKit)
+        Color(UIColor.systemRed)
+        #elseif canImport(AppKit)
+        Color(nsColor: NSColor.systemRed)
+        #else
         dynamic(lightHex: tokens.colors.overdueLight, darkHex: tokens.colors.overdueDark)
+        #endif
+    }
+
+    var flaggedColor: Color {
+        #if canImport(UIKit)
+        Color(UIColor.systemOrange)
+        #elseif canImport(AppKit)
+        Color(nsColor: NSColor.systemOrange)
+        #else
+        Color.orange
+        #endif
     }
 
     var separatorColor: Color {
+        #if canImport(UIKit)
+        Color(UIColor.separator)
+        #elseif canImport(AppKit)
+        Color(nsColor: NSColor.separatorColor)
+        #else
         dynamic(lightHex: tokens.colors.separatorLight, darkHex: tokens.colors.separatorDark)
+        #endif
     }
 
     func priorityColor(_ priority: TaskPriority) -> Color {
@@ -45,9 +107,15 @@ final class ThemeManager: ObservableObject {
         case .none:
             return textSecondaryColor
         case .low:
+            #if canImport(UIKit)
+            return Color(UIColor.systemGreen)
+            #elseif canImport(AppKit)
+            return Color(nsColor: NSColor.systemGreen)
+            #else
             return dynamic(lightHex: tokens.colors.priorityLowLight, darkHex: tokens.colors.priorityLowDark)
+            #endif
         case .medium:
-            return dynamic(lightHex: tokens.colors.priorityMediumLight, darkHex: tokens.colors.priorityMediumDark)
+            return flaggedColor
         case .high:
             return overdueColor
         }

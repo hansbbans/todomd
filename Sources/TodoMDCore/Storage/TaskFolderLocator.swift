@@ -27,9 +27,7 @@ public struct TaskFolderLocator {
             return selected
         }
 
-        let configuredFolderName = defaults.string(forKey: TaskFolderPreferences.legacyFolderNameKey)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let configured = (configuredFolderName?.isEmpty == false) ? configuredFolderName : nil
+        let configured = TaskFolderPreferences.legacyFolderName(defaults: defaults)
         let documentsRoot = resolveICloudDocumentsRootURL()
 
         if let configured {

@@ -1,3 +1,4 @@
+import Foundation
 import XCTest
 
 @MainActor
@@ -27,47 +28,90 @@ final class TodoMDAppUITests: XCTestCase {
         XCTAssertTrue(getStartedButton.isEnabled)
         getStartedButton.tap()
 
-        let quickAddButton = app.buttons["root.quickAddButton"].firstMatch
-        XCTAssertTrue(quickAddButton.waitForExistence(timeout: 10))
-        quickAddButton.tap()
+        let addButton = app.buttons["root.inlineAddButton"].firstMatch
+        XCTAssertTrue(addButton.waitForExistence(timeout: 10))
+        addButton.tap()
 
-        let quickEntryForm = app.descendants(matching: .any)["quickEntry.form"]
-        XCTAssertTrue(quickEntryForm.waitForExistence(timeout: 10))
-
-        let identifiedTextField = quickEntryForm.descendants(matching: .textField)["quickEntry.titleField"]
-        let identifiedTextView = quickEntryForm.descendants(matching: .textView)["quickEntry.titleField"]
-        let fallbackTextField = quickEntryForm.descendants(matching: .textField).firstMatch
-        let fallbackTextView = quickEntryForm.descendants(matching: .textView).firstMatch
-
-        let titleInput: XCUIElement
-        if identifiedTextField.exists {
-            titleInput = identifiedTextField
-        } else if identifiedTextView.exists {
-            titleInput = identifiedTextView
-        } else if fallbackTextField.exists {
-            titleInput = fallbackTextField
-        } else {
-            titleInput = fallbackTextView
-        }
-
+        let titleInput = app.textFields["inlineTask.titleField"].firstMatch
         XCTAssertTrue(titleInput.waitForExistence(timeout: 10))
         titleInput.tap()
         titleInput.typeText("test")
+        submitInlineTask(from: app)
 
-        let addButton = app.buttons["quickEntry.addButton"]
-        XCTAssertTrue(addButton.isEnabled)
-        addButton.tap()
-
-        XCTAssertFalse(quickEntryForm.waitForExistence(timeout: 2), "Quick Entry sheet did not dismiss")
         let createdTaskRow = app.descendants(matching: .any)["taskRow.test"]
         XCTAssertTrue(createdTaskRow.waitForExistence(timeout: 10), "Created task was not visible")
 
-        quickAddButton.tap()
-        XCTAssertTrue(quickEntryForm.waitForExistence(timeout: 5), "App became unresponsive after adding task")
+        addButton.tap()
+        XCTAssertTrue(titleInput.waitForExistence(timeout: 5), "Inline task composer did not reopen")
+    }
 
-        let cancelButton = app.buttons["quickEntry.cancelButton"]
-        XCTAssertTrue(cancelButton.waitForExistence(timeout: 5))
-        cancelButton.tap()
+    func testInlineQuickAddUsesNaturalLanguageDueDate() {
+        let storageOverride = makeStorageOverridePath()
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let addButton = app.buttons["root.inlineAddButton"].firstMatch
+        XCTAssertTrue(addButton.waitForExistence(timeout: 10), "Inline add button not visible")
+        addButton.tap()
+
+        let titleInput = app.textFields["inlineTask.titleField"].firstMatch
+        XCTAssertTrue(titleInput.waitForExistence(timeout: 10), "Inline task title field did not appear")
+        titleInput.tap()
+        titleInput.typeText("buy cookies due tomorrow")
+        submitInlineTask(from: app)
+
+        let createdTaskRow = app.descendants(matching: .any)["taskRow.buy cookies"]
+        XCTAssertTrue(createdTaskRow.waitForExistence(timeout: 10), "Inline add did not strip the natural-language due phrase")
+        XCTAssertTrue(app.staticTexts["Tomorrow"].waitForExistence(timeout: 10), "Created task did not show the parsed due date")
+    }
+
+    func testMarkingTaskDoneRemovesItFromInboxImmediately() {
+        let storageOverride = makeStorageOverridePath()
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        completeOnboarding(app: app)
+        createTask(app: app, title: "done regression")
+
+        let checkbox = app.buttons["taskRow.done regression"].firstMatch
+        let rowLabel = app.staticTexts["taskRow.done regression"].firstMatch
+        XCTAssertTrue(rowLabel.waitForExistence(timeout: 10), "Created task row was not visible before completion")
+
+        XCTAssertTrue(checkbox.waitForExistence(timeout: 10), "Completion checkbox was not visible before completion")
+        checkbox.tap()
+
+        let rowRemoved = NSPredicate(format: "exists == false")
+        expectation(for: rowRemoved, evaluatedWith: rowLabel)
+        waitForExpectations(timeout: 5)
+    }
+
+    func testOnboardingDefaultFolderAllowsColdRelaunch() {
+        let storageOverride = "Library/Caches/TodoMDUITests/\(UUID().uuidString)"
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        completeOnboarding(app: app)
+        XCTAssertTrue(rootViewReached(app: app, timeout: 10), "App did not reach root view after onboarding")
+
+        app.terminate()
+
+        let relaunchedApp = XCUIApplication()
+        relaunchedApp.launchArguments += ["-ui-testing"]
+        relaunchedApp.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        relaunchedApp.launch()
+
+        XCTAssertTrue(rootViewReached(app: relaunchedApp, timeout: 10), "App did not relaunch into the root view after onboarding")
     }
 
     func testRemindersImportEndToEndWithFakeSource() {
@@ -79,9 +123,7 @@ final class TodoMDAppUITests: XCTestCase {
 
         completeOnboarding(app: app)
 
-        let settingsButton = app.buttons["root.settingsButton"]
-        XCTAssertTrue(settingsButton.waitForExistence(timeout: 10))
-        settingsButton.tap()
+        openSettings(app: app)
 
         let remindersImportSection = app.buttons["settings.section.remindersImport"]
         XCTAssertTrue(remindersImportSection.waitForExistence(timeout: 10), "Reminders Import section not visible")
@@ -113,11 +155,16 @@ final class TodoMDAppUITests: XCTestCase {
             backButton.tap()
         }
 
+        let inboxTab = app.tabBars.buttons["Inbox"].firstMatch
+        if inboxTab.waitForExistence(timeout: 5) {
+            inboxTab.tap()
+        }
+
         let importedTaskRow = app.descendants(matching: .any)["taskRow.from reminders e2e"]
         XCTAssertTrue(importedTaskRow.waitForExistence(timeout: 10), "Imported reminder task row not found")
     }
 
-    func testBottomNavigationPomodoroCanBeEnabledAndSelected() {
+    func testPomodoroCanBeEnabledAndOpenedFromAreas() {
         let app = XCUIApplication()
         app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
         app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = "Library/Caches/TodoMDUITests/\(UUID().uuidString)"
@@ -125,20 +172,17 @@ final class TodoMDAppUITests: XCTestCase {
 
         completeOnboarding(app: app)
 
-        let settingsButton = app.buttons["root.settingsButton"]
-        XCTAssertTrue(settingsButton.waitForExistence(timeout: 10))
-        settingsButton.tap()
+        openSettings(app: app)
 
-        let bottomNavigationSection = app.buttons["settings.section.bottomNavigation"]
-        XCTAssertTrue(bottomNavigationSection.waitForExistence(timeout: 10), "Bottom Navigation section not visible")
-        bottomNavigationSection.tap()
+        let taskBehaviorSection = app.buttons["settings.section.taskBehavior"]
+        XCTAssertTrue(taskBehaviorSection.waitForExistence(timeout: 10), "Task Behavior section not visible")
+        taskBehaviorSection.tap()
 
-        let pomodoroToggle = app.switches["settings.bottomNavigation.pomodoroToggle"]
+        let pomodoroToggle = app.switches["settings.taskBehavior.pomodoroToggle"]
         XCTAssertTrue(pomodoroToggle.waitForExistence(timeout: 10), "Pomodoro toggle not visible")
-        pomodoroToggle.tap()
-
-        let sectionOnePicker = app.buttons["settings.bottomNavigation.section1Picker"]
-        XCTAssertTrue(sectionOnePicker.waitForExistence(timeout: 10), "Bottom navigation section picker not visible")
+        if (pomodoroToggle.value as? String) != "1" {
+            pomodoroToggle.tap()
+        }
 
         for _ in 0..<2 {
             let backButton = app.navigationBars.buttons.firstMatch
@@ -146,8 +190,11 @@ final class TodoMDAppUITests: XCTestCase {
             backButton.tap()
         }
 
-        let quickAddButton = app.buttons["root.quickAddButton"].firstMatch
-        XCTAssertTrue(quickAddButton.waitForExistence(timeout: 10), "Failed to return to main screen")
+        let pomodoroButton = app.buttons["Pomodoro"].firstMatch
+        XCTAssertTrue(pomodoroButton.waitForExistence(timeout: 10), "Pomodoro entry not visible in Areas")
+        pomodoroButton.tap()
+
+        XCTAssertTrue(app.navigationBars["Pomodoro"].waitForExistence(timeout: 10), "Pomodoro view did not open")
     }
 
     func testInboxTriagePriorityAssignmentCanAdvanceQueue() {
@@ -182,11 +229,10 @@ final class TodoMDAppUITests: XCTestCase {
         let nextButton = app.buttons["onboarding.nextButton"]
         let useDefaultButton = app.buttons["onboarding.useDefaultButton"]
         let getStartedButton = app.buttons["onboarding.getStartedButton"]
-        let settingsButton = app.buttons["root.settingsButton"]
 
         let timeout = Date().addingTimeInterval(25)
         while Date() < timeout {
-            if settingsButton.exists {
+            if rootViewReached(app: app) {
                 return
             }
 
@@ -208,43 +254,63 @@ final class TodoMDAppUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.3))
         }
 
-        XCTAssertTrue(settingsButton.waitForExistence(timeout: 5), "App did not reach root view")
+        XCTAssertTrue(rootViewReached(app: app, timeout: 5), "App did not reach root view")
+    }
+
+    private func rootViewReached(app: XCUIApplication, timeout: TimeInterval = 0) -> Bool {
+        let addButton = app.buttons["root.inlineAddButton"]
+        let areasTab = app.tabBars.buttons["Areas"]
+        guard timeout > 0 else {
+            return addButton.exists || areasTab.exists
+        }
+        return addButton.waitForExistence(timeout: timeout) || areasTab.waitForExistence(timeout: timeout)
     }
 
     private func createTask(app: XCUIApplication, title: String) {
-        let quickAddButton = app.buttons["root.quickAddButton"].firstMatch
-        XCTAssertTrue(quickAddButton.waitForExistence(timeout: 10), "Quick add button not visible")
-        quickAddButton.tap()
-
-        let quickEntryForm = app.descendants(matching: .any)["quickEntry.form"]
-        XCTAssertTrue(quickEntryForm.waitForExistence(timeout: 10), "Quick Entry sheet did not appear")
-
-        let identifiedTextField = quickEntryForm.descendants(matching: .textField)["quickEntry.titleField"]
-        let identifiedTextView = quickEntryForm.descendants(matching: .textView)["quickEntry.titleField"]
-        let fallbackTextField = quickEntryForm.descendants(matching: .textField).firstMatch
-        let fallbackTextView = quickEntryForm.descendants(matching: .textView).firstMatch
-
-        let titleInput: XCUIElement
-        if identifiedTextField.exists {
-            titleInput = identifiedTextField
-        } else if identifiedTextView.exists {
-            titleInput = identifiedTextView
-        } else if fallbackTextField.exists {
-            titleInput = fallbackTextField
-        } else {
-            titleInput = fallbackTextView
-        }
-
-        XCTAssertTrue(titleInput.waitForExistence(timeout: 10))
-        titleInput.tap()
-        titleInput.typeText(title)
-
-        let addButton = app.buttons["quickEntry.addButton"]
-        XCTAssertTrue(addButton.isEnabled)
+        let addButton = app.buttons["root.inlineAddButton"].firstMatch
+        XCTAssertTrue(addButton.waitForExistence(timeout: 10), "Inline add button not visible")
         addButton.tap()
 
-        XCTAssertFalse(quickEntryForm.waitForExistence(timeout: 2), "Quick Entry sheet did not dismiss")
+        let titleInput = app.textFields["inlineTask.titleField"].firstMatch
+        XCTAssertTrue(titleInput.waitForExistence(timeout: 10), "Inline task title field did not appear")
+        titleInput.tap()
+        titleInput.typeText(title)
+        submitInlineTask(from: app)
+
         let createdTaskRow = app.descendants(matching: .any)["taskRow.\(title)"]
         XCTAssertTrue(createdTaskRow.waitForExistence(timeout: 10), "Created task row was not visible")
+    }
+
+    private func openSettings(app: XCUIApplication) {
+        let areasTab = app.tabBars.buttons["Areas"]
+        XCTAssertTrue(areasTab.waitForExistence(timeout: 10), "Areas tab not visible")
+        areasTab.tap()
+
+        let settingsButton = app.buttons["root.settingsButton"]
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 10), "Settings button not visible in Areas")
+        settingsButton.tap()
+    }
+
+    private func submitInlineTask(from app: XCUIApplication) {
+        if app.keyboards.buttons["Done"].exists {
+            app.keyboards.buttons["Done"].tap()
+            return
+        }
+        if app.keyboards.buttons["Return"].exists {
+            app.keyboards.buttons["Return"].tap()
+            return
+        }
+        if app.keyboards.buttons["return"].exists {
+            app.keyboards.buttons["return"].tap()
+            return
+        }
+        app.typeText("\n")
+    }
+
+    private func makeStorageOverridePath() -> String {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("TodoMDUITests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            .path
     }
 }

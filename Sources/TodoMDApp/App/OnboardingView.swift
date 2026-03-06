@@ -197,9 +197,8 @@ struct OnboardingView: View {
     }
 
     private func useDefaultFolder() {
-        let defaults = UserDefaults.standard
-        defaults.set("todomd", forKey: TaskFolderPreferences.legacyFolderNameKey)
-        TaskFolderPreferences.clearSelectedFolder(defaults: defaults)
+        TaskFolderPreferences.setLegacyFolderName("todomd")
+        TaskFolderPreferences.clearSelectedFolder()
         selectedFolderChoice = .useDefault
         refreshResolvedFolder()
         container.reloadStorageLocation()

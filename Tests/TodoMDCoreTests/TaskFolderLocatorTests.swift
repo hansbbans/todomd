@@ -54,6 +54,36 @@ final class TaskFolderLocatorTests: XCTestCase {
         XCTAssertEqual(resolved.lastPathComponent, "todo.md")
     }
 
+    func testLocatorMigratesLegacyFolderNameFromStandardDefaultsWhenSharedDefaultsMissing() throws {
+        let suiteName = "TaskFolderLocatorTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let standardDefaults = UserDefaults.standard
+        let legacyBackup = standardDefaults.object(forKey: TaskFolderPreferences.legacyFolderNameKey)
+        let bookmarkBackup = standardDefaults.object(forKey: TaskFolderPreferences.selectedFolderBookmarkKey)
+        let pathBackup = standardDefaults.object(forKey: TaskFolderPreferences.selectedFolderPathKey)
+
+        defer {
+            restore(legacyBackup, key: TaskFolderPreferences.legacyFolderNameKey, defaults: standardDefaults)
+            restore(bookmarkBackup, key: TaskFolderPreferences.selectedFolderBookmarkKey, defaults: standardDefaults)
+            restore(pathBackup, key: TaskFolderPreferences.selectedFolderPathKey, defaults: standardDefaults)
+        }
+
+        standardDefaults.removeObject(forKey: TaskFolderPreferences.selectedFolderBookmarkKey)
+        standardDefaults.removeObject(forKey: TaskFolderPreferences.selectedFolderPathKey)
+        standardDefaults.set("legacy-from-standard", forKey: TaskFolderPreferences.legacyFolderNameKey)
+
+        let locator = TaskFolderLocator(folderName: "todo.md", defaults: defaults)
+        let resolved = try locator.resolveVisibleICloudURL()
+
+        XCTAssertEqual(resolved.lastPathComponent, "legacy-from-standard")
+        XCTAssertEqual(defaults.string(forKey: TaskFolderPreferences.legacyFolderNameKey), "legacy-from-standard")
+    }
+
     func testInvalidSelectedFolderBookmarkIsCleared() {
         let suiteName = "TaskFolderLocatorTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
@@ -115,5 +145,13 @@ final class TaskFolderLocatorTests: XCTestCase {
         #else
         return try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
         #endif
+    }
+
+    private func restore(_ value: Any?, key: String, defaults: UserDefaults) {
+        if let value {
+            defaults.set(value, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
     }
 }

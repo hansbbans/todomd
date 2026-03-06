@@ -85,4 +85,42 @@ final class TaskQueryEngineTests: XCTestCase {
         XCTAssertFalse(engine.matches(doneRecord, view: .project("MyProject"), today: today))
         XCTAssertFalse(engine.matches(cancelledRecord, view: .project("MyProject"), today: today))
     }
+
+    func testLogbookMatchesDoneAndCancelledTasks() throws {
+        let done = TaskRecord(
+            identity: TaskFileIdentity(path: "/tmp/logbook-done.md"),
+            document: TaskDocument(frontmatter: TestSupport.sampleFrontmatter(status: .done), body: "")
+        )
+        let cancelled = TaskRecord(
+            identity: TaskFileIdentity(path: "/tmp/logbook-cancelled.md"),
+            document: TaskDocument(frontmatter: TestSupport.sampleFrontmatter(status: .cancelled), body: "")
+        )
+        let active = TaskRecord(
+            identity: TaskFileIdentity(path: "/tmp/logbook-active.md"),
+            document: TaskDocument(frontmatter: TestSupport.sampleFrontmatter(), body: "")
+        )
+
+        let today = try LocalDate(isoDate: "2025-03-01")
+        XCTAssertTrue(engine.matches(done, view: .builtIn(.logbook), today: today))
+        XCTAssertTrue(engine.matches(cancelled, view: .builtIn(.logbook), today: today))
+        XCTAssertFalse(engine.matches(active, view: .builtIn(.logbook), today: today))
+    }
+
+    func testAreaAndTagViewsExcludeDoneTasks() throws {
+        var active = TestSupport.sampleFrontmatter()
+        active.area = "Work"
+        active.tags = ["focus"]
+        let activeRecord = TaskRecord(identity: TaskFileIdentity(path: "/tmp/area-tag-active.md"), document: .init(frontmatter: active, body: ""))
+
+        var done = TestSupport.sampleFrontmatter(status: .done)
+        done.area = "Work"
+        done.tags = ["focus"]
+        let doneRecord = TaskRecord(identity: TaskFileIdentity(path: "/tmp/area-tag-done.md"), document: .init(frontmatter: done, body: ""))
+
+        let today = try LocalDate(isoDate: "2025-03-01")
+        XCTAssertTrue(engine.matches(activeRecord, view: .area("Work"), today: today))
+        XCTAssertFalse(engine.matches(doneRecord, view: .area("Work"), today: today))
+        XCTAssertTrue(engine.matches(activeRecord, view: .tag("focus"), today: today))
+        XCTAssertFalse(engine.matches(doneRecord, view: .tag("focus"), today: today))
+    }
 }
