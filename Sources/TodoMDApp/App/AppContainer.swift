@@ -1811,6 +1811,9 @@ final class AppContainer: ObservableObject {
         flagged: Bool = false,
         area: String? = nil,
         project: String? = nil,
+        estimatedMinutes: Int? = nil,
+        description: String? = nil,
+        source: String = "user",
         defaultView: BuiltInView? = nil
     ) {
         let destinationView = defaultView ?? BuiltInView(rawValue: UserDefaults.standard.string(forKey: Self.settingsQuickEntryDefaultViewKey) ?? "")
@@ -1829,6 +1832,9 @@ final class AppContainer: ObservableObject {
         let normalizedTags = normalizeTags(tags)
         let normalizedArea = area?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         let normalizedProject = project?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        let resolvedProject = normalizedProject.map { resolvedProjectName(for: $0) ?? $0 }
+        let resolvedArea = normalizedArea ?? resolvedProject.flatMap { inferredArea(forProject: $0) }
+        let normalizedDescription = description?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
 
         let now = Date()
         let frontmatter = TaskFrontmatterV1(
@@ -1838,12 +1844,14 @@ final class AppContainer: ObservableObject {
             dueTime: due == nil ? nil : explicitDueTime,
             priority: resolvedPriority,
             flagged: flagged,
-            area: normalizedArea,
-            project: normalizedProject,
+            area: resolvedArea,
+            project: resolvedProject,
             tags: normalizedTags,
+            estimatedMinutes: estimatedMinutes,
+            description: normalizedDescription,
             created: now,
             modified: now,
-            source: "user"
+            source: source
         )
 
         let document = TaskDocument(frontmatter: frontmatter, body: "")
@@ -1872,7 +1880,7 @@ final class AppContainer: ObservableObject {
             naturalDate: nil,
             tags: mergedTags,
             explicitDue: explicitDue ?? parsed.due,
-            explicitDueTime: explicitDueTime,
+            explicitDueTime: explicitDueTime ?? parsed.dueTime,
             priorityOverride: priority,
             flagged: flagged,
             area: area,
@@ -1880,6 +1888,41 @@ final class AppContainer: ObservableObject {
             defaultView: defaultView
         )
         return true
+    }
+
+    @discardableResult
+    func createTasks(
+        fromVoiceRambleDrafts drafts: [VoiceRambleTaskDraft],
+        fallbackDue: LocalDate? = nil,
+        fallbackDueTime: LocalTime? = nil,
+        fallbackPriority: TaskPriority? = nil,
+        flagged: Bool = false,
+        tags: [String] = [],
+        area: String? = nil,
+        project: String? = nil,
+        defaultView: BuiltInView? = nil
+    ) -> Int {
+        var createdCount = 0
+        for draft in drafts {
+            let resolvedDue = draft.due ?? fallbackDue
+            let resolvedDueTime = resolvedDue == nil ? nil : (draft.dueTime ?? fallbackDueTime)
+            createTask(
+                title: draft.title,
+                naturalDate: nil,
+                tags: normalizeTags(draft.tags + tags),
+                explicitDue: resolvedDue,
+                explicitDueTime: resolvedDueTime,
+                priorityOverride: draft.priority ?? fallbackPriority,
+                flagged: flagged,
+                area: area,
+                project: draft.project ?? project,
+                estimatedMinutes: draft.estimatedMinutes,
+                source: "voice-ramble",
+                defaultView: defaultView
+            )
+            createdCount += 1
+        }
+        return createdCount
     }
 
     func createTask(request: TaskCreateRequest) {

@@ -335,6 +335,7 @@ struct SettingsView: View {
                         Text("You won't receive any reminders until you enable notifications for todo.md in iOS Settings.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
+                        #if canImport(UIKit)
                         Button("Open iOS Settings") {
                             if let url = URL(string: UIApplication.openSettingsURLString) {
                                 UIApplication.shared.open(url)
@@ -342,6 +343,7 @@ struct SettingsView: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .padding(.top, 4)
+                        #endif
                     }
                     .padding(.vertical, 4)
                 }
@@ -398,12 +400,14 @@ struct SettingsView: View {
             let settings = await UNUserNotificationCenter.current().notificationSettings()
             notificationAuthorizationStatus = settings.authorizationStatus
         }
+        #if canImport(UIKit)
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             Task {
                 let settings = await UNUserNotificationCenter.current().notificationSettings()
                 notificationAuthorizationStatus = settings.authorizationStatus
             }
         }
+        #endif
 #endif
     }
 
@@ -459,9 +463,11 @@ struct SettingsView: View {
         }
         .navigationTitle(SettingsSection.taskBehavior.title)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            #if os(iOS)
+            ToolbarItem(placement: .appTrailingAction) {
                 EditButton()
             }
+            #endif
         }
     }
 
@@ -533,9 +539,11 @@ struct SettingsView: View {
         }
         .navigationTitle(SettingsSection.bottomNavigation.title)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            #if os(iOS)
+            ToolbarItem(placement: .appTrailingAction) {
                 EditButton()
             }
+            #endif
         }
         .onChange(of: pomodoroEnabled) { _, isEnabled in
             if !isEnabled {
@@ -548,7 +556,7 @@ struct SettingsView: View {
         Form {
             Section {
                 TextField("Default iCloud folder name", text: $iCloudFolderName)
-                    .textInputAutocapitalization(.never)
+                    .modifier(SettingsNoAutocapitalization())
 
                 LabeledContent("Selected folder") {
                     Text(selectedFolderPath ?? "Automatic (\(iCloudFolderName))")
@@ -828,5 +836,15 @@ struct SettingsView: View {
         var fields = selectedQuickEntryFields
         fields.move(fromOffsets: source, toOffset: destination)
         quickEntryFieldsRawValue = QuickEntrySettings.encodeFields(fields)
+    }
+}
+
+private struct SettingsNoAutocapitalization: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        content.textInputAutocapitalization(.never)
+        #else
+        content
+        #endif
     }
 }

@@ -21,6 +21,7 @@ struct QuickEntrySheet: View {
     @State private var showingDueDateEditor = false
     @State private var showingReminderEditor = false
     @State private var showingTagsEditor = false
+    @State private var showingVoiceRamble = false
     @State private var reminderDraftDate = Date()
     @State private var didApplyDefaults = false
     @State private var showAllFields = false
@@ -128,6 +129,21 @@ struct QuickEntrySheet: View {
         .sheet(isPresented: $showingTagsEditor) {
             tagsEditor
         }
+        .sheet(isPresented: $showingVoiceRamble) {
+            VoiceRambleSheet(
+                fallbackDue: (supportsDueInputs && hasDueDate) ? localDate(from: dueDate) : nil,
+                fallbackDueTime: (supportsDueInputs && hasDueDate && hasDueTime) ? localTime(from: dueTime) : nil,
+                fallbackPriority: activeFieldSet.contains(.priority) ? priorityOverride : nil,
+                fallbackFlagged: activeFieldSet.contains(.flag) ? flagged : false,
+                fallbackTags: activeFieldSet.contains(.tags) ? parsedTags(from: tagsText) : [],
+                fallbackArea: selectedArea,
+                fallbackProject: selectedProject,
+                defaultView: BuiltInView(rawValue: quickEntryDefaultView),
+                onTasksCreated: {
+                    dismiss()
+                }
+            )
+        }
     }
 
     private var descriptionField: some View {
@@ -139,9 +155,9 @@ struct QuickEntrySheet: View {
 
                 TextField("Description", text: $quickEntryText)
                     .font(.system(.title2, design: .rounded).weight(.regular))
-                    .textInputAutocapitalization(.sentences)
+                    .modifier(QuickEntryAutocapitalization(sentences: true))
                     .autocorrectionDisabled(false)
-                    .frame(maxWidth: .infinity, minHeight: descriptionInputHeight, alignment: .leading)
+                    .frame(maxWidth: CGFloat.infinity, minHeight: descriptionInputHeight, alignment: Alignment.leading)
                     .accessibilityIdentifier("quickEntry.titleField")
             }
             .accessibilityIdentifier("quickEntry.titleField")
@@ -339,7 +355,7 @@ struct QuickEntrySheet: View {
 
             HStack(spacing: 10) {
                 Button {
-                    // Placeholder button for future voice capture.
+                    showingVoiceRamble = true
                 } label: {
                     Image(systemName: "waveform")
                         .font(.system(size: 18, weight: .bold))
@@ -347,8 +363,8 @@ struct QuickEntrySheet: View {
                         .frame(width: 48, height: 48)
                         .background(Circle().fill(theme.accentColor))
                 }
-                .disabled(true)
-                .opacity(0.7)
+                .accessibilityIdentifier("quickEntry.voiceRambleButton")
+                .accessibilityLabel("Voice ramble")
 
                 Button {
                     addTask()
@@ -473,7 +489,7 @@ struct QuickEntrySheet: View {
         NavigationStack {
             Form {
                 TextField("work, finance, errands", text: $tagsText)
-                    .textInputAutocapitalization(.never)
+                    .modifier(QuickEntryAutocapitalization(sentences: false))
                     .autocorrectionDisabled(true)
                 Text("Use commas or spaces. #prefix is optional.")
                     .font(.caption)
@@ -585,5 +601,17 @@ struct QuickEntrySheet: View {
             seen.insert(normalized)
             return normalized
         }
+    }
+}
+
+private struct QuickEntryAutocapitalization: ViewModifier {
+    let sentences: Bool
+
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        content.textInputAutocapitalization(sentences ? .sentences : .never)
+        #else
+        content
+        #endif
     }
 }

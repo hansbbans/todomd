@@ -57,10 +57,12 @@ struct PerspectivesView: View {
         }
         .navigationTitle("Perspectives")
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
+            #if os(iOS)
+            ToolbarItem(placement: .appLeadingAction) {
                 EditButton()
             }
-            ToolbarItem(placement: .topBarTrailing) {
+            #endif
+            ToolbarItem(placement: .appTrailingAction) {
                 Button {
                     editingPerspective = PerspectiveDefinition()
                 } label: {
@@ -173,7 +175,7 @@ struct PerspectiveEditorSheet: View {
         Form {
             Section("Natural Language") {
                 TextField("Describe what you want to see...", text: $naturalLanguageQuery, axis: .vertical)
-                    .textInputAutocapitalization(.never)
+                    .modifier(PerspectiveNoAutocapitalization())
 
                 Button("Parse Query") {
                     applyNaturalLanguageQuery()
@@ -614,7 +616,7 @@ private struct PerspectiveRuleGroupEditor: View {
                 .font(.caption)
             }
             .padding(8)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Color(.secondarySystemBackground)))
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.12)))
         case .group:
             VStack(alignment: .leading, spacing: 8) {
                 PerspectiveRuleGroupEditor(
@@ -914,7 +916,7 @@ private struct PerspectiveRuleEditor: View {
                             }
                         }
                     ))
-                    .textInputAutocapitalization(.never)
+                    .modifier(PerspectiveNoAutocapitalization())
                 }
             }
         }
@@ -1029,5 +1031,15 @@ private struct PerspectiveRuleEditor: View {
         case .recurrence: return "every week"
         case .unknown: return "value"
         }
+    }
+}
+
+private struct PerspectiveNoAutocapitalization: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        content.textInputAutocapitalization(.never)
+        #else
+        content
+        #endif
     }
 }

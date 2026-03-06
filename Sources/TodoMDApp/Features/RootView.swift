@@ -59,10 +59,49 @@ private struct SectionHeaderView: View {
     }
 }
 
+private struct RootViewSearchableModifier: ViewModifier {
+    @Binding var text: String
+    let prompt: String
+
+    func body(content: Content) -> some View {
+#if os(iOS)
+        content.searchable(
+            text: $text,
+            placement: .navigationBarDrawer(displayMode: .automatic),
+            prompt: prompt
+        )
+#else
+        content.searchable(text: $text, prompt: prompt)
+#endif
+    }
+}
+
+private struct RootViewInsetGroupedListStyle: ViewModifier {
+    func body(content: Content) -> some View {
+#if os(iOS)
+        content.listStyle(.insetGrouped)
+#else
+        content.listStyle(.inset)
+#endif
+    }
+}
+
+private struct RootViewWordsAutocapitalization: ViewModifier {
+    func body(content: Content) -> some View {
+#if os(iOS)
+        content.textInputAutocapitalization(.words)
+#else
+        content
+#endif
+    }
+}
+
 struct RootView: View {
     @EnvironmentObject private var container: AppContainer
     @EnvironmentObject private var theme: ThemeManager
+#if os(iOS)
     @Environment(\.editMode) private var editMode
+#endif
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var showingQuickEntry = false
@@ -108,6 +147,14 @@ struct RootView: View {
         .background(theme.backgroundColor.ignoresSafeArea())
     }
 
+    private var isEditing: Bool {
+#if os(iOS)
+        editMode?.wrappedValue.isEditing == true
+#else
+        false
+#endif
+    }
+
     private var detailPane: some View {
         NavigationStack(path: $navigationPath) {
             mainContent
@@ -121,7 +168,7 @@ struct RootView: View {
             }
             .navigationTitle(navigationTitle())
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .appLeadingAction) {
                     if horizontalSizeClass == .compact {
                         Button {
                             applyFilter(.browse)
@@ -131,7 +178,7 @@ struct RootView: View {
                     }
                 }
 
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .appTrailingAction) {
                     NavigationLink {
                         SettingsView()
                     } label: {
@@ -140,7 +187,7 @@ struct RootView: View {
                     .accessibilityIdentifier("root.settingsButton")
                 }
 
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .appTrailingAction) {
                     if container.selectedView == .builtIn(.inbox), navigationPath.isEmpty {
                         Button {
                             toggleInboxTriageMode()
@@ -434,7 +481,7 @@ struct RootView: View {
         .navigationTitle("todo.md")
         .listStyle(.sidebar)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .appTrailingAction) {
                 NavigationLink {
                     SettingsView()
                 } label: {
@@ -450,10 +497,11 @@ struct RootView: View {
         let searchQuery = universalSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         if container.selectedView.isBrowse {
             browseContent(query: searchQuery)
-                .searchable(
-                    text: $universalSearchText,
-                    placement: .navigationBarDrawer(displayMode: .automatic),
-                    prompt: "Search tasks, sections, tags"
+                .modifier(
+                    RootViewSearchableModifier(
+                        text: $universalSearchText,
+                        prompt: "Search tasks, sections, tags"
+                    )
                 )
         } else if container.selectedView == .builtIn(.upcoming) {
             UpcomingCalendarView(sections: container.upcomingAgendaSections())
@@ -498,7 +546,7 @@ struct RootView: View {
             } else {
                 List {
                     if container.selectedView == .builtIn(.today) {
-                        if editMode?.wrappedValue.isEditing == true {
+                        if isEditing {
                             Section {
                                 ForEach(records) { record in
                                     taskRowItem(record)
@@ -679,7 +727,7 @@ struct RootView: View {
                 }
             }
         }
-        .listStyle(.insetGrouped)
+        .modifier(RootViewInsetGroupedListStyle())
         .scrollContentBackground(.hidden)
     }
 
@@ -782,7 +830,7 @@ struct RootView: View {
                     }
                 }
             }
-            .listStyle(.insetGrouped)
+            .modifier(RootViewInsetGroupedListStyle())
             .scrollContentBackground(.hidden)
         }
     }
@@ -820,7 +868,7 @@ struct RootView: View {
         Form {
             Section("Name") {
                 TextField("Project name", text: $newProjectName)
-                    .textInputAutocapitalization(.words)
+                    .modifier(RootViewWordsAutocapitalization())
                     .autocorrectionDisabled()
             }
 
@@ -867,7 +915,7 @@ struct RootView: View {
         Form {
             Section("Name") {
                 TextField("Project name", text: $editingProjectName)
-                    .textInputAutocapitalization(.words)
+                    .modifier(RootViewWordsAutocapitalization())
                     .autocorrectionDisabled()
             }
 
@@ -953,8 +1001,10 @@ struct RootView: View {
     private func builtInBrowseFilterButton(_ builtInView: BuiltInView, label: String, icon: String) -> some View {
         browseFilterButton(view: .builtIn(builtInView), label: label, icon: icon)
             .contextMenu {
-                Button("View Rules") {
-                    builtInRulesTarget = BuiltInRulesTarget(view: builtInView)
+                if builtInView != .review {
+                    Button("View Rules") {
+                        builtInRulesTarget = BuiltInRulesTarget(view: builtInView)
+                    }
                 }
             }
     }
@@ -1242,7 +1292,7 @@ struct RootView: View {
         .accessibilityHint("Swipe right for quick actions. Swipe left to complete. Long press for more options.")
         .contentShape(Rectangle())
         .onTapGesture {
-            guard editMode?.wrappedValue.isEditing != true else { return }
+            guard !isEditing else { return }
             navigationPath.append(record.identity.path)
         }
         .contextMenu {
@@ -1392,8 +1442,10 @@ struct RootView: View {
     private func builtInNavButton(_ builtInView: BuiltInView, label: String, icon: String) -> some View {
         navButton(view: .builtIn(builtInView), label: label, icon: icon)
             .contextMenu {
-                Button("View Rules") {
-                    builtInRulesTarget = BuiltInRulesTarget(view: builtInView)
+                if builtInView != .review {
+                    Button("View Rules") {
+                        builtInRulesTarget = BuiltInRulesTarget(view: builtInView)
+                    }
                 }
             }
     }

@@ -27,7 +27,7 @@ struct UnparseableFilesView: View {
             }
         }
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .appTrailingAction) {
                 Button("Rescan") {
                     container.refresh()
                 }

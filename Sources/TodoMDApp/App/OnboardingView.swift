@@ -28,7 +28,7 @@ struct OnboardingView: View {
                     pageICloud
                         .tag(2)
                 }
-                .tabViewStyle(.page(indexDisplayMode: .always))
+                .modifier(OnboardingTabViewStyle())
 
                 HStack {
                     if page > 0 {
@@ -245,5 +245,15 @@ struct OnboardingView: View {
 
         let values = try? url.resourceValues(forKeys: [.isUbiquitousItemKey])
         return values?.isUbiquitousItem == true
+    }
+}
+
+private struct OnboardingTabViewStyle: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        content.tabViewStyle(.page(indexDisplayMode: .always))
+        #else
+        content
+        #endif
     }
 }

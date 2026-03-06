@@ -73,9 +73,9 @@ struct TaskDetailView: View {
             }
         }
         .navigationTitle("Task")
-        .navigationBarTitleDisplayMode(.inline)
+        .modifier(TaskDetailInlineTitleDisplay())
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
+            ToolbarItem(placement: .appTrailingAction) {
                 Button(role: .destructive) {
                     showDeleteConfirmation = true
                 } label: {
@@ -97,9 +97,9 @@ struct TaskDetailView: View {
         .onChange(of: container.locationFavorites.map(\.id), initial: false) { _, _ in
             syncSelectedLocationFavorite()
         }
-        .fullScreenCover(isPresented: $showNotesEditor) {
+        .modifier(TaskDetailNotesPresentation(isPresented: $showNotesEditor) {
             notesEditorView
-        }
+        })
         .sheet(isPresented: $expandedLocationReminder) {
             locationEditorView
         }
@@ -508,7 +508,7 @@ struct TaskDetailView: View {
                 .background(theme.backgroundColor.ignoresSafeArea())
                 .navigationTitle("Notes")
                 .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
+                    ToolbarItem(placement: .appTrailingAction) {
                         Button("Done") { showNotesEditor = false }
                     }
                 }
@@ -556,16 +556,16 @@ struct TaskDetailView: View {
                 }
             }
             .navigationTitle("Custom Repeat")
-            .navigationBarTitleDisplayMode(.inline)
+            .modifier(TaskDetailInlineTitleDisplay())
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .appLeadingAction) {
                     Button {
                         showingCustomRepeatEditor = false
                     } label: {
                         Image(systemName: "chevron.left")
                     }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .appTrailingAction) {
                     Button("Save") {
                         applyRecurrenceBuilder()
                         showingCustomRepeatEditor = false
@@ -591,9 +591,9 @@ struct TaskDetailView: View {
 
                         TextField("Name", text: binding(\.locationName))
                         TextField("Latitude", text: binding(\.locationLatitude))
-                            .keyboardType(.decimalPad)
+                            .modifier(TaskDetailDecimalKeyboard())
                         TextField("Longitude", text: binding(\.locationLongitude))
-                            .keyboardType(.decimalPad)
+                            .modifier(TaskDetailDecimalKeyboard())
                         Stepper(
                             "Radius: \(editState?.locationRadiusMeters ?? 100) m",
                             value: binding(\.locationRadiusMeters),
@@ -630,9 +630,9 @@ struct TaskDetailView: View {
                 }
             }
             .navigationTitle("Location")
-            .navigationBarTitleDisplayMode(.inline)
+            .modifier(TaskDetailInlineTitleDisplay())
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .appTrailingAction) {
                     Button("Done") { expandedLocationReminder = false }
                 }
             }
@@ -1100,5 +1100,38 @@ private struct PropertyRow<Content: View>: View {
             Divider()
                 .padding(.leading, 52)
         }
+    }
+}
+
+private struct TaskDetailInlineTitleDisplay: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        content.navigationBarTitleDisplayMode(.inline)
+        #else
+        content
+        #endif
+    }
+}
+
+private struct TaskDetailDecimalKeyboard: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        content.keyboardType(.decimalPad)
+        #else
+        content
+        #endif
+    }
+}
+
+private struct TaskDetailNotesPresentation<SheetContent: View>: ViewModifier {
+    @Binding var isPresented: Bool
+    let presentedContent: () -> SheetContent
+
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        content.fullScreenCover(isPresented: $isPresented, content: presentedContent)
+        #else
+        content.sheet(isPresented: $isPresented, content: presentedContent)
+        #endif
     }
 }

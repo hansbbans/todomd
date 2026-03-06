@@ -3,11 +3,13 @@ import Foundation
 public struct ParsedQuickEntry: Equatable, Sendable {
     public var title: String
     public var due: LocalDate?
+    public var dueTime: LocalTime?
     public var tags: [String]
 
-    public init(title: String, due: LocalDate?, tags: [String]) {
+    public init(title: String, due: LocalDate?, dueTime: LocalTime? = nil, tags: [String]) {
         self.title = title
         self.due = due
+        self.dueTime = dueTime
         self.tags = tags
     }
 }
@@ -25,14 +27,15 @@ public struct NaturalLanguageTaskParser {
         guard !trimmedInput.isEmpty else { return nil }
 
         let (withoutTrailingTags, tags) = extractTrailingTags(from: trimmedInput)
-        let (candidateTitle, due) = extractDueDate(from: withoutTrailingTags, relativeTo: referenceDate)
+        let extraction = extractDueDate(from: withoutTrailingTags, relativeTo: referenceDate)
+        let candidateTitle = extraction.title
 
         let normalizedTitle = normalizeWhitespace(candidateTitle)
         let fallbackTitle = normalizeWhitespace(withoutTrailingTags)
         let resolvedTitle = normalizedTitle.isEmpty ? fallbackTitle : normalizedTitle
         guard !resolvedTitle.isEmpty else { return nil }
 
-        return ParsedQuickEntry(title: resolvedTitle, due: due, tags: tags)
+        return ParsedQuickEntry(title: resolvedTitle, due: extraction.due, dueTime: extraction.dueTime, tags: tags)
     }
 
     private func extractTrailingTags(from input: String) -> (String, [String]) {
@@ -50,9 +53,9 @@ public struct NaturalLanguageTaskParser {
         return (tokens.joined(separator: " "), tags)
     }
 
-    private func extractDueDate(from input: String, relativeTo referenceDate: Date) -> (String, LocalDate?) {
+    private func extractDueDate(from input: String, relativeTo referenceDate: Date) -> (title: String, due: LocalDate?, dueTime: LocalTime?) {
         let tokens = input.split(whereSeparator: { $0.isWhitespace }).map(String.init)
-        guard !tokens.isEmpty else { return (input, nil) }
+        guard !tokens.isEmpty else { return (input, nil, nil) }
 
         if let explicit = parseExplicitDatePhrase(tokens: tokens, relativeTo: referenceDate) {
             return explicit
@@ -62,35 +65,148 @@ public struct NaturalLanguageTaskParser {
         if maxSuffixLength > 0 {
             for length in stride(from: maxSuffixLength, through: 1, by: -1) {
                 let phrase = tokens.suffix(length).joined(separator: " ")
-                if let due = parseDatePhrase(phrase, relativeTo: referenceDate) {
+                if let parsed = parseDatePhrase(phrase, relativeTo: referenceDate) {
                     let title = tokens.dropLast(length).joined(separator: " ")
-                    return (title, due)
+                    return (title, parsed.due, parsed.dueTime)
                 }
             }
         }
 
-        return (input, nil)
+        return (input, nil, nil)
     }
 
-    private func parseExplicitDatePhrase(tokens: [String], relativeTo referenceDate: Date) -> (String, LocalDate?)? {
+    private func parseExplicitDatePhrase(tokens: [String], relativeTo referenceDate: Date) -> (title: String, due: LocalDate?, dueTime: LocalTime?)? {
         let connectors: Set<String> = ["by", "on", "due", "at"]
         for index in stride(from: tokens.count - 2, through: 0, by: -1) {
             let token = normalizedToken(tokens[index])
             guard connectors.contains(token) else { continue }
             let phrase = tokens[(index + 1)...].joined(separator: " ")
-            if let due = parseDatePhrase(phrase, relativeTo: referenceDate) {
+            if let parsed = parseDatePhrase(phrase, relativeTo: referenceDate) {
                 let title = tokens[..<index].joined(separator: " ")
-                return (title, due)
+                return (title, parsed.due, parsed.dueTime)
             }
         }
 
         return nil
     }
 
-    private func parseDatePhrase(_ phrase: String, relativeTo referenceDate: Date) -> LocalDate? {
+    private func parseDatePhrase(_ phrase: String, relativeTo referenceDate: Date) -> (due: LocalDate, dueTime: LocalTime?)? {
+        let normalized = normalizeWhitespace(phrase)
+        guard !normalized.isEmpty else { return nil }
+
+        let direct = normalizeDatePhrase(normalized)
+        if !direct.isEmpty, let due = dateParser.parse(direct, relativeTo: referenceDate) {
+            return (due, nil)
+        }
+
+        if let split = splitTrailingTimePhrase(from: normalized),
+           let due = parseDateOnlyPhrase(split.datePhrase, relativeTo: referenceDate),
+           let dueTime = parseTimePhrase(split.timePhrase) {
+            return (due, dueTime)
+        }
+
+        if let split = splitLeadingTimePhrase(from: normalized),
+           let due = parseDateOnlyPhrase(split.datePhrase, relativeTo: referenceDate),
+           let dueTime = parseTimePhrase(split.timePhrase) {
+            return (due, dueTime)
+        }
+
+        return nil
+    }
+
+    private func parseDateOnlyPhrase(_ phrase: String, relativeTo referenceDate: Date) -> LocalDate? {
         let normalized = normalizeDatePhrase(phrase)
         guard !normalized.isEmpty else { return nil }
         return dateParser.parse(normalized, relativeTo: referenceDate)
+    }
+
+    private func splitTrailingTimePhrase(from phrase: String) -> (datePhrase: String, timePhrase: String)? {
+        let pattern = #"\s+(?:at\s+)?((?:\d{1,2}(?::\d{2})?\s*(?:am|pm))|(?:[01]?\d|2[0-3]):\d{2}|noon|midnight)\s*$"#
+        guard let range = phrase.range(of: pattern, options: [.regularExpression, .caseInsensitive]) else {
+            return nil
+        }
+
+        let datePhrase = normalizeWhitespace(String(phrase[..<range.lowerBound]))
+        let rawTime = String(phrase[range])
+        let timePhrase = rawTime.replacingOccurrences(
+            of: #"^\s*(?:at\s+)?"#,
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !datePhrase.isEmpty, !timePhrase.isEmpty else { return nil }
+        return (datePhrase, timePhrase)
+    }
+
+    private func splitLeadingTimePhrase(from phrase: String) -> (timePhrase: String, datePhrase: String)? {
+        let pattern = #"^\s*((?:\d{1,2}(?::\d{2})?\s*(?:am|pm))|(?:[01]?\d|2[0-3]):\d{2}|noon|midnight)\s+(?:on\s+)?(.+)$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+
+        let range = NSRange(phrase.startIndex..<phrase.endIndex, in: phrase)
+        guard let match = regex.firstMatch(in: phrase, options: [], range: range),
+              let timeRange = Range(match.range(at: 1), in: phrase),
+              let dateRange = Range(match.range(at: 2), in: phrase) else {
+            return nil
+        }
+
+        let timePhrase = normalizeWhitespace(String(phrase[timeRange]))
+        let datePhrase = normalizeWhitespace(String(phrase[dateRange]))
+        guard !timePhrase.isEmpty, !datePhrase.isEmpty else { return nil }
+        return (timePhrase, datePhrase)
+    }
+
+    private func parseTimePhrase(_ phrase: String) -> LocalTime? {
+        let normalized = phrase
+            .lowercased()
+            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters))
+        guard !normalized.isEmpty else { return nil }
+
+        if normalized == "noon" {
+            return try? LocalTime(hour: 12, minute: 0)
+        }
+        if normalized == "midnight" {
+            return try? LocalTime(hour: 0, minute: 0)
+        }
+
+        let twelveHourPattern = #"^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$"#
+        if let regex = try? NSRegularExpression(pattern: twelveHourPattern),
+           let match = regex.firstMatch(
+               in: normalized,
+               options: [],
+               range: NSRange(normalized.startIndex..<normalized.endIndex, in: normalized)
+           ),
+           let hourRange = Range(match.range(at: 1), in: normalized),
+           let meridiemRange = Range(match.range(at: 3), in: normalized) {
+            let rawHour = Int(normalized[hourRange]) ?? 0
+            let minute: Int
+            if let minuteTokenRange = Range(match.range(at: 2), in: normalized) {
+                minute = Int(normalized[minuteTokenRange]) ?? 0
+            } else {
+                minute = 0
+            }
+            guard (1...12).contains(rawHour) else { return nil }
+            let meridiem = String(normalized[meridiemRange])
+            let hour = (rawHour % 12) + (meridiem == "pm" ? 12 : 0)
+            return try? LocalTime(hour: hour, minute: minute)
+        }
+
+        let twentyFourHourPattern = #"^([01]?\d|2[0-3]):(\d{2})$"#
+        if let regex = try? NSRegularExpression(pattern: twentyFourHourPattern),
+           let match = regex.firstMatch(
+               in: normalized,
+               options: [],
+               range: NSRange(normalized.startIndex..<normalized.endIndex, in: normalized)
+           ),
+           let hourRange = Range(match.range(at: 1), in: normalized),
+           let minuteRange = Range(match.range(at: 2), in: normalized) {
+            let hour = Int(normalized[hourRange]) ?? 0
+            let minute = Int(normalized[minuteRange]) ?? 0
+            return try? LocalTime(hour: hour, minute: minute)
+        }
+
+        return nil
     }
 
     private func normalizeDatePhrase(_ value: String) -> String {

@@ -136,7 +136,7 @@ final class UserNotificationScheduler {
             }
         }
 
-#if canImport(CoreLocation)
+#if canImport(CoreLocation) && !os(macOS)
         for plan in locationPlansToAdd.sorted(by: { $0.identifier < $1.identifier }) {
             let content = notificationContent(
                 title: plan.title,
