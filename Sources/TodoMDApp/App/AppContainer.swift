@@ -167,6 +167,7 @@ final class AppContainer: ObservableObject {
     private var manualOrderService: ManualOrderService
     private var perspectivesRepository: PerspectivesRepository
     private let queryEngine = TaskQueryEngine()
+    private let weeklyReviewEngine = WeeklyReviewEngine()
     private let perspectiveQueryEngine = PerspectiveQueryEngine()
     private let dateParser = NaturalLanguageDateParser()
     private let quickEntryParser = NaturalLanguageTaskParser()
@@ -870,6 +871,13 @@ final class AppContainer: ObservableObject {
         }
     }
 
+    func weeklyReviewSections(
+        today: LocalDate = LocalDate.today(in: .current),
+        now: Date = Date()
+    ) -> [WeeklyReviewSection] {
+        weeklyReviewEngine.sections(for: allIndexedRecords, today: today, now: now)
+    }
+
     func availableAreas() -> [String] {
         metadataIndex.distinctAreas()
     }
@@ -1301,6 +1309,19 @@ final class AppContainer: ObservableObject {
                     ]
                 )
             )
+        case .review:
+            return PerspectiveDefinition(
+                id: "builtin.review",
+                name: "Review",
+                icon: "checklist",
+                rules: PerspectiveRuleGroup(
+                    operator: .or,
+                    conditions: [
+                        .rule(PerspectiveRule(field: .status, operator: .equals, value: TaskStatus.someday.rawValue)),
+                        .rule(PerspectiveRule(field: .due, operator: .beforeToday))
+                    ]
+                )
+            )
         case .anytime:
             return PerspectiveDefinition(
                 id: "builtin.anytime",
@@ -1587,6 +1608,45 @@ final class AppContainer: ObservableObject {
             return true
         } catch {
             logger.error("Set priority failed", metadata: ["path": path, "error": error.localizedDescription])
+            return false
+        }
+    }
+
+    @discardableResult
+    func setDue(path: String, date: Date?) -> Bool {
+        do {
+            let updated = try repository.update(path: path) { document in
+                if let date {
+                    document.frontmatter.due = localDateFromDate(date)
+                } else {
+                    document.frontmatter.due = nil
+                    document.frontmatter.dueTime = nil
+                    document.frontmatter.persistentReminder = nil
+                }
+                document.frontmatter.modified = Date()
+            }
+            markSelfWrite(path: updated.identity.path)
+            refresh()
+            return true
+        } catch {
+            logger.error("Set due failed", metadata: ["path": path, "error": error.localizedDescription])
+            return false
+        }
+    }
+
+    @discardableResult
+    func setTags(path: String, tags: [String]) -> Bool {
+        do {
+            let normalizedTags = normalizeTags(tags)
+            let updated = try repository.update(path: path) { document in
+                document.frontmatter.tags = normalizedTags
+                document.frontmatter.modified = Date()
+            }
+            markSelfWrite(path: updated.identity.path)
+            refresh()
+            return true
+        } catch {
+            logger.error("Set tags failed", metadata: ["path": path, "error": error.localizedDescription])
             return false
         }
     }
@@ -2610,7 +2670,12 @@ final class AppContainer: ObservableObject {
         let start = ContinuousClock.now
         let filtered: [TaskRecord]
         let orderedRecords: [TaskRecord]
-        if let perspectiveID = perspectiveID(for: selectedView),
+        if selectedView == .builtIn(.review) {
+            let reviewRecords = weeklyReviewEngine.sections(for: allIndexedRecords, today: today)
+                .flatMap(\.records)
+            filtered = reviewRecords
+            orderedRecords = reviewRecords
+        } else if let perspectiveID = perspectiveID(for: selectedView),
            let perspective = perspectives.first(where: { $0.id == perspectiveID }) {
             let candidateRecords: [TaskRecord]
             if let candidatePaths = perspectiveQueryEngine.candidatePaths(for: perspective, using: metadataIndex, today: today) {

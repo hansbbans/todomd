@@ -28,6 +28,8 @@ public struct TaskQueryEngine {
                 return isToday(record, today: today)
             case .upcoming:
                 return isUpcoming(record, today: today)
+            case .review:
+                return false
             case .anytime:
                 return isAnytime(record, today: today)
             case .someday:

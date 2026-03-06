@@ -150,6 +150,34 @@ final class TodoMDAppUITests: XCTestCase {
         XCTAssertTrue(quickAddButton.waitForExistence(timeout: 10), "Failed to return to main screen")
     }
 
+    func testInboxTriagePriorityAssignmentCanAdvanceQueue() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = "Library/Caches/TodoMDUITests/\(UUID().uuidString)"
+        app.launch()
+
+        completeOnboarding(app: app)
+        createTask(app: app, title: "triage single")
+
+        let triageToggle = app.buttons["root.triageToggle"]
+        XCTAssertTrue(triageToggle.waitForExistence(timeout: 10), "Triage toggle not visible")
+        triageToggle.tap()
+
+        let triageCard = app.descendants(matching: .any)["triage.card"]
+        XCTAssertTrue(triageCard.waitForExistence(timeout: 10), "Triage card did not appear")
+
+        let highPriorityButton = app.buttons["1 High"]
+        XCTAssertTrue(highPriorityButton.waitForExistence(timeout: 10), "Priority shortcuts not visible in triage")
+        highPriorityButton.tap()
+
+        let nextButton = app.buttons["triage.nextButton"]
+        XCTAssertTrue(nextButton.waitForExistence(timeout: 10), "Next button not visible in triage")
+        nextButton.tap()
+
+        let emptyState = app.descendants(matching: .any)["triage.emptyState"]
+        XCTAssertTrue(emptyState.waitForExistence(timeout: 10), "Triage queue did not advance to completion state")
+    }
+
     private func completeOnboarding(app: XCUIApplication) {
         let nextButton = app.buttons["onboarding.nextButton"]
         let useDefaultButton = app.buttons["onboarding.useDefaultButton"]
@@ -181,5 +209,42 @@ final class TodoMDAppUITests: XCTestCase {
         }
 
         XCTAssertTrue(settingsButton.waitForExistence(timeout: 5), "App did not reach root view")
+    }
+
+    private func createTask(app: XCUIApplication, title: String) {
+        let quickAddButton = app.buttons["root.quickAddButton"].firstMatch
+        XCTAssertTrue(quickAddButton.waitForExistence(timeout: 10), "Quick add button not visible")
+        quickAddButton.tap()
+
+        let quickEntryForm = app.descendants(matching: .any)["quickEntry.form"]
+        XCTAssertTrue(quickEntryForm.waitForExistence(timeout: 10), "Quick Entry sheet did not appear")
+
+        let identifiedTextField = quickEntryForm.descendants(matching: .textField)["quickEntry.titleField"]
+        let identifiedTextView = quickEntryForm.descendants(matching: .textView)["quickEntry.titleField"]
+        let fallbackTextField = quickEntryForm.descendants(matching: .textField).firstMatch
+        let fallbackTextView = quickEntryForm.descendants(matching: .textView).firstMatch
+
+        let titleInput: XCUIElement
+        if identifiedTextField.exists {
+            titleInput = identifiedTextField
+        } else if identifiedTextView.exists {
+            titleInput = identifiedTextView
+        } else if fallbackTextField.exists {
+            titleInput = fallbackTextField
+        } else {
+            titleInput = fallbackTextView
+        }
+
+        XCTAssertTrue(titleInput.waitForExistence(timeout: 10))
+        titleInput.tap()
+        titleInput.typeText(title)
+
+        let addButton = app.buttons["quickEntry.addButton"]
+        XCTAssertTrue(addButton.isEnabled)
+        addButton.tap()
+
+        XCTAssertFalse(quickEntryForm.waitForExistence(timeout: 2), "Quick Entry sheet did not dismiss")
+        let createdTaskRow = app.descendants(matching: .any)["taskRow.\(title)"]
+        XCTAssertTrue(createdTaskRow.waitForExistence(timeout: 10), "Created task row was not visible")
     }
 }
