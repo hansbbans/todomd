@@ -103,28 +103,7 @@ struct PerspectivesView: View {
     }
 
     private func summary(for perspective: PerspectiveDefinition) -> String {
-        let ruleCount = countRules(in: perspective.effectiveRules)
-        let groupCount = countGroups(in: perspective.effectiveRules)
-        return "\(ruleCount) rule\(ruleCount == 1 ? "" : "s") · \(groupCount) group\(groupCount == 1 ? "" : "s")"
-    }
-
-    private func countRules(in group: PerspectiveRuleGroup) -> Int {
-        group.conditions.reduce(into: 0) { count, condition in
-            switch condition {
-            case .rule:
-                count += 1
-            case .group(let subgroup):
-                count += countRules(in: subgroup)
-            }
-        }
-    }
-
-    private func countGroups(in group: PerspectiveRuleGroup) -> Int {
-        1 + group.conditions.reduce(into: 0) { count, condition in
-            if case .group(let subgroup) = condition {
-                count += countGroups(in: subgroup)
-            }
-        }
+        RulesNaturalizer().naturalize(group: perspective.effectiveRules)
     }
 
     private func color(forHex hex: String?) -> Color? {
@@ -154,6 +133,8 @@ struct PerspectiveEditorSheet: View {
     @State private var naturalLanguageQuery: String
     @State private var naturalLanguageSummary: String
     @State private var naturalLanguageNeedsFallback: Bool
+    @State private var naturalLanguageConfidence: Double?
+    @State private var naturalLanguageFeedback: String?
     private let nlParser = NaturalLanguagePerspectiveParser()
 
     private let iconChoices = ["list.bullet", "briefcase", "house", "star", "heart", "bolt", "clock", "tag", "flag", "checkmark.circle"]
@@ -184,6 +165,8 @@ struct PerspectiveEditorSheet: View {
         _naturalLanguageQuery = State(initialValue: initialPerspective.sourceQuery ?? "")
         _naturalLanguageSummary = State(initialValue: RulesNaturalizer().naturalize(group: initialPerspective.effectiveRules))
         _naturalLanguageNeedsFallback = State(initialValue: false)
+        _naturalLanguageConfidence = State(initialValue: nil)
+        _naturalLanguageFeedback = State(initialValue: nil)
     }
 
     var body: some View {
@@ -198,14 +181,24 @@ struct PerspectiveEditorSheet: View {
                 .disabled(naturalLanguageQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
                 if !naturalLanguageSummary.isEmpty {
-                    Text(naturalLanguageSummary)
+                    Text("Rule summary: \(naturalLanguageSummary)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                if let naturalLanguageConfidence {
+                    Text("Parser confidence: \(confidenceText(naturalLanguageConfidence))")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
                 if naturalLanguageNeedsFallback {
-                    Text("This query is ambiguous; cloud parsing may improve results.")
+                    Text("Confidence is too low to apply this query. Rephrase it and parse again, or edit rules manually.")
                         .font(.caption2)
                         .foregroundStyle(.orange)
+                }
+                if let naturalLanguageFeedback {
+                    Text(naturalLanguageFeedback)
+                        .font(.caption2)
+                        .foregroundStyle(naturalLanguageNeedsFallback ? .orange : .secondary)
                 }
             }
 
@@ -294,12 +287,23 @@ struct PerspectiveEditorSheet: View {
         let query = naturalLanguageQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return }
         let parsed = nlParser.parse(query)
+        naturalLanguageConfidence = parsed.confidence
+        naturalLanguageNeedsFallback = parsed.requiresCloudFallback
+        if parsed.requiresCloudFallback {
+            naturalLanguageFeedback = "Could not apply query at \(confidenceText(parsed.confidence)) confidence."
+            return
+        }
         rootRules = parsed.rules
         naturalLanguageSummary = parsed.summary
-        naturalLanguageNeedsFallback = parsed.requiresCloudFallback
+        naturalLanguageFeedback = "Applied query with \(confidenceText(parsed.confidence)) confidence."
         if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || name == initialPerspective.name {
             name = parsed.suggestedName
         }
+    }
+
+    private func confidenceText(_ confidence: Double) -> String {
+        let bounded = min(max(confidence, 0), 1)
+        return "\(Int((bounded * 100).rounded()))%"
     }
 
     private func extractLegacyRules(from group: PerspectiveRuleGroup) -> (all: [PerspectiveRule], any: [PerspectiveRule], none: [PerspectiveRule]) {

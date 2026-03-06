@@ -468,7 +468,7 @@ struct RootView: View {
                 List {
                     if container.selectedView == .builtIn(.today) {
                         if editMode?.wrappedValue.isEditing == true {
-                            Section("Today") {
+                            Section {
                                 ForEach(records) { record in
                                     taskRowItem(record)
                                 }
@@ -477,6 +477,8 @@ struct RootView: View {
                                     reordered.move(fromOffsets: source, toOffset: destination)
                                     container.saveManualOrder(filenames: reordered.map { $0.identity.filename })
                                 }
+                            } header: {
+                                SectionHeaderView("Today")
                             }
                         } else {
                             if container.isCalendarConnected {
@@ -1485,6 +1487,9 @@ private struct TaskRow: View {
         var parts: [String] = []
         if let dueText = dueDisplayText(for: frontmatter) {
             parts.append(dueText)
+        }
+        if let recurrenceText = recurrenceDisplayText(for: frontmatter) {
+            parts.append(recurrenceText)
         }
         if let project = frontmatter.project?.trimmingCharacters(in: .whitespacesAndNewlines),
            !project.isEmpty {
