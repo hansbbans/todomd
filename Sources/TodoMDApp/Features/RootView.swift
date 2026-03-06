@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 private struct DeferDateTarget: Identifiable {
     let path: String
@@ -10,9 +13,44 @@ private struct BuiltInRulesTarget: Identifiable {
     var id: String { view.rawValue }
 }
 
-private struct ResolvedBottomNavigationSection: Identifiable {
-    let id: String
-    let view: ViewIdentifier
+private enum CompactRootTab: String, Hashable, CaseIterable, Identifiable {
+    case inbox
+    case today
+    case upcoming
+    case areas
+    case logbook
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .inbox:
+            return "Inbox"
+        case .today:
+            return "Today"
+        case .upcoming:
+            return "Upcoming"
+        case .areas:
+            return "Areas"
+        case .logbook:
+            return "Logbook"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .inbox:
+            return "tray"
+        case .today:
+            return "star"
+        case .upcoming:
+            return "calendar"
+        case .areas:
+            return "square.grid.2x2"
+        case .logbook:
+            return "checkmark.circle"
+        }
+    }
 }
 
 private struct ProjectColorChoice: Identifiable {
@@ -25,6 +63,46 @@ private struct ProjectIconChoice: Identifiable {
     let symbol: String
     let name: String
     var id: String { symbol }
+}
+
+private enum InlineTaskPanel: Equatable {
+    case date
+    case destination
+    case tags
+}
+
+private struct InlineTaskDraft: Equatable {
+    var title = ""
+    var dueDate: Date?
+    var area: String?
+    var project: String?
+    var tagsText = ""
+    var flagged = false
+
+    var normalizedTags: [String] {
+        let delimiters = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ","))
+        var seen = Set<String>()
+        let tokens = tagsText
+            .split(whereSeparator: { scalar in
+                scalar.unicodeScalars.contains { delimiters.contains($0) }
+            })
+            .map { token -> String in
+                let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.hasPrefix("#") {
+                    return String(trimmed.dropFirst())
+                }
+                return trimmed
+            }
+
+        return tokens.compactMap { token in
+            let normalized = token
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            guard !normalized.isEmpty, !seen.contains(normalized) else { return nil }
+            seen.insert(normalized)
+            return normalized
+        }
+    }
 }
 
 private struct SectionHeaderView: View {
@@ -46,8 +124,9 @@ private struct SectionHeaderView: View {
                 .tracking(0.4)
             Spacer()
         }
-        .padding(.top, 16)
-        .padding(.bottom, 2)
+        .padding(.top, 20)
+        .padding(.bottom, 4)
+        .padding(.leading, 20)
     }
 
     private var displayText: String {
@@ -78,11 +157,7 @@ private struct RootViewSearchableModifier: ViewModifier {
 
 private struct RootViewInsetGroupedListStyle: ViewModifier {
     func body(content: Content) -> some View {
-#if os(iOS)
-        content.listStyle(.insetGrouped)
-#else
-        content.listStyle(.inset)
-#endif
+        content.listStyle(.plain)
     }
 }
 
@@ -90,6 +165,16 @@ private struct RootViewWordsAutocapitalization: ViewModifier {
     func body(content: Content) -> some View {
 #if os(iOS)
         content.textInputAutocapitalization(.words)
+#else
+        content
+#endif
+    }
+}
+
+private struct RootViewNeverAutocapitalization: ViewModifier {
+    func body(content: Content) -> some View {
+#if os(iOS)
+        content.textInputAutocapitalization(.never)
 #else
         content
 #endif
@@ -106,10 +191,21 @@ struct RootView: View {
 
     @State private var showingQuickEntry = false
     @State private var navigationPath = NavigationPath()
+    @State private var inboxNavigationPath = NavigationPath()
+    @State private var todayNavigationPath = NavigationPath()
+    @State private var upcomingNavigationPath = NavigationPath()
+    @State private var areasNavigationPath = NavigationPath()
+    @State private var logbookNavigationPath = NavigationPath()
+    @State private var compactSelectedTab: CompactRootTab = .inbox
     @State private var universalSearchText = ""
     @State private var showingCreateProjectSheet = false
     @State private var newProjectName = ""
     @State private var newProjectColorHex = "1E88E5"
+    @State private var isCreatingTask = false
+    @State private var compactComposerContentVisible = false
+    @State private var inlineTaskDraft = InlineTaskDraft()
+    @State private var expandedInlineTaskPanel: InlineTaskPanel?
+    @State private var inlineComposerTransitionTask: Task<Void, Never>?
     @State private var showingProjectSettingsSheet = false
     @State private var editingProjectOriginalName = ""
     @State private var editingProjectName = ""
@@ -128,23 +224,243 @@ struct RootView: View {
     @State private var inboxTriageMode = false
     @State private var inboxTriageSkippedPaths: Set<String> = []
     @State private var inboxTriagePinnedPath: String?
-    @AppStorage(BottomNavigationSettings.sectionsKey) private var bottomNavigationSectionsRawValue = BottomNavigationSettings.defaultSectionsRawValue
+    @FocusState private var inlineTaskFocused: Bool
+    @Namespace private var compactQuickAddNamespace
     @AppStorage("settings_pomodoro_enabled") private var pomodoroEnabled = false
 
     var body: some View {
         Group {
             if horizontalSizeClass == .compact {
-                detailPane
+                compactRootPane
             } else {
                 NavigationSplitView {
                     sidebar
                 } detail: {
-                    detailPane
+                    detailPane(path: $navigationPath) {
+                        mainContent
+                    }
                 }
             }
         }
         .animation(.easeInOut(duration: 0.18), value: container.selectedView)
         .background(theme.backgroundColor.ignoresSafeArea())
+        .sheet(isPresented: $showingQuickEntry) {
+            QuickEntrySheet()
+        }
+        .sheet(isPresented: $showingCreateProjectSheet) {
+            NavigationStack {
+                createProjectSheet
+            }
+        }
+        .sheet(isPresented: $showingProjectSettingsSheet) {
+            NavigationStack {
+                projectSettingsSheet
+            }
+        }
+        .sheet(item: $deferDateTarget) { target in
+            deferDateSheet(target: target)
+        }
+        .sheet(item: $editingPerspective) { perspective in
+            NavigationStack {
+                PerspectiveEditorSheet(initialPerspective: perspective) { saved in
+                    container.savePerspective(saved)
+                    editingPerspective = nil
+                }
+            }
+        }
+        .sheet(item: $builtInRulesTarget) { target in
+            NavigationStack {
+                BuiltInPerspectiveRulesView(
+                    perspective: container.builtInPerspectiveDefinition(for: target.view),
+                    onDuplicate: {
+                        let duplicate = container.duplicateBuiltInPerspective(target.view)
+                        editingPerspective = duplicate
+                    }
+                )
+            }
+        }
+        .alert(
+            "High Ingestion Volume",
+            isPresented: Binding(
+                get: { container.rateLimitAlertMessage != nil },
+                set: { isPresented in
+                    if !isPresented { container.rateLimitAlertMessage = nil }
+                }
+            ),
+            actions: {
+                Button("OK", role: .cancel) { container.rateLimitAlertMessage = nil }
+            },
+            message: {
+                Text(container.rateLimitAlertMessage ?? "")
+            }
+        )
+        .alert(
+            "Delete Task",
+            isPresented: Binding(
+                get: { pendingDeletePath != nil },
+                set: { isPresented in
+                    if !isPresented { pendingDeletePath = nil }
+                }
+            ),
+            actions: {
+                Button("Delete", role: .destructive) {
+                    if let pendingDeletePath {
+                        _ = container.deleteTask(path: pendingDeletePath)
+                        self.pendingDeletePath = nil
+                    }
+                }
+                Button("Cancel", role: .cancel) {
+                    pendingDeletePath = nil
+                }
+            },
+            message: {
+                Text("This removes the task markdown file.")
+            }
+        )
+        .alert(
+            "Delete Perspective",
+            isPresented: Binding(
+                get: { pendingDeletePerspective != nil },
+                set: { isPresented in
+                    if !isPresented { pendingDeletePerspective = nil }
+                }
+            ),
+            actions: {
+                Button("Delete", role: .destructive) {
+                    if let pendingDeletePerspective {
+                        container.deletePerspective(id: pendingDeletePerspective.id)
+                        self.pendingDeletePerspective = nil
+                    }
+                }
+                Button("Cancel", role: .cancel) {
+                    pendingDeletePerspective = nil
+                }
+            },
+            message: {
+                Text("Delete '\(pendingDeletePerspective?.name ?? "")'? This cannot be undone.")
+            }
+        )
+        .alert(
+            "Link Error",
+            isPresented: Binding(
+                get: { container.urlRoutingErrorMessage != nil },
+                set: { isPresented in
+                    if !isPresented { container.urlRoutingErrorMessage = nil }
+                }
+            ),
+            actions: {
+                Button("OK", role: .cancel) {
+                    container.urlRoutingErrorMessage = nil
+                }
+            },
+            message: {
+                Text(container.urlRoutingErrorMessage ?? "")
+            }
+        )
+        .alert(
+            "Perspectives Warning",
+            isPresented: Binding(
+                get: { container.perspectivesWarningMessage != nil },
+                set: { isPresented in
+                    if !isPresented { container.perspectivesWarningMessage = nil }
+                }
+            ),
+            actions: {
+                Button("OK", role: .cancel) {
+                    container.perspectivesWarningMessage = nil
+                }
+            },
+            message: {
+                Text(container.perspectivesWarningMessage ?? "")
+            }
+        )
+        .confirmationDialog(
+            "Add to Project",
+            isPresented: Binding(
+                get: { swipeAddProjectPath != nil },
+                set: { isPresented in
+                    if !isPresented { swipeAddProjectPath = nil }
+                }
+            ),
+            titleVisibility: .visible
+        ) {
+            let projects = container.allProjects()
+            if projects.isEmpty {
+                Button("No Projects") {}
+                    .disabled(true)
+            } else {
+                ForEach(projects, id: \.self) { project in
+                    Button(project) {
+                        guard let path = swipeAddProjectPath else { return }
+                        _ = container.addToProject(path: path, project: project)
+                        swipeAddProjectPath = nil
+                    }
+                }
+            }
+
+            Button("Cancel", role: .cancel) {
+                swipeAddProjectPath = nil
+            }
+        }
+        .onChange(of: container.navigationTaskPath) { _, newPath in
+            guard let newPath else { return }
+            cancelInlineTaskComposer()
+            appendToActiveNavigationPath(newPath)
+            container.clearPendingNavigationPath()
+        }
+        .onChange(of: container.shouldPresentQuickEntry) { _, shouldPresent in
+            guard shouldPresent else { return }
+            presentQuickEntryFromCurrentContext()
+            container.clearQuickEntryRequest()
+        }
+        .onAppear {
+            if horizontalSizeClass == .compact {
+                syncCompactSelectedTab()
+            }
+            if let pending = container.navigationTaskPath {
+                appendToActiveNavigationPath(pending)
+                container.clearPendingNavigationPath()
+            }
+            if container.shouldPresentQuickEntry {
+                presentQuickEntryFromCurrentContext()
+                container.clearQuickEntryRequest()
+            }
+        }
+        .onDisappear {
+            cancelInlineTaskComposer()
+            inlineComposerTransitionTask?.cancel()
+            inlineComposerTransitionTask = nil
+            completionAnimationTasks.values.forEach { $0.cancel() }
+            completionAnimationTasks.removeAll()
+        }
+        .onChange(of: pomodoroEnabled) { _, isEnabled in
+            guard !isEnabled, container.selectedView == .builtIn(.pomodoro) else { return }
+            withAnimation(.easeInOut(duration: 0.2)) {
+                container.selectedView = horizontalSizeClass == .compact ? .browse : .builtIn(.inbox)
+            }
+        }
+        .onChange(of: container.selectedView) { _, selectedView in
+            if !selectedView.isBrowse {
+                universalSearchText = ""
+            }
+            if selectedView != .builtIn(.inbox) {
+                resetInboxTriageMode()
+            }
+            if horizontalSizeClass == .compact {
+                syncCompactSelectedTab()
+            }
+            cancelInlineTaskComposer()
+        }
+        .onChange(of: compactSelectedTab) { _, newTab in
+            guard horizontalSizeClass == .compact else { return }
+            guard compactRootTab(for: container.selectedView) != newTab else { return }
+            selectCompactTab(newTab)
+        }
+        .onChange(of: activeNavigationDepth) { _, count in
+            if count > 0 {
+                cancelInlineTaskComposer()
+            }
+        }
     }
 
     private var isEditing: Bool {
@@ -155,261 +471,157 @@ struct RootView: View {
 #endif
     }
 
-    private var detailPane: some View {
-        NavigationStack(path: $navigationPath) {
-            mainContent
-                .safeAreaInset(edge: .bottom) {
-                    if shouldShowBottomNavigationBar {
-                        compactBottomNavigationBar
-                    }
-                }
+    private var compactRootPane: some View {
+        compactTabView
+    }
+
+    private var compactTabView: some View {
+        TabView(selection: $compactSelectedTab) {
+            ForEach(CompactRootTab.allCases) { tab in
+                compactTabScene(tab)
+            }
+        }
+        .tint(theme.accentColor)
+    }
+
+    private func compactTabScene(_ tab: CompactRootTab) -> AnyView {
+        AnyView(
+            detailPane(path: navigationPathBinding(for: tab)) {
+                detailContent(for: tab)
+            }
+            .tabItem {
+                Label(tab.title, systemImage: tab.systemImage)
+            }
+            .tag(tab)
+            .accessibilityIdentifier("root.tab.\(tab.rawValue)")
+        )
+    }
+
+    private var activeCompactTab: CompactRootTab {
+        horizontalSizeClass == .compact ? compactSelectedTab : compactRootTab(for: container.selectedView)
+    }
+
+    private func navigationPathBinding(for tab: CompactRootTab) -> Binding<NavigationPath> {
+        switch tab {
+        case .inbox:
+            return $inboxNavigationPath
+        case .today:
+            return $todayNavigationPath
+        case .upcoming:
+            return $upcomingNavigationPath
+        case .areas:
+            return $areasNavigationPath
+        case .logbook:
+            return $logbookNavigationPath
+        }
+    }
+
+    private var activeNavigationPathBinding: Binding<NavigationPath> {
+        if horizontalSizeClass == .compact {
+            return navigationPathBinding(for: activeCompactTab)
+        }
+        return $navigationPath
+    }
+
+    private var activeNavigationDepth: Int {
+        activeNavigationPathBinding.wrappedValue.count
+    }
+
+    private var isAtActiveNavigationRoot: Bool {
+        activeNavigationPathBinding.wrappedValue.isEmpty
+    }
+
+    private func appendToActiveNavigationPath(_ path: String) {
+        var updatedPath = activeNavigationPathBinding.wrappedValue
+        updatedPath.append(path)
+        activeNavigationPathBinding.wrappedValue = updatedPath
+    }
+
+    private func detailPane<Content: View>(
+        path: Binding<NavigationPath>,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        NavigationStack(path: path) {
+            detailPaneContent(content: content)
+        }
+    }
+
+    private func detailPaneContent<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
             .navigationDestination(for: String.self) { path in
                 TaskDetailView(path: path)
             }
             .navigationTitle(navigationTitle())
             .toolbar {
-                ToolbarItem(placement: .appLeadingAction) {
-                    if horizontalSizeClass == .compact {
-                        Button {
-                            applyFilter(.browse)
-                        } label: {
-                            Image(systemName: "square.grid.2x2")
-                        }
-                    }
-                }
-
-                ToolbarItem(placement: .appTrailingAction) {
-                    NavigationLink {
-                        SettingsView()
-                    } label: {
-                        Image(systemName: "gearshape")
-                    }
-                    .accessibilityIdentifier("root.settingsButton")
-                }
-
-                ToolbarItem(placement: .appTrailingAction) {
-                    if container.selectedView == .builtIn(.inbox), navigationPath.isEmpty {
-                        Button {
-                            toggleInboxTriageMode()
-                        } label: {
-                            Label(inboxTriageMode ? "List" : "Triage", systemImage: inboxTriageMode ? "list.bullet" : "rectangle.stack")
-                        }
-                        .keyboardShortcut("t", modifiers: [.command, .shift])
-                        .accessibilityIdentifier("root.triageToggle")
-                    }
+                detailToolbar
+            }
+            .safeAreaInset(edge: .bottom) {
+                if shouldReserveFloatingAddButtonSpace {
+                    Color.clear
+                        .frame(height: 92)
+                        .accessibilityHidden(true)
                 }
             }
             .overlay(alignment: .bottomTrailing) {
                 if shouldShowFloatingAddButton {
                     floatingAddButton
+                        .padding(.trailing, 24)
+                        .padding(.bottom, 18)
+                }
+            }
+            .overlay {
+                if shouldShowCompactInlineTaskComposer {
+                    compactInlineTaskComposerOverlay
                 }
             }
             .refreshable {
                 container.refresh()
             }
-            .sheet(isPresented: $showingQuickEntry) {
-                QuickEntrySheet()
-            }
-            .sheet(isPresented: $showingCreateProjectSheet) {
-                NavigationStack {
-                    createProjectSheet
-                }
-            }
-            .sheet(isPresented: $showingProjectSettingsSheet) {
-                NavigationStack {
-                    projectSettingsSheet
-                }
-            }
-            .sheet(item: $deferDateTarget) { target in
-                deferDateSheet(target: target)
-            }
-            .sheet(item: $editingPerspective) { perspective in
-                NavigationStack {
-                    PerspectiveEditorSheet(initialPerspective: perspective) { saved in
-                        container.savePerspective(saved)
-                        editingPerspective = nil
-                    }
-                }
-            }
-            .sheet(item: $builtInRulesTarget) { target in
-                NavigationStack {
-                    BuiltInPerspectiveRulesView(
-                        perspective: container.builtInPerspectiveDefinition(for: target.view),
-                        onDuplicate: {
-                            let duplicate = container.duplicateBuiltInPerspective(target.view)
-                            editingPerspective = duplicate
-                        }
-                    )
-                }
-            }
-            .alert(
-                "High Ingestion Volume",
-                isPresented: Binding(
-                    get: { container.rateLimitAlertMessage != nil },
-                    set: { isPresented in
-                        if !isPresented { container.rateLimitAlertMessage = nil }
-                    }
-                ),
-                actions: {
-                    Button("OK", role: .cancel) { container.rateLimitAlertMessage = nil }
-                },
-                message: {
-                    Text(container.rateLimitAlertMessage ?? "")
-                }
-            )
-            .alert(
-                "Delete Task",
-                isPresented: Binding(
-                    get: { pendingDeletePath != nil },
-                    set: { isPresented in
-                        if !isPresented { pendingDeletePath = nil }
-                    }
-                ),
-                actions: {
-                    Button("Delete", role: .destructive) {
-                        if let pendingDeletePath {
-                            _ = container.deleteTask(path: pendingDeletePath)
-                            self.pendingDeletePath = nil
-                        }
-                    }
-                    Button("Cancel", role: .cancel) {
-                        pendingDeletePath = nil
-                    }
-                },
-                message: {
-                    Text("This removes the task markdown file.")
-                }
-            )
-            .alert(
-                "Delete Perspective",
-                isPresented: Binding(
-                    get: { pendingDeletePerspective != nil },
-                    set: { isPresented in
-                        if !isPresented { pendingDeletePerspective = nil }
-                    }
-                ),
-                actions: {
-                    Button("Delete", role: .destructive) {
-                        if let pendingDeletePerspective {
-                            container.deletePerspective(id: pendingDeletePerspective.id)
-                            self.pendingDeletePerspective = nil
-                        }
-                    }
-                    Button("Cancel", role: .cancel) {
-                        pendingDeletePerspective = nil
-                    }
-                },
-                message: {
-                    Text("Delete '\(pendingDeletePerspective?.name ?? "")'? This cannot be undone.")
-                }
-            )
-            .alert(
-                "Link Error",
-                isPresented: Binding(
-                    get: { container.urlRoutingErrorMessage != nil },
-                    set: { isPresented in
-                        if !isPresented { container.urlRoutingErrorMessage = nil }
-                    }
-                ),
-                actions: {
-                    Button("OK", role: .cancel) {
-                        container.urlRoutingErrorMessage = nil
-                    }
-                },
-                message: {
-                    Text(container.urlRoutingErrorMessage ?? "")
-                }
-            )
-            .alert(
-                "Perspectives Warning",
-                isPresented: Binding(
-                    get: { container.perspectivesWarningMessage != nil },
-                    set: { isPresented in
-                        if !isPresented { container.perspectivesWarningMessage = nil }
-                    }
-                ),
-                actions: {
-                    Button("OK", role: .cancel) {
-                        container.perspectivesWarningMessage = nil
-                    }
-                },
-                message: {
-                    Text(container.perspectivesWarningMessage ?? "")
-                }
-            )
-            .confirmationDialog(
-                "Add to Project",
-                isPresented: Binding(
-                    get: { swipeAddProjectPath != nil },
-                    set: { isPresented in
-                        if !isPresented { swipeAddProjectPath = nil }
-                    }
-                ),
-                titleVisibility: .visible
-            ) {
-                let projects = container.allProjects()
-                if projects.isEmpty {
-                    Button("No Projects") {}
-                        .disabled(true)
-                } else {
-                    ForEach(projects, id: \.self) { project in
-                        Button(project) {
-                            guard let path = swipeAddProjectPath else { return }
-                            _ = container.addToProject(path: path, project: project)
-                            swipeAddProjectPath = nil
-                        }
-                    }
-                }
+    }
 
-                Button("Cancel", role: .cancel) {
-                    swipeAddProjectPath = nil
+    @ToolbarContentBuilder
+    private var detailToolbar: some ToolbarContent {
+        ToolbarItem(placement: .appTrailingAction) {
+            if shouldShowToolbarInlineTaskButton {
+                Button {
+                    triggerInlineTaskComposer()
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.title3.weight(.regular))
                 }
+                .keyboardShortcut("n", modifiers: .command)
+                .accessibilityIdentifier("root.inlineAddButton")
             }
-            .onChange(of: container.navigationTaskPath) { _, newPath in
-                guard let newPath else { return }
-                navigationPath.append(newPath)
-                container.clearPendingNavigationPath()
-            }
-            .onChange(of: container.shouldPresentQuickEntry) { _, shouldPresent in
-                guard shouldPresent else { return }
-                showingQuickEntry = true
-                container.clearQuickEntryRequest()
-            }
-            .onAppear {
-                if let pending = container.navigationTaskPath {
-                    navigationPath.append(pending)
-                    container.clearPendingNavigationPath()
+        }
+
+        ToolbarItem(placement: .appTrailingAction) {
+            if container.selectedView == .builtIn(.inbox), isAtActiveNavigationRoot {
+                Button {
+                    toggleInboxTriageMode()
+                } label: {
+                    Label(inboxTriageMode ? "List" : "Triage", systemImage: inboxTriageMode ? "list.bullet" : "rectangle.stack")
                 }
-                if container.shouldPresentQuickEntry {
-                    showingQuickEntry = true
-                    container.clearQuickEntryRequest()
-                }
+                .keyboardShortcut("t", modifiers: [.command, .shift])
+                .accessibilityIdentifier("root.triageToggle")
             }
-            .onDisappear {
-                completionAnimationTasks.values.forEach { $0.cancel() }
-                completionAnimationTasks.removeAll()
-            }
-            .onChange(of: pomodoroEnabled) { _, isEnabled in
-                guard !isEnabled, container.selectedView == .builtIn(.pomodoro) else { return }
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    container.selectedView = .builtIn(.inbox)
+        }
+
+        ToolbarItem(placement: .appTrailingAction) {
+            if horizontalSizeClass != .compact {
+                NavigationLink {
+                    SettingsView()
+                } label: {
+                    Image(systemName: "gearshape")
                 }
-            }
-            .onChange(of: container.selectedView) { _, selectedView in
-                if !selectedView.isBrowse {
-                    universalSearchText = ""
-                }
-                if selectedView != .builtIn(.inbox) {
-                    resetInboxTriageMode()
-                }
+                .accessibilityIdentifier("root.settingsButton")
             }
         }
     }
 
     private var sidebar: some View {
         List {
-            Section("Browse") {
-                navButton(view: .browse, label: "Browse", icon: "square.grid.2x2")
+            Section("Areas") {
+                navButton(view: .browse, label: "Areas", icon: "square.grid.2x2")
             }
 
             Section("Views") {
@@ -419,14 +631,18 @@ struct RootView: View {
                     .keyboardShortcut("2", modifiers: .command)
                 builtInNavButton(.delegated, label: "Delegated", icon: "person.2")
                     .keyboardShortcut("3", modifiers: .command)
-                builtInNavButton(.today, label: "Today", icon: "sun.max")
+                builtInNavButton(.today, label: "Today", icon: "star")
                     .keyboardShortcut("4", modifiers: .command)
                 builtInNavButton(.upcoming, label: "Upcoming", icon: "calendar")
                     .keyboardShortcut("5", modifiers: .command)
+                builtInNavButton(.logbook, label: "Logbook", icon: "checkmark.circle")
                 builtInNavButton(.review, label: "Review", icon: "checklist")
                 builtInNavButton(.anytime, label: "Anytime", icon: "list.bullet")
                 builtInNavButton(.someday, label: "Someday", icon: "clock")
                 builtInNavButton(.flagged, label: "Flagged", icon: "flag")
+                if pomodoroEnabled {
+                    builtInNavButton(.pomodoro, label: "Pomodoro", icon: "timer")
+                }
             }
 
             let groupedAreas = container.projectsByArea()
@@ -500,7 +716,7 @@ struct RootView: View {
                 .modifier(
                     RootViewSearchableModifier(
                         text: $universalSearchText,
-                        prompt: "Search tasks, sections, tags"
+                        prompt: "Search tasks, areas, projects, tags"
                     )
                 )
         } else if container.selectedView == .builtIn(.upcoming) {
@@ -519,9 +735,18 @@ struct RootView: View {
                     pinnedPath: $inboxTriagePinnedPath,
                     onExit: { resetInboxTriageMode() },
                     onOpenDetail: { path in
-                        navigationPath.append(path)
+                        appendToActiveNavigationPath(path)
                     }
                 )
+            } else if records.isEmpty, shouldRenderInlineTaskComposerInList {
+                List {
+                    inlineTaskComposerListRow
+                }
+                .id("\(container.selectedView.rawValue)-inline-empty")
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(theme.backgroundColor)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
             } else if records.isEmpty {
                 VStack(spacing: 12) {
                     ContentUnavailableView(
@@ -546,24 +771,26 @@ struct RootView: View {
             } else {
                 List {
                     if container.selectedView == .builtIn(.today) {
+                        if shouldRenderInlineTaskComposerInList {
+                            inlineTaskComposerListRow
+                        }
                         if isEditing {
-                            Section {
-                                ForEach(records) { record in
-                                    taskRowItem(record)
-                                }
-                                .onMove { source, destination in
-                                    var reordered = records
-                                    reordered.move(fromOffsets: source, toOffset: destination)
-                                    container.saveManualOrder(filenames: reordered.map { $0.identity.filename })
-                                }
-                            } header: {
-                                SectionHeaderView("Today")
+                            ForEach(records) { record in
+                                taskRowItem(record)
+                            }
+                            .onMove { source, destination in
+                                var reordered = records
+                                reordered.move(fromOffsets: source, toOffset: destination)
+                                container.saveManualOrder(filenames: reordered.map { $0.identity.filename })
                             }
                         } else {
                             if container.isCalendarConnected {
                                 Section {
                                     TodayCalendarCard(events: container.calendarTodayEvents)
-                                        .listRowInsets(EdgeInsets(top: 8, leading: 10, bottom: 10, trailing: 10))
+                                        .padding(.horizontal, 20)
+                                        .padding(.top, 8)
+                                        .padding(.bottom, 14)
+                                        .listRowInsets(EdgeInsets())
                                         .listRowBackground(Color.clear)
                                         .listRowSeparator(.hidden)
                                 }
@@ -579,42 +806,515 @@ struct RootView: View {
                                 }
                             }
                         }
-                    } else if container.selectedView == .builtIn(.upcoming) {
-                        ForEach(container.upcomingSections()) { section in
-                            Section {
-                                ForEach(section.records) { record in
-                                    taskRowItem(record)
-                                }
-                            } header: {
-                                SectionHeaderView(formattedDate(section.date))
-                            }
-                        }
                     } else {
-                        Section {
-                            ForEach(records) { record in
-                                taskRowItem(record)
-                            }
-                            .onMove { source, destination in
-                                guard container.canManuallyReorderSelectedView() else { return }
-                                var reordered = records
-                                reordered.move(fromOffsets: source, toOffset: destination)
-                                container.saveManualOrder(filenames: reordered.map { $0.identity.filename })
-                            }
-                        } header: {
-                            SectionHeaderView(titleForCurrentView())
+                        if shouldRenderInlineTaskComposerInList {
+                            inlineTaskComposerListRow
+                        }
+                        ForEach(records) { record in
+                            taskRowItem(record)
+                        }
+                        .onMove { source, destination in
+                            guard container.canManuallyReorderSelectedView() else { return }
+                            var reordered = records
+                            reordered.move(fromOffsets: source, toOffset: destination)
+                            container.saveManualOrder(filenames: reordered.map { $0.identity.filename })
                         }
                     }
                 }
                 .id(container.selectedView.rawValue)
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
+                .background(theme.backgroundColor)
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
     }
 
+    private var inlineTaskComposerListRow: some View {
+        HStack(alignment: .top, spacing: 12) {
+            TaskCheckbox(
+                isCompleted: false,
+                isDashed: false,
+                tint: theme.accentColor,
+                isInteractive: false,
+                onTap: {}
+            )
+            .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 8) {
+                TextField("New Task", text: $inlineTaskDraft.title)
+                    .font(.body)
+                    .foregroundStyle(theme.textPrimaryColor)
+                    .focused($inlineTaskFocused)
+                    .submitLabel(.done)
+                    .accessibilityIdentifier("inlineTask.titleField")
+                    .onSubmit {
+                        commitInlineTaskComposer()
+                    }
+
+                inlineTaskAccessoryBar
+
+                if let expandedInlineTaskPanel {
+                    inlineTaskExpandedPanel(expandedInlineTaskPanel)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 13)
+        .padding(.leading, 20)
+        .padding(.trailing, 16)
+        .listRowInsets(EdgeInsets())
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+        .transition(.asymmetric(
+            insertion: .push(from: .top).combined(with: .opacity),
+            removal: .opacity
+        ))
+    }
+
+    private var compactInlineTaskComposerOverlay: some View {
+        ZStack(alignment: .bottom) {
+            Color.black.opacity(0.001)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    cancelInlineTaskComposer()
+                }
+
+            compactInlineTaskComposerCard
+                .padding(.horizontal, 12)
+                .padding(.bottom, 10)
+        }
+        .transition(
+            .asymmetric(
+                insertion: .offset(x: 34, y: 144)
+                    .combined(with: .scale(scale: 0.92, anchor: .bottomTrailing))
+                    .combined(with: .opacity),
+                removal: .offset(x: 28, y: 120)
+                    .combined(with: .scale(scale: 0.96, anchor: .bottomTrailing))
+                    .combined(with: .opacity)
+            )
+        )
+        .zIndex(3)
+    }
+
+    private var compactInlineTaskComposerCard: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .top, spacing: 12) {
+                CompactComposerCheckbox(strokeColor: compactComposerCheckboxColor)
+                    .padding(.top, 1)
+
+                VStack(alignment: .leading, spacing: 10) {
+                    TextField("New To-Do", text: $inlineTaskDraft.title)
+                        .font(.system(size: 17, weight: .regular))
+                        .foregroundStyle(compactComposerPrimaryTextColor)
+                        .focused($inlineTaskFocused)
+                        .submitLabel(.done)
+                        .accessibilityIdentifier("inlineTask.titleField")
+                        .onSubmit {
+                            commitInlineTaskComposer()
+                        }
+
+                    Text("Notes")
+                        .font(.system(size: 15, weight: .regular))
+                        .foregroundStyle(compactComposerSecondaryTextColor)
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            compactInlineTaskAccessoryBar
+
+            if let expandedInlineTaskPanel {
+                inlineTaskExpandedPanel(expandedInlineTaskPanel)
+                    .padding(.top, 2)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: expandedInlineTaskPanel == nil ? 134 : nil, alignment: .topLeading)
+        .padding(.horizontal, 18)
+        .padding(.top, 18)
+        .padding(.bottom, 18)
+        .opacity(compactComposerContentVisible ? 1 : 0.001)
+        .offset(y: compactComposerContentVisible ? 0 : 10)
+        .scaleEffect(compactComposerContentVisible ? 1 : 0.978, anchor: .bottomTrailing)
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(compactComposerBackgroundColor)
+
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                compactComposerHighlightColor,
+                                compactComposerLowlightColor
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                .white.opacity(0.045),
+                                .clear,
+                                .black.opacity(0.14)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .strokeBorder(compactComposerBorderColor, lineWidth: 1)
+            }
+            .matchedGeometryEffect(
+                id: "compactQuickAddShell",
+                in: compactQuickAddNamespace,
+                properties: .frame,
+                anchor: .bottomTrailing
+            )
+            .shadow(color: .black.opacity(0.34), radius: 28, x: 0, y: 16)
+            .shadow(color: .black.opacity(0.18), radius: 10, x: 0, y: 4)
+        )
+        .animation(.easeOut(duration: 0.18), value: compactComposerContentVisible)
+    }
+
+    private var inlineTaskAccessoryBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                QuickAddChip(
+                    icon: "calendar",
+                    label: inlineTaskDateLabel,
+                    isSet: inlineTaskDraft.dueDate != nil,
+                    tint: theme.accentColor
+                ) {
+                    toggleInlineTaskPanel(.date)
+                }
+
+                QuickAddChip(
+                    icon: "tray",
+                    label: inlineTaskDestinationLabel,
+                    isSet: inlineTaskDraft.project != nil || inlineTaskDraft.area != nil,
+                    tint: theme.accentColor
+                ) {
+                    toggleInlineTaskPanel(.destination)
+                }
+
+                QuickAddChip(
+                    icon: "tag",
+                    label: inlineTaskTagsLabel,
+                    isSet: !inlineTaskDraft.normalizedTags.isEmpty,
+                    tint: theme.accentColor
+                ) {
+                    toggleInlineTaskPanel(.tags)
+                }
+
+                QuickAddChip(
+                    icon: "flag",
+                    label: "Flag",
+                    isSet: inlineTaskDraft.flagged,
+                    tint: theme.flaggedColor
+                ) {
+                    inlineTaskDraft.flagged.toggle()
+                }
+            }
+            .padding(.vertical, 1)
+        }
+    }
+
+    private var compactInlineDueTint: Color {
+        if inlineTaskDraft.dueDate != nil {
+            return compactComposerTodayTint
+        }
+        return compactComposerIconColor
+    }
+
+    private var compactComposerBackgroundColor: Color {
+        Color(.sRGB, red: 0.1059, green: 0.1294, blue: 0.1569, opacity: 0.985)
+    }
+
+    private var compactComposerHighlightColor: Color {
+        Color(.sRGB, red: 0.1333, green: 0.1569, blue: 0.1882, opacity: 0.94)
+    }
+
+    private var compactComposerLowlightColor: Color {
+        Color(.sRGB, red: 0.0941, green: 0.1137, blue: 0.1373, opacity: 0.98)
+    }
+
+    private var compactComposerBorderColor: Color {
+        Color.white.opacity(0.045)
+    }
+
+    private var compactComposerPrimaryTextColor: Color {
+        Color.white.opacity(0.92)
+    }
+
+    private var compactComposerSecondaryTextColor: Color {
+        Color.white.opacity(0.34)
+    }
+
+    private var compactComposerIconColor: Color {
+        Color.white.opacity(0.42)
+    }
+
+    private var compactComposerIconActiveColor: Color {
+        compactComposerPrimaryTextColor
+    }
+
+    private var compactComposerTodayTint: Color {
+        Color(.sRGB, red: 0.949, green: 0.784, blue: 0.192, opacity: 1)
+    }
+
+    private var compactComposerFlagTint: Color {
+        Color(.sRGB, red: 0.969, green: 0.604, blue: 0.22, opacity: 1)
+    }
+
+    private var compactComposerCheckboxColor: Color {
+        Color.white.opacity(0.48)
+    }
+
+    private var compactInlineTaskAccessoryBar: some View {
+        HStack(alignment: .center, spacing: 14) {
+            CompactInlineLeadingButton(
+                icon: "star.fill",
+                label: inlineTaskDateLabel,
+                tint: compactInlineDueTint
+            ) {
+                toggleInlineTaskPanel(.date)
+            }
+
+            Spacer(minLength: 0)
+
+            CompactQuickAddIconButton(
+                icon: "tag",
+                tint: compactComposerIconActiveColor,
+                inactiveTint: compactComposerIconColor,
+                isActive: !inlineTaskDraft.normalizedTags.isEmpty
+            ) {
+                toggleInlineTaskPanel(.tags)
+            }
+
+            CompactQuickAddIconButton(
+                icon: "list.bullet",
+                tint: compactComposerIconActiveColor,
+                inactiveTint: compactComposerIconColor,
+                isActive: inlineTaskDraft.project != nil || inlineTaskDraft.area != nil
+            ) {
+                toggleInlineTaskPanel(.destination)
+            }
+
+            CompactQuickAddIconButton(
+                icon: "flag",
+                tint: compactComposerFlagTint,
+                inactiveTint: compactComposerIconColor,
+                isActive: inlineTaskDraft.flagged
+            ) {
+                inlineTaskDraft.flagged.toggle()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func inlineTaskExpandedPanel(_ panel: InlineTaskPanel) -> some View {
+        switch panel {
+        case .date:
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    InlineTaskOptionButton(
+                        title: "Today",
+                        isSelected: inlineTaskDraft.dueDate.map(Calendar.current.isDateInToday) == true,
+                        tint: theme.accentColor
+                    ) {
+                        inlineTaskDraft.dueDate = Calendar.current.startOfDay(for: Date())
+                    }
+
+                    InlineTaskOptionButton(
+                        title: "Tomorrow",
+                        isSelected: inlineTaskDraft.dueDate.map(Calendar.current.isDateInTomorrow) == true,
+                        tint: theme.accentColor
+                    ) {
+                        guard let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: Date()) else { return }
+                        inlineTaskDraft.dueDate = Calendar.current.startOfDay(for: tomorrow)
+                    }
+
+                    InlineTaskOptionButton(
+                        title: "Next Week",
+                        isSelected: false,
+                        tint: theme.accentColor
+                    ) {
+                        guard let nextWeek = Calendar.current.date(byAdding: .day, value: 7, to: Date()) else { return }
+                        inlineTaskDraft.dueDate = Calendar.current.startOfDay(for: nextWeek)
+                    }
+
+                    InlineTaskOptionButton(
+                        title: "No Date",
+                        isSelected: inlineTaskDraft.dueDate == nil,
+                        tint: theme.textSecondaryColor
+                    ) {
+                        inlineTaskDraft.dueDate = nil
+                    }
+                }
+            }
+
+        case .destination:
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    InlineTaskOptionButton(
+                        title: "Inbox",
+                        isSelected: inlineTaskDraft.project == nil && inlineTaskDraft.area == nil,
+                        tint: theme.accentColor
+                    ) {
+                        inlineTaskDraft.project = nil
+                        inlineTaskDraft.area = nil
+                    }
+
+                    if let currentArea = defaultInlineTaskDraft(for: container.selectedView).area {
+                        InlineTaskOptionButton(
+                            title: currentArea,
+                            isSelected: inlineTaskDraft.area == currentArea && inlineTaskDraft.project == nil,
+                            tint: theme.accentColor
+                        ) {
+                            inlineTaskDraft.area = currentArea
+                            inlineTaskDraft.project = nil
+                        }
+                    }
+
+                    ForEach(container.recentProjects(limit: 6, excluding: inlineTaskDraft.project), id: \.self) { project in
+                        InlineTaskOptionButton(
+                            title: project,
+                            isSelected: inlineTaskDraft.project == project,
+                            tint: theme.accentColor
+                        ) {
+                            inlineTaskDraft.project = project
+                            inlineTaskDraft.area = nil
+                        }
+                    }
+                }
+            }
+
+        case .tags:
+            VStack(alignment: .leading, spacing: 8) {
+                TextField("Tags", text: $inlineTaskDraft.tagsText)
+                    .font(.footnote)
+                    .modifier(RootViewNeverAutocapitalization())
+                    .autocorrectionDisabled()
+
+                if !inlineTaskSuggestedTags.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(inlineTaskSuggestedTags, id: \.self) { tag in
+                                InlineTaskOptionButton(
+                                    title: "#\(tag)",
+                                    isSelected: inlineTaskDraft.normalizedTags.contains(tag),
+                                    tint: theme.accentColor
+                                ) {
+                                    appendInlineTag(tag)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var inlineTaskDateLabel: String {
+        guard let dueDate = inlineTaskDraft.dueDate else { return "Date" }
+        let calendar = Calendar.current
+        if calendar.isDateInToday(dueDate) {
+            return "Today"
+        }
+        if calendar.isDateInTomorrow(dueDate) {
+            return "Tomorrow"
+        }
+        return dueDate.formatted(date: .abbreviated, time: .omitted)
+    }
+
+    private var inlineTaskDestinationLabel: String {
+        if let project = inlineTaskDraft.project {
+            return project
+        }
+        if let area = inlineTaskDraft.area {
+            return area
+        }
+        return "Inbox"
+    }
+
+    private var inlineTaskTagsLabel: String {
+        let tags = inlineTaskDraft.normalizedTags
+        if tags.isEmpty {
+            return "Tags"
+        }
+        if tags.count == 1, let first = tags.first {
+            return "#\(first)"
+        }
+        return "\(tags.count) Tags"
+    }
+
+    private var inlineTaskSuggestedTags: [String] {
+        let existing = Set(inlineTaskDraft.normalizedTags)
+        return container.availableTags()
+            .filter { !existing.contains($0) }
+            .prefix(6)
+            .map { $0 }
+    }
+
+    private func toggleInlineTaskPanel(_ panel: InlineTaskPanel) {
+        if expandedInlineTaskPanel == panel {
+            expandedInlineTaskPanel = nil
+        } else {
+            expandedInlineTaskPanel = panel
+        }
+    }
+
+    private func appendInlineTag(_ tag: String) {
+        let currentTags = inlineTaskDraft.normalizedTags
+        guard !currentTags.contains(tag) else { return }
+        let updatedTags = currentTags + [tag]
+        inlineTaskDraft.tagsText = updatedTags.map { "#\($0)" }.joined(separator: " ")
+    }
+
     private var browseSectionScreen: some View {
         List {
+            if horizontalSizeClass == .compact {
+                Section {
+                    NavigationLink {
+                        SettingsView()
+                    } label: {
+                        Label("Settings", systemImage: "gearshape")
+                    }
+                    .accessibilityIdentifier("root.settingsButton")
+                }
+            }
+
+            Section("Lists") {
+                builtInBrowseFilterButton(.myTasks, label: "My Tasks", icon: "person")
+                builtInBrowseFilterButton(.delegated, label: "Delegated", icon: "person.2")
+                builtInBrowseFilterButton(.anytime, label: "Anytime", icon: "list.bullet")
+                builtInBrowseFilterButton(.someday, label: "Someday", icon: "clock")
+                builtInBrowseFilterButton(.flagged, label: "Flagged", icon: "flag")
+                builtInBrowseFilterButton(.review, label: "Review", icon: "checklist")
+                if pomodoroEnabled {
+                    builtInBrowseFilterButton(.pomodoro, label: "Pomodoro", icon: "timer")
+                }
+            }
+
+            let areas = container.availableAreas()
+            Section("Areas") {
+                if areas.isEmpty {
+                    Text("No areas yet")
+                        .foregroundStyle(theme.textSecondaryColor)
+                } else {
+                    ForEach(areas, id: \.self) { area in
+                        browseFilterButton(view: .area(area), label: area, icon: "square.grid.2x2")
+                    }
+                }
+            }
+
             let projects = container.allProjects()
             Section {
                 if projects.isEmpty {
@@ -645,7 +1345,7 @@ struct RootView: View {
                 }
             } header: {
                 HStack {
-                    Text("My Projects")
+                    Text("Projects")
                     Spacer()
                     Button {
                         newProjectName = ""
@@ -700,7 +1400,7 @@ struct RootView: View {
                 }
             } header: {
                 HStack {
-                    Text("My Perspectives")
+                    Text("Perspectives")
                     Spacer()
                     Button {
                         editingPerspective = PerspectiveDefinition()
@@ -747,18 +1447,25 @@ struct RootView: View {
         let areas = container.availableAreas().filter { matchesQuery($0, query: query) }
         let projects = container.allProjects().filter { matchesQuery($0, query: query) }
         let perspectives = container.perspectives.filter { matchesQuery($0.name, query: query) }
-        let builtInViews: [(label: String, view: ViewIdentifier, icon: String)] = [
-            ("Browse", .browse, "square.grid.2x2"),
-            ("Inbox", .builtIn(.inbox), "tray"),
-            ("My Tasks", .builtIn(.myTasks), "person"),
-            ("Delegated", .builtIn(.delegated), "person.2"),
-            ("Today", .builtIn(.today), "sun.max"),
-            ("Upcoming", .builtIn(.upcoming), "calendar"),
-            ("Review", .builtIn(.review), "checklist"),
-            ("Anytime", .builtIn(.anytime), "list.bullet"),
-            ("Someday", .builtIn(.someday), "clock"),
-            ("Flagged", .builtIn(.flagged), "flag")
-        ].filter { matchesQuery($0.label, query: query) }
+        let builtInViews: [(label: String, view: ViewIdentifier, icon: String)] = {
+            var views: [(label: String, view: ViewIdentifier, icon: String)] = [
+                ("Areas", .browse, "square.grid.2x2"),
+                ("Inbox", .builtIn(.inbox), "tray"),
+                ("My Tasks", .builtIn(.myTasks), "person"),
+                ("Delegated", .builtIn(.delegated), "person.2"),
+                ("Today", .builtIn(.today), "star"),
+                ("Upcoming", .builtIn(.upcoming), "calendar"),
+                ("Logbook", .builtIn(.logbook), "checkmark.circle"),
+                ("Review", .builtIn(.review), "checklist"),
+                ("Anytime", .builtIn(.anytime), "list.bullet"),
+                ("Someday", .builtIn(.someday), "clock"),
+                ("Flagged", .builtIn(.flagged), "flag")
+            ]
+            if pomodoroEnabled {
+                views.append(("Pomodoro", .builtIn(.pomodoro), "timer"))
+            }
+            return views.filter { matchesQuery($0.label, query: query) }
+        }()
 
         if tasks.isEmpty && tags.isEmpty && areas.isEmpty && projects.isEmpty && builtInViews.isEmpty && perspectives.isEmpty {
             ContentUnavailableView(
@@ -1009,99 +1716,55 @@ struct RootView: View {
             }
     }
 
-    private var shouldShowBottomNavigationBar: Bool {
-        horizontalSizeClass == .compact && !resolvedBottomNavigationSections.isEmpty
-    }
-
-    private var resolvedBottomNavigationSections: [ResolvedBottomNavigationSection] {
-        var resolved = BottomNavigationSettings.decodeSections(bottomNavigationSectionsRawValue)
-            .compactMap { section -> ResolvedBottomNavigationSection? in
-                let view = section.viewIdentifier
-                if case .builtIn(.pomodoro) = view, !pomodoroEnabled {
-                    return nil
-                }
-                if case .custom = view, perspective(for: view) == nil, !view.isBrowse {
-                    return nil
-                }
-                return ResolvedBottomNavigationSection(id: section.id, view: view)
-            }
-
-        if !resolved.contains(where: { $0.view.isBrowse }) {
-            if resolved.count >= BottomNavigationSettings.maxSections {
-                _ = resolved.popLast()
-            }
-            resolved.append(ResolvedBottomNavigationSection(id: "browse", view: .browse))
+    @ViewBuilder
+    private func detailContent(for compactTab: CompactRootTab?) -> some View {
+        if let compactTab, compactRootTab(for: container.selectedView) != compactTab {
+            Color.clear
+        } else {
+            mainContent
         }
-
-        return resolved
     }
 
-    private var compactBottomNavigationBar: some View {
-        HStack(spacing: 4) {
-            ForEach(resolvedBottomNavigationSections) { section in
-                let item = bottomNavigationItem(for: section.view)
-                Button {
-                    applyFilter(section.view)
-                } label: {
-                    Image(systemName: item.icon)
-                        .font(.system(size: 22, weight: .regular))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .foregroundStyle(
-                        container.selectedView == section.view
-                            ? (color(forHex: item.tintHex) ?? theme.accentColor)
-                            : theme.textSecondaryColor
-                    )
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.top, 8)
-        .padding(.bottom, 10)
-        .background(.ultraThinMaterial)
-    }
-
-    private func bottomNavigationItem(for view: ViewIdentifier) -> (title: String, icon: String, tintHex: String?) {
+    private func compactRootTab(for view: ViewIdentifier) -> CompactRootTab {
         switch view {
-        case .builtIn(let builtIn):
-            switch builtIn {
-            case .inbox:
-                return ("Inbox", "tray", nil)
-            case .myTasks:
-                return ("My Tasks", "person", nil)
-            case .delegated:
-                return ("Delegated", "person.2", nil)
-            case .today:
-                return ("Today", "sun.max", nil)
-            case .upcoming:
-                return ("Upcoming", "calendar", nil)
-            case .review:
-                return ("Review", "checklist", nil)
-            case .anytime:
-                return ("Anytime", "list.bullet", nil)
-            case .someday:
-                return ("Someday", "clock", nil)
-            case .flagged:
-                return ("Flagged", "flag", nil)
-            case .pomodoro:
-                return ("Pomodoro", "timer", nil)
-            }
-        case .area(let area):
-            return (area, "square.grid.2x2", nil)
-        case .project(let project):
-            return (project, container.projectIconSymbol(for: project), container.projectColorHex(for: project))
-        case .tag(let tag):
-            return ("#\(tag)", "number", nil)
-        case .custom(let rawValue):
-            if view.isBrowse {
-                return ("Browse", "square.grid.2x2", nil)
-            }
-            if let perspective = perspective(for: view) {
-                return (perspective.name, perspective.icon, perspective.color)
-            }
-            return (rawValue, "square.grid.2x2", nil)
+        case .builtIn(.inbox):
+            return .inbox
+        case .builtIn(.today):
+            return .today
+        case .builtIn(.upcoming):
+            return .upcoming
+        case .builtIn(.logbook):
+            return .logbook
+        default:
+            return .areas
         }
+    }
+
+    private func rootView(for tab: CompactRootTab, currentView: ViewIdentifier? = nil) -> ViewIdentifier {
+        let currentView = currentView ?? container.selectedView
+        switch tab {
+        case .inbox:
+            return .builtIn(.inbox)
+        case .today:
+            return .builtIn(.today)
+        case .upcoming:
+            return .builtIn(.upcoming)
+        case .areas:
+            return compactRootTab(for: currentView) == .areas ? currentView : .browse
+        case .logbook:
+            return .builtIn(.logbook)
+        }
+    }
+
+    private func selectCompactTab(_ tab: CompactRootTab) {
+        let targetView = rootView(for: tab)
+        applyFilter(targetView)
+    }
+
+    private func syncCompactSelectedTab() {
+        let resolvedTab = compactRootTab(for: container.selectedView)
+        guard compactSelectedTab != resolvedTab else { return }
+        compactSelectedTab = resolvedTab
     }
 
     private func perspective(for view: ViewIdentifier) -> PerspectiveDefinition? {
@@ -1113,30 +1776,235 @@ struct RootView: View {
         return container.perspectives.first(where: { $0.id == id })
     }
 
-    private var floatingAddButton: some View {
-        Button {
-            showingQuickEntry = true
-        } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 20, weight: .bold))
-                .frame(width: 56, height: 56)
-                .background(Circle().fill(theme.accentColor))
-                .foregroundStyle(.white)
-                .shadow(color: .black.opacity(0.14), radius: 12, x: 0, y: 5)
-        }
-        .keyboardShortcut("n", modifiers: .command)
-        .accessibilityIdentifier("root.quickAddButton")
-        .padding(.trailing, 20)
-        .padding(.bottom, shouldShowBottomNavigationBar ? 76 : 16)
+    private var shouldShowInlineTaskButton: Bool {
+        isAtActiveNavigationRoot && canCreateInlineTask(in: container.selectedView) && !inboxTriageMode
+    }
+
+    private var shouldShowToolbarInlineTaskButton: Bool {
+        horizontalSizeClass != .compact && shouldShowInlineTaskButton
     }
 
     private var shouldShowFloatingAddButton: Bool {
-        navigationPath.isEmpty
+        horizontalSizeClass == .compact && shouldShowInlineTaskButton && !isCreatingTask
+    }
+
+    private var shouldReserveFloatingAddButtonSpace: Bool {
+        shouldShowFloatingAddButton
+    }
+
+    private var shouldRenderInlineTaskComposer: Bool {
+        isCreatingTask && shouldShowInlineTaskButton
+    }
+
+    private var shouldRenderInlineTaskComposerInList: Bool {
+        shouldRenderInlineTaskComposer && horizontalSizeClass != .compact
+    }
+
+    private var shouldShowCompactInlineTaskComposer: Bool {
+        shouldRenderInlineTaskComposer && horizontalSizeClass == .compact
+    }
+
+    private var compactComposerOpenAnimation: Animation {
+        .spring(response: 0.32, dampingFraction: 0.84, blendDuration: 0.12)
+    }
+
+    private var compactComposerCloseAnimation: Animation {
+        .spring(response: 0.24, dampingFraction: 0.94, blendDuration: 0.1)
+    }
+
+    private var floatingAddButton: some View {
+        Button {
+            triggerInlineTaskComposer()
+        } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: 34, style: .continuous)
+                    .fill(theme.accentColor)
+                    .matchedGeometryEffect(
+                        id: "compactQuickAddShell",
+                        in: compactQuickAddNamespace,
+                        properties: .frame,
+                        anchor: .bottomTrailing
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 34, style: .continuous)
+                            .strokeBorder(.white.opacity(0.22), lineWidth: 1)
+                    }
+
+                Image(systemName: "plus")
+                    .font(.system(size: 31, weight: .light))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 68, height: 68)
+            .shadow(color: theme.accentColor.opacity(0.3), radius: 20, x: 0, y: 10)
+            .shadow(color: .black.opacity(0.2), radius: 12, x: 0, y: 4)
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut("n", modifiers: .command)
+        .accessibilityLabel("Add Task")
+        .accessibilityIdentifier("root.inlineAddButton")
+        .transition(.scale(scale: 0.86, anchor: .bottomTrailing).combined(with: .opacity))
+    }
+
+    private func canCreateInlineTask(in view: ViewIdentifier) -> Bool {
+        switch view {
+        case .builtIn(.review), .builtIn(.upcoming), .builtIn(.logbook), .builtIn(.pomodoro):
+            return false
+        case .custom(let rawValue):
+            return rawValue != ViewIdentifier.browseRawValue
+        default:
+            return !view.isBrowse
+        }
+    }
+
+    private func presentQuickEntryFromCurrentContext() {
+        if shouldShowInlineTaskButton {
+            triggerInlineTaskComposer()
+        } else {
+            showingQuickEntry = true
+        }
+    }
+
+    private func triggerInlineTaskComposer() {
+        guard shouldShowInlineTaskButton else {
+            showingQuickEntry = true
+            return
+        }
+        inlineComposerTransitionTask?.cancel()
+        inlineComposerTransitionTask = nil
+        if isCreatingTask {
+            inlineTaskFocused = true
+            return
+        }
+
+        inlineTaskDraft = defaultInlineTaskDraft(for: container.selectedView)
+        expandedInlineTaskPanel = nil
+        compactComposerContentVisible = horizontalSizeClass != .compact
+        withAnimation(compactComposerOpenAnimation) {
+            isCreatingTask = true
+        }
+
+        if horizontalSizeClass == .compact {
+            inlineComposerTransitionTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 55_000_000)
+                withAnimation(.easeOut(duration: 0.18)) {
+                    compactComposerContentVisible = true
+                }
+                inlineComposerTransitionTask = nil
+            }
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.09) {
+            inlineTaskFocused = isCreatingTask
+        }
+    }
+
+    private func cancelInlineTaskComposer() {
+        guard isCreatingTask else { return }
+        inlineComposerTransitionTask?.cancel()
+        inlineComposerTransitionTask = nil
+        if horizontalSizeClass == .compact {
+            withAnimation(.easeOut(duration: 0.12)) {
+                compactComposerContentVisible = false
+            }
+            inlineComposerTransitionTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 120_000_000)
+                withAnimation(compactComposerCloseAnimation) {
+                    isCreatingTask = false
+                }
+                inlineTaskDraft = InlineTaskDraft()
+                inlineComposerTransitionTask = nil
+            }
+        } else {
+            withAnimation(.easeOut(duration: 0.2)) {
+                isCreatingTask = false
+            }
+            inlineTaskDraft = InlineTaskDraft()
+        }
+        inlineTaskFocused = false
+        expandedInlineTaskPanel = nil
+    }
+
+    private func commitInlineTaskComposer() {
+        let trimmedTitle = inlineTaskDraft.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else {
+            cancelInlineTaskComposer()
+            return
+        }
+
+        let defaultDraft = defaultInlineTaskDraft(for: container.selectedView)
+        let explicitDue: LocalDate?
+        if inlineTaskDraft.dueDate == defaultDraft.dueDate {
+            explicitDue = nil
+        } else {
+            explicitDue = inlineTaskDraft.dueDate.map(localDate(from:))
+        }
+        let defaultView: BuiltInView? = {
+            if case .builtIn(let builtInView) = container.selectedView {
+                return builtInView
+            }
+            return nil
+        }()
+
+        let created = container.createTask(
+            fromQuickEntryText: trimmedTitle,
+            explicitDue: explicitDue,
+            priority: nil,
+            flagged: inlineTaskDraft.flagged,
+            tags: inlineTaskDraft.normalizedTags,
+            area: inlineTaskDraft.area,
+            project: inlineTaskDraft.project,
+            defaultView: defaultView
+        )
+        if !created {
+            container.createTask(
+                title: trimmedTitle,
+                naturalDate: nil,
+                tags: inlineTaskDraft.normalizedTags,
+                explicitDue: explicitDue,
+                priorityOverride: nil,
+                flagged: inlineTaskDraft.flagged,
+                area: inlineTaskDraft.area,
+                project: inlineTaskDraft.project,
+                source: "user",
+                defaultView: defaultView
+            )
+        }
+
+        cancelInlineTaskComposer()
+#if canImport(UIKit)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+#endif
+    }
+
+    private func defaultInlineTaskDraft(for view: ViewIdentifier) -> InlineTaskDraft {
+        var draft = InlineTaskDraft()
+        switch view {
+        case .builtIn(.today):
+            draft.dueDate = Calendar.current.startOfDay(for: Date())
+        case .area(let area):
+            draft.area = area
+        case .project(let project):
+            draft.project = project
+        case .tag(let tag):
+            draft.tagsText = "#\(tag)"
+        default:
+            break
+        }
+        return draft
+    }
+
+    private func localDate(from date: Date) -> LocalDate {
+        let components = Calendar.current.dateComponents([.year, .month, .day], from: date)
+        return (try? LocalDate(
+            year: components.year ?? 1970,
+            month: components.month ?? 1,
+            day: components.day ?? 1
+        )) ?? .epoch
     }
 
     private func navigationTitle() -> String {
         if container.selectedView.isBrowse {
-            return "Browse"
+            return "Areas"
         }
         return titleForCurrentView()
     }
@@ -1239,27 +2107,31 @@ struct RootView: View {
         let task = Task { @MainActor in
             defer { completionAnimationTasks[path] = nil }
 
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
                 _ = pathsCompleting.insert(path)
             }
 
-            do { try await Task.sleep(nanoseconds: 120_000_000) } catch {
+            do { try await Task.sleep(nanoseconds: 450_000_000) } catch {
                 resetCompletionAnimationState(path: path)
                 return
             }
 
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                 _ = pathsSlidingOut.insert(path)
             }
 
-            do { try await Task.sleep(nanoseconds: 160_000_000) } catch {
+#if canImport(UIKit)
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+#endif
+
+            do { try await Task.sleep(nanoseconds: 350_000_000) } catch {
                 resetCompletionAnimationState(path: path)
                 return
             }
 
             container.complete(path: path)
 
-            do { try await Task.sleep(nanoseconds: 280_000_000) } catch {
+            do { try await Task.sleep(nanoseconds: 120_000_000) } catch {
                 resetCompletionAnimationState(path: path)
                 return
             }
@@ -1293,7 +2165,8 @@ struct RootView: View {
         .contentShape(Rectangle())
         .onTapGesture {
             guard !isEditing else { return }
-            navigationPath.append(record.identity.path)
+            cancelInlineTaskComposer()
+            appendToActiveNavigationPath(record.identity.path)
         }
         .contextMenu {
             Menu("Quick Settings") {
@@ -1403,13 +2276,13 @@ struct RootView: View {
                 .tint(.green)
             }
         }
-        .opacity(isSlidingOut ? 0.0 : (isCompleting ? 0.86 : 1.0))
-        .offset(x: isSlidingOut ? 700 : 0)
+        .opacity(isSlidingOut ? 0.0 : 1.0)
+        .offset(y: isSlidingOut ? -8 : 0)
         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-        .listRowBackground(theme.surfaceColor)
+        .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
-        .animation(.spring(response: 0.28, dampingFraction: 0.78), value: pathsCompleting)
-        .animation(.spring(response: 0.28, dampingFraction: 0.78), value: pathsSlidingOut)
+        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: pathsCompleting)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: pathsSlidingOut)
     }
 
     private func navButton(
@@ -1474,6 +2347,8 @@ struct RootView: View {
                 return "Today"
             case .upcoming:
                 return "Upcoming"
+            case .logbook:
+                return "Logbook"
             case .review:
                 return "Review"
             case .anytime:
@@ -1493,7 +2368,7 @@ struct RootView: View {
             return "#\(tag)"
         case .custom(let id):
             if ViewIdentifier.custom(id).isBrowse {
-                return "Browse"
+                return "Areas"
             }
             if let perspectiveName = container.perspectiveName(for: .custom(id)) {
                 return perspectiveName
@@ -1556,6 +2431,7 @@ extension RootView {
             .id(container.selectedView.rawValue)
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
+            .background(theme.backgroundColor)
             .transition(.move(edge: .trailing).combined(with: .opacity))
         }
     }
@@ -1588,12 +2464,13 @@ extension RootView {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(theme.textSecondaryColor)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
+            .padding(.leading, 20)
+            .padding(.trailing, 16)
+            .padding(.vertical, 13)
         }
         .buttonStyle(.plain)
         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-        .listRowBackground(theme.surfaceColor)
+        .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
     }
 
@@ -1617,85 +2494,111 @@ extension RootView {
 }
 
 private struct TaskRow: View {
+    private struct MetadataSegment {
+        let text: String
+        let color: Color
+    }
+
     let record: TaskRecord
     let isCompleting: Bool
     let onComplete: () -> Void
     @EnvironmentObject private var theme: ThemeManager
 
+    private var completionAccessibilityIdentifier: String {
+        "taskRow.complete.\(record.document.frontmatter.title)"
+    }
+
     var body: some View {
         let frontmatter = record.document.frontmatter
 
         HStack(alignment: .top, spacing: 12) {
-            Button(action: onComplete) {
-                checkboxImage(frontmatter: frontmatter)
-            }
-            .buttonStyle(.plain)
+            TaskCheckbox(
+                isCompleted: isCompleting || frontmatter.status == .done || frontmatter.status == .cancelled,
+                isDashed: frontmatter.status == .inProgress && !isCompleting,
+                tint: checkboxTint(for: frontmatter),
+                accessibilityIdentifier: completionAccessibilityIdentifier,
+                onTap: onComplete
+            )
             .padding(.top, 2)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(frontmatter.title)
                     .font(.body)
+                    .fontWeight(.regular)
                     .foregroundStyle(isCompleting ? theme.textSecondaryColor : theme.textPrimaryColor)
                     .strikethrough(isCompleting, color: theme.textSecondaryColor)
                     .lineLimit(2)
 
-                let meta = metadataLine(frontmatter: frontmatter)
-                if !meta.isEmpty {
-                    Text(meta)
-                        .font(.caption)
-                        .foregroundStyle(theme.textSecondaryColor)
+                if let metadataText = metadataLine(frontmatter: frontmatter) {
+                    metadataText
+                        .font(.footnote)
                         .lineLimit(1)
                 }
             }
 
             Spacer(minLength: 0)
+
+            if frontmatter.flagged {
+                Image(systemName: "flag.fill")
+                    .font(.footnote)
+                    .foregroundStyle(theme.flaggedColor)
+                    .padding(.top, 2)
+            }
         }
-        .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-        .opacity(isCompleting ? 0.86 : 1.0)
+        .padding(.leading, 20)
+        .padding(.trailing, 16)
+        .padding(.vertical, 13)
     }
 
-    @ViewBuilder
-    private func checkboxImage(frontmatter: TaskFrontmatterV1) -> some View {
-        let (symbol, tint): (String, Color) = {
-            if isCompleting || frontmatter.status == .done || frontmatter.status == .cancelled {
-                return ("checkmark.circle.fill", theme.textSecondaryColor)
-            }
-            let priorityTint: Color = {
-                switch frontmatter.priority {
-                case .high: return theme.overdueColor
-                case .medium: return theme.priorityColor(.medium)
-                case .low: return theme.priorityColor(.low)
-                case .none: return theme.accentColor
-                }
-            }()
-            if frontmatter.status == .inProgress {
-                return ("circle.dashed", priorityTint)
-            }
-            return ("circle", priorityTint)
-        }()
-
-        Image(systemName: symbol)
-            .font(.system(size: 22, weight: .light))
-            .foregroundStyle(tint)
-            .frame(width: 28, height: 28)
+    private func checkboxTint(for frontmatter: TaskFrontmatterV1) -> Color {
+        if frontmatter.status == .cancelled {
+            return theme.textSecondaryColor
+        }
+        return theme.accentColor
     }
 
-    private func metadataLine(frontmatter: TaskFrontmatterV1) -> String {
-        var parts: [String] = []
-        if let dueText = dueDisplayText(for: frontmatter) {
-            parts.append(dueText)
+    private func metadataLine(frontmatter: TaskFrontmatterV1) -> Text? {
+        let segments = metadataSegments(for: frontmatter)
+        guard let first = segments.first else { return nil }
+
+        var combined = Text(first.text).foregroundColor(first.color)
+        for segment in segments.dropFirst() {
+            combined = combined + Text("  ·  ").foregroundColor(theme.textSecondaryColor)
+            combined = combined + Text(segment.text).foregroundColor(segment.color)
         }
-        if let recurrenceText = recurrenceDisplayText(for: frontmatter) {
-            parts.append(recurrenceText)
-        }
+        return combined
+    }
+
+    private func metadataSegments(for frontmatter: TaskFrontmatterV1) -> [MetadataSegment] {
+        var segments: [MetadataSegment] = []
+
         if let project = frontmatter.project?.trimmingCharacters(in: .whitespacesAndNewlines),
            !project.isEmpty {
-            parts.append(project)
+            segments.append(MetadataSegment(text: project, color: theme.textSecondaryColor))
+        } else if let area = frontmatter.area?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !area.isEmpty {
+            segments.append(MetadataSegment(text: area, color: theme.textSecondaryColor))
         }
-        let tagParts = frontmatter.tags.prefix(2).map { "#\($0)" }
-        parts.append(contentsOf: tagParts)
-        return parts.joined(separator: "  ·  ")
+
+        if let dueText = dueDisplayText(for: frontmatter) {
+            segments.append(MetadataSegment(
+                text: dueText,
+                color: isOverdue(frontmatter) ? theme.overdueColor : theme.textSecondaryColor
+            ))
+        }
+
+        if let completionText = completionDisplayText(for: frontmatter) {
+            segments.append(MetadataSegment(text: completionText, color: theme.textSecondaryColor))
+        }
+
+        if let recurrenceText = recurrenceDisplayText(for: frontmatter) {
+            segments.append(MetadataSegment(text: recurrenceText, color: theme.textSecondaryColor))
+        }
+
+        segments.append(contentsOf: frontmatter.tags.prefix(2).map {
+            MetadataSegment(text: "#\($0)", color: theme.textSecondaryColor)
+        })
+        return segments
     }
 
     private func dueDisplayText(for frontmatter: TaskFrontmatterV1) -> String? {
@@ -1722,6 +2625,36 @@ private struct TaskRow: View {
         let formatter = DateFormatter()
         formatter.setLocalizedDateFormatFromTemplate("MMM d")
         return formatter.string(from: dueDate)
+    }
+
+    private func isOverdue(_ frontmatter: TaskFrontmatterV1) -> Bool {
+        guard let due = frontmatter.due,
+              frontmatter.status != .done,
+              frontmatter.status != .cancelled,
+              let dueDate = date(from: due, time: frontmatter.dueTime) else {
+            return false
+        }
+
+        if frontmatter.dueTime != nil {
+            return dueDate < Date()
+        }
+        return Calendar.current.startOfDay(for: dueDate) < Calendar.current.startOfDay(for: Date())
+    }
+
+    private func completionDisplayText(for frontmatter: TaskFrontmatterV1) -> String? {
+        guard frontmatter.status == .done || frontmatter.status == .cancelled else { return nil }
+
+        let prefix = frontmatter.status == .cancelled ? "Cancelled" : "Completed"
+        guard let completed = frontmatter.completed else { return prefix }
+
+        let calendar = Calendar.current
+        if calendar.isDateInToday(completed) {
+            return "\(prefix) Today"
+        }
+        if calendar.isDateInYesterday(completed) {
+            return "\(prefix) Yesterday"
+        }
+        return "\(prefix) \(completed.formatted(date: .abbreviated, time: .omitted))"
     }
 
     private func recurrenceDisplayText(for frontmatter: TaskFrontmatterV1) -> String? {
@@ -1826,5 +2759,189 @@ private struct TaskRow: View {
             }
         }
         return "\(day)\(suffix)"
+    }
+}
+
+private struct TaskCheckbox: View {
+    let isCompleted: Bool
+    let isDashed: Bool
+    let tint: Color
+    var isInteractive = true
+    let accessibilityIdentifier: String?
+    let onTap: () -> Void
+
+    @State private var fillProgress: CGFloat
+
+    init(
+        isCompleted: Bool,
+        isDashed: Bool,
+        tint: Color,
+        isInteractive: Bool = true,
+        accessibilityIdentifier: String? = nil,
+        onTap: @escaping () -> Void
+    ) {
+        self.isCompleted = isCompleted
+        self.isDashed = isDashed
+        self.tint = tint
+        self.isInteractive = isInteractive
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.onTap = onTap
+        _fillProgress = State(initialValue: isCompleted ? 1 : 0)
+    }
+
+    var body: some View {
+        Group {
+            if isInteractive {
+                if let accessibilityIdentifier {
+                    Button(action: handleTap) {
+                        checkboxBody
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier(accessibilityIdentifier)
+                } else {
+                    Button(action: handleTap) {
+                        checkboxBody
+                    }
+                    .buttonStyle(.plain)
+                }
+            } else {
+                checkboxBody
+            }
+        }
+        .onChange(of: isCompleted) { _, completed in
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                fillProgress = completed ? 1 : 0
+            }
+        }
+    }
+
+    private var checkboxBody: some View {
+        ZStack {
+            Circle()
+                .stroke(
+                    tint,
+                    style: StrokeStyle(lineWidth: 1.5, dash: isDashed && !isCompleted ? [3, 2] : [])
+                )
+                .frame(width: 22, height: 22)
+
+            Circle()
+                .fill(tint)
+                .frame(width: 22, height: 22)
+                .scaleEffect(fillProgress)
+                .opacity(fillProgress)
+
+            Image(systemName: "checkmark")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(.white)
+                .opacity(fillProgress)
+        }
+        .frame(width: 22, height: 22)
+    }
+
+    private func handleTap() {
+#if canImport(UIKit)
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+#endif
+        onTap()
+    }
+}
+
+private struct QuickAddChip: View {
+    let icon: String
+    let label: String
+    let isSet: Bool
+    let tint: Color
+    let action: () -> Void
+    @EnvironmentObject private var theme: ThemeManager
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.caption)
+                Text(label)
+                    .font(.caption)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                Capsule()
+                    .fill(isSet ? tint.opacity(0.15) : theme.surfaceColor)
+            )
+            .foregroundStyle(isSet ? tint : theme.textSecondaryColor)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct CompactInlineLeadingButton: View {
+    let icon: String
+    let label: String
+    let tint: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 14, weight: .semibold))
+                Text(label)
+                    .font(.system(size: 16, weight: .regular))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(tint)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct CompactQuickAddIconButton: View {
+    let icon: String
+    let tint: Color
+    let inactiveTint: Color
+    let isActive: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: .regular))
+                .foregroundStyle(isActive ? tint : inactiveTint)
+                .frame(width: 28, height: 28)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct CompactComposerCheckbox: View {
+    let strokeColor: Color
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 5, style: .continuous)
+            .stroke(strokeColor, lineWidth: 1.8)
+            .frame(width: 18, height: 18)
+    }
+}
+
+private struct InlineTaskOptionButton: View {
+    let title: String
+    let isSelected: Bool
+    let tint: Color
+    let action: () -> Void
+    @EnvironmentObject private var theme: ThemeManager
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.caption)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule()
+                        .fill(isSelected ? tint.opacity(0.15) : theme.surfaceColor)
+                )
+                .foregroundStyle(isSelected ? tint : theme.textSecondaryColor)
+        }
+        .buttonStyle(.plain)
     }
 }

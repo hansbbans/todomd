@@ -6,6 +6,7 @@ public enum BuiltInView: String, CaseIterable, Sendable {
     case delegated
     case today
     case upcoming
+    case logbook
     case review
     case anytime
     case someday

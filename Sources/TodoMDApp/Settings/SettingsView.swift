@@ -4,19 +4,12 @@ import UniformTypeIdentifiers
 import UserNotifications
 #endif
 
-private struct BottomNavigationOption: Identifiable, Hashable {
-    let id: String
-    let label: String
-    let icon: String
-}
-
 private enum SettingsSection: String, CaseIterable, Identifiable {
     case calendar
     case remindersImport
     case appearance
     case notifications
     case taskBehavior
-    case bottomNavigation
     case storage
     case maintenance
 
@@ -34,8 +27,6 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
             return "Notifications"
         case .taskBehavior:
             return "Task Behavior"
-        case .bottomNavigation:
-            return "Bottom Navigation"
         case .storage:
             return "Storage"
         case .maintenance:
@@ -55,8 +46,6 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
             return "bell.badge"
         case .taskBehavior:
             return "checkmark.circle"
-        case .bottomNavigation:
-            return "dock.rectangle"
         case .storage:
             return "externaldrive"
         case .maintenance:
@@ -81,10 +70,9 @@ struct SettingsView: View {
     @AppStorage("settings_quick_entry_default_view") private var quickEntryDefaultView = BuiltInView.inbox.rawValue
     @AppStorage(QuickEntrySettings.fieldsKey) private var quickEntryFieldsRawValue = QuickEntrySettings.defaultFieldsRawValue
     @AppStorage(QuickEntrySettings.defaultDateModeKey) private var quickEntryDefaultDateModeRawValue = QuickEntryDefaultDateMode.none.rawValue
-    @AppStorage(BottomNavigationSettings.sectionsKey) private var bottomNavigationSectionsRawValue = BottomNavigationSettings.defaultSectionsRawValue
     @AppStorage("settings_pomodoro_enabled") private var pomodoroEnabled = false
-    @AppStorage("settings_icloud_folder_name") private var iCloudFolderName = "todo.md"
-    @State private var selectedFolderPath = UserDefaults.standard.string(forKey: TaskFolderPreferences.selectedFolderPathKey)
+    @AppStorage(TaskFolderPreferences.legacyFolderNameKey, store: TaskFolderPreferences.shared) private var iCloudFolderName = "todo.md"
+    @State private var selectedFolderPath = TaskFolderPreferences.shared.string(forKey: TaskFolderPreferences.selectedFolderPathKey)
     @State private var showingFolderPicker = false
     @State private var folderSelectionErrorMessage: String?
     @State private var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
@@ -125,13 +113,6 @@ struct SettingsView: View {
                 Label(SettingsSection.taskBehavior.title, systemImage: SettingsSection.taskBehavior.systemImage)
             }
             .accessibilityIdentifier("settings.section.\(SettingsSection.taskBehavior.rawValue)")
-
-            NavigationLink {
-                bottomNavigationSettingsView
-            } label: {
-                Label(SettingsSection.bottomNavigation.title, systemImage: SettingsSection.bottomNavigation.systemImage)
-            }
-            .accessibilityIdentifier("settings.section.\(SettingsSection.bottomNavigation.rawValue)")
 
             NavigationLink {
                 storageSettingsView
@@ -441,6 +422,9 @@ struct SettingsView: View {
                     }
                 }
 
+                Toggle("Enable Pomodoro view", isOn: $pomodoroEnabled)
+                    .accessibilityIdentifier("settings.taskBehavior.pomodoroToggle")
+
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Quick entry visible fields")
                         .font(.subheadline.weight(.semibold))
@@ -459,6 +443,10 @@ struct SettingsView: View {
                     }
                     .onMove(perform: moveQuickEntryFields)
                 }
+
+                Text("Pomodoro appears in Areas on compact screens and in the sidebar on larger layouts.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .navigationTitle(SettingsSection.taskBehavior.title)
@@ -468,87 +456,6 @@ struct SettingsView: View {
                 EditButton()
             }
             #endif
-        }
-    }
-
-    private var bottomNavigationSettingsView: some View {
-        Form {
-            Section {
-                Text("Configure 0 to 5 bottom sections for compact screens.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Toggle("Enable Pomodoro section", isOn: $pomodoroEnabled)
-                    .accessibilityIdentifier("settings.bottomNavigation.pomodoroToggle")
-
-                Text("Turn this on to allow Pomodoro as a bottom section option.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if pomodoroEnabled {
-                    let hasPomodoroSection = bottomNavigationSections.contains { $0.viewIdentifier == .builtIn(.pomodoro) }
-                    Button("Add Pomodoro Section") {
-                        addPomodoroBottomNavigationSection()
-                    }
-                    .accessibilityIdentifier("settings.bottomNavigation.addPomodoroButton")
-                    .disabled(hasPomodoroSection || bottomNavigationSections.count >= BottomNavigationSettings.maxSections)
-                }
-                if bottomNavigationSections.isEmpty {
-                    Text("No bottom sections configured.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(bottomNavigationSections) { section in
-                        let sectionNumber = (bottomNavigationSections.firstIndex(where: { $0.id == section.id }) ?? 0) + 1
-                        Picker("Section \(sectionNumber)", selection: bottomNavigationSectionBinding(section.id)) {
-                            ForEach(bottomNavigationOptions) { option in
-                                Label(option.label, systemImage: option.icon)
-                                    .tag(option.id)
-                            }
-
-                            if !bottomNavigationOptions.contains(where: { $0.id == section.viewRawValue }) {
-                                Text("Unavailable (\(section.viewRawValue))")
-                                    .tag(section.viewRawValue)
-                            }
-                        }
-                        .accessibilityIdentifier("settings.bottomNavigation.section\(sectionNumber)Picker")
-                    }
-                    .onMove(perform: moveBottomNavigationSections)
-                    .onDelete(perform: deleteBottomNavigationSections)
-                }
-
-                HStack {
-                    Button("Add Section") {
-                        addBottomNavigationSection()
-                    }
-                    .accessibilityIdentifier("settings.bottomNavigation.addSectionButton")
-                    .disabled(bottomNavigationSections.count >= BottomNavigationSettings.maxSections)
-
-                    Spacer()
-
-                    Text("\(bottomNavigationSections.count)/\(BottomNavigationSettings.maxSections)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if !bottomNavigationSections.isEmpty {
-                    Button("Remove All Sections", role: .destructive) {
-                        bottomNavigationSectionsRawValue = BottomNavigationSettings.encodeSections([])
-                    }
-                }
-            }
-        }
-        .navigationTitle(SettingsSection.bottomNavigation.title)
-        .toolbar {
-            #if os(iOS)
-            ToolbarItem(placement: .appTrailingAction) {
-                EditButton()
-            }
-            #endif
-        }
-        .onChange(of: pomodoroEnabled) { _, isEnabled in
-            if !isEnabled {
-                removePomodoroFromBottomNavigationSections()
-            }
         }
     }
 
@@ -619,168 +526,6 @@ struct SettingsView: View {
                 container.setReminderListSelected(id: selectedID)
             }
         )
-    }
-
-    private var bottomNavigationSections: [BottomNavigationSection] {
-        BottomNavigationSettings.decodeSections(bottomNavigationSectionsRawValue)
-    }
-
-    private var bottomNavigationOptions: [BottomNavigationOption] {
-        var options: [BottomNavigationOption] = []
-        var seen = Set<String>()
-
-        func appendOption(view: ViewIdentifier, label: String, icon: String) {
-            let rawValue = view.rawValue
-            guard seen.insert(rawValue).inserted else { return }
-            options.append(BottomNavigationOption(id: rawValue, label: label, icon: icon))
-        }
-
-        appendOption(view: .browse, label: "Browse", icon: "square.grid.2x2")
-
-        for builtIn in BuiltInView.allCases {
-            let label: String
-            let icon: String
-            switch builtIn {
-            case .inbox:
-                label = "Inbox"
-                icon = "tray"
-            case .myTasks:
-                label = "My Tasks"
-                icon = "person"
-            case .delegated:
-                label = "Delegated"
-                icon = "person.2"
-            case .today:
-                label = "Today"
-                icon = "sun.max"
-            case .upcoming:
-                label = "Upcoming"
-                icon = "calendar"
-            case .review:
-                label = "Review"
-                icon = "checklist"
-            case .anytime:
-                label = "Anytime"
-                icon = "list.bullet"
-            case .someday:
-                label = "Someday"
-                icon = "clock"
-            case .flagged:
-                label = "Flagged"
-                icon = "flag"
-            case .pomodoro:
-                guard pomodoroEnabled else { continue }
-                label = "Pomodoro"
-                icon = "timer"
-            }
-            appendOption(view: .builtIn(builtIn), label: label, icon: icon)
-        }
-
-        for perspective in container.perspectives {
-            appendOption(
-                view: container.perspectiveViewIdentifier(for: perspective.id),
-                label: "Perspective: \(perspective.name)",
-                icon: perspective.icon
-            )
-        }
-
-        for area in container.availableAreas() {
-            appendOption(view: .area(area), label: "Area: \(area)", icon: "square.grid.2x2")
-        }
-
-        for project in container.allProjects() {
-            appendOption(
-                view: .project(project),
-                label: "Project: \(project)",
-                icon: container.projectIconSymbol(for: project)
-            )
-        }
-
-        for tag in container.availableTags() {
-            appendOption(view: .tag(tag), label: "Tag: #\(tag)", icon: "number")
-        }
-
-        return options
-    }
-
-    private func bottomNavigationSectionBinding(_ sectionID: String) -> Binding<String> {
-        Binding(
-            get: {
-                bottomNavigationSections.first(where: { $0.id == sectionID })?.viewRawValue ?? BuiltInView.inbox.rawValue
-            },
-            set: { newRawValue in
-                var sections = bottomNavigationSections
-                guard let index = sections.firstIndex(where: { $0.id == sectionID }) else { return }
-                sections[index].viewRawValue = newRawValue
-                bottomNavigationSectionsRawValue = BottomNavigationSettings.encodeSections(sections)
-            }
-        )
-    }
-
-    private func addBottomNavigationSection() {
-        var sections = bottomNavigationSections
-        guard sections.count < BottomNavigationSettings.maxSections else { return }
-        let existingViews = sections.map(\.viewIdentifier)
-        sections.append(BottomNavigationSection(view: nextBottomNavigationView(existing: existingViews)))
-        bottomNavigationSectionsRawValue = BottomNavigationSettings.encodeSections(sections)
-    }
-
-    private func moveBottomNavigationSections(from source: IndexSet, to destination: Int) {
-        var sections = bottomNavigationSections
-        sections.move(fromOffsets: source, toOffset: destination)
-        bottomNavigationSectionsRawValue = BottomNavigationSettings.encodeSections(sections)
-    }
-
-    private func deleteBottomNavigationSections(at offsets: IndexSet) {
-        var sections = bottomNavigationSections
-        sections.remove(atOffsets: offsets)
-        bottomNavigationSectionsRawValue = BottomNavigationSettings.encodeSections(sections)
-    }
-
-    private func nextBottomNavigationView(existing: [ViewIdentifier]) -> ViewIdentifier {
-        let builtInCandidates: [ViewIdentifier] = [
-            .browse,
-            .builtIn(.inbox),
-            .builtIn(.today),
-            .builtIn(.upcoming),
-            .builtIn(.review),
-            .builtIn(.anytime),
-            .builtIn(.flagged),
-            .builtIn(.someday)
-        ]
-
-        for candidate in builtInCandidates where !existing.contains(candidate) {
-            return candidate
-        }
-
-        if let firstPerspective = container.perspectives.first {
-            let perspectiveView = container.perspectiveViewIdentifier(for: firstPerspective.id)
-            if !existing.contains(perspectiveView) {
-                return perspectiveView
-            }
-        }
-
-        if pomodoroEnabled {
-            let pomodoro = ViewIdentifier.builtIn(.pomodoro)
-            if !existing.contains(pomodoro) {
-                return pomodoro
-            }
-        }
-
-        return .builtIn(.inbox)
-    }
-
-    private func removePomodoroFromBottomNavigationSections() {
-        let filtered = bottomNavigationSections.filter { $0.viewIdentifier != .builtIn(.pomodoro) }
-        bottomNavigationSectionsRawValue = BottomNavigationSettings.encodeSections(filtered)
-    }
-
-    private func addPomodoroBottomNavigationSection() {
-        var sections = bottomNavigationSections
-        guard sections.count < BottomNavigationSettings.maxSections else { return }
-        guard !sections.contains(where: { $0.viewIdentifier == .builtIn(.pomodoro) }) else { return }
-        sections.append(BottomNavigationSection(view: .builtIn(.pomodoro)))
-        bottomNavigationSectionsRawValue = BottomNavigationSettings.encodeSections(sections)
     }
 
     private func color(for hex: String) -> Color {

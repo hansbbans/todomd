@@ -28,6 +28,8 @@ public struct TaskQueryEngine {
                 return isToday(record, today: today)
             case .upcoming:
                 return isUpcoming(record, today: today)
+            case .logbook:
+                return isLogbook(record)
             case .review:
                 return false
             case .anytime:
@@ -40,14 +42,20 @@ public struct TaskQueryEngine {
                 return false
             }
         case .area(let name):
+            let status = record.document.frontmatter.status
             return record.document.frontmatter.area == name
+                && status != .done
+                && status != .cancelled
         case .project(let name):
             let status = record.document.frontmatter.status
             return record.document.frontmatter.project == name
                 && status != .done
                 && status != .cancelled
         case .tag(let tag):
+            let status = record.document.frontmatter.status
             return record.document.frontmatter.tags.contains(tag)
+                && status != .done
+                && status != .cancelled
         case .custom:
             return false
         }
@@ -110,6 +118,11 @@ public struct TaskQueryEngine {
         if let due = frontmatter.due, due > today { return true }
         if let scheduled = frontmatter.scheduled, scheduled > today { return true }
         return false
+    }
+
+    public func isLogbook(_ record: TaskRecord) -> Bool {
+        let status = record.document.frontmatter.status
+        return status == .done || status == .cancelled
     }
 
     public func isAnytime(_ record: TaskRecord, today: LocalDate) -> Bool {

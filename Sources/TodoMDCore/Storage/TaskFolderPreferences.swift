@@ -48,6 +48,42 @@ public enum TaskFolderPreferences {
         endSecurityScopedAccess()
         defaults.removeObject(forKey: selectedFolderBookmarkKey)
         defaults.removeObject(forKey: selectedFolderPathKey)
+
+        if defaults !== UserDefaults.standard {
+            UserDefaults.standard.removeObject(forKey: selectedFolderBookmarkKey)
+            UserDefaults.standard.removeObject(forKey: selectedFolderPathKey)
+        }
+    }
+
+    public static func legacyFolderName(defaults: UserDefaults = TaskFolderPreferences.shared) -> String? {
+        if let configured = normalizedLegacyFolderName(in: defaults) {
+            return configured
+        }
+
+        if defaults !== UserDefaults.standard,
+           let legacy = normalizedLegacyFolderName(in: .standard) {
+            defaults.set(legacy, forKey: legacyFolderNameKey)
+            return legacy
+        }
+
+        return nil
+    }
+
+    public static func setLegacyFolderName(_ name: String?, defaults: UserDefaults = TaskFolderPreferences.shared) {
+        let normalized = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let normalized, !normalized.isEmpty {
+            defaults.set(normalized, forKey: legacyFolderNameKey)
+            if defaults !== UserDefaults.standard {
+                UserDefaults.standard.set(normalized, forKey: legacyFolderNameKey)
+            }
+            return
+        }
+
+        defaults.removeObject(forKey: legacyFolderNameKey)
+        if defaults !== UserDefaults.standard {
+            UserDefaults.standard.removeObject(forKey: legacyFolderNameKey)
+        }
     }
 
     public static func sharedContainerURL(fileManager: FileManager = .default) -> URL? {
@@ -123,6 +159,15 @@ public enum TaskFolderPreferences {
         }
         beginSecurityScopedAccessIfNeeded(for: normalized)
         return normalized
+    }
+
+    private static func normalizedLegacyFolderName(in defaults: UserDefaults) -> String? {
+        let configuredFolderName = defaults.string(forKey: legacyFolderNameKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let configuredFolderName, !configuredFolderName.isEmpty else {
+            return nil
+        }
+        return configuredFolderName
     }
 
     private static func beginSecurityScopedAccessIfNeeded(for url: URL) {

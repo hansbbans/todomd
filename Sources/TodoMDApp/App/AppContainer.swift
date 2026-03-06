@@ -1273,7 +1273,7 @@ final class AppContainer: ObservableObject {
             return PerspectiveDefinition(
                 id: "builtin.today",
                 name: "Today",
-                icon: "sun.max",
+                icon: "star",
                 rules: PerspectiveRuleGroup(
                     operator: .and,
                     conditions: [
@@ -1314,6 +1314,17 @@ final class AppContainer: ObservableObject {
                         )),
                         .group(PerspectiveRuleGroup(operator: .not, conditions: [.rule(completedStatusesRule)]))
                     ]
+                )
+            )
+        case .logbook:
+            return PerspectiveDefinition(
+                id: "builtin.logbook",
+                name: "Logbook",
+                icon: "checkmark.circle",
+                sort: PerspectiveSort(field: .completed, direction: .desc),
+                rules: PerspectiveRuleGroup(
+                    operator: .and,
+                    conditions: [.rule(completedStatusesRule)]
                 )
             )
         case .review:
@@ -1968,11 +1979,14 @@ final class AppContainer: ObservableObject {
 
             if shouldRepeat {
                 let result = try repository.completeRepeating(path: path, at: now, completedBy: "user")
+                upsertRecordInMemory(result.completed)
+                upsertRecordInMemory(result.next)
                 archiveCompletedFilesIfEnabled(paths: [result.completed.identity.path])
                 markSelfWrite(path: result.completed.identity.path)
                 markSelfWrite(path: result.next.identity.path)
             } else {
                 let completed = try repository.complete(path: path, at: now, completedBy: "user")
+                upsertRecordInMemory(completed)
                 archiveCompletedFilesIfEnabled(paths: [completed.identity.path])
                 markSelfWrite(path: completed.identity.path)
             }
@@ -2802,10 +2816,29 @@ final class AppContainer: ObservableObject {
             orderedRecords = order(records: filtered, for: perspective, today: today)
         } else {
             filtered = allIndexedRecords.filter { queryEngine.matches($0, view: selectedView, today: today) }
-            orderedRecords = manualOrderService.ordered(records: filtered, view: selectedView)
+            if selectedView == .builtIn(.logbook) {
+                orderedRecords = orderedLogbookRecords(filtered)
+            } else {
+                orderedRecords = manualOrderService.ordered(records: filtered, view: selectedView)
+            }
         }
         records = applyCompletionRetention(records: orderedRecords)
         return elapsedMilliseconds(since: start)
+    }
+
+    private func orderedLogbookRecords(_ records: [TaskRecord]) -> [TaskRecord] {
+        records.sorted { lhs, rhs in
+            let left = lhs.document.frontmatter.completed
+                ?? lhs.document.frontmatter.modified
+                ?? lhs.document.frontmatter.created
+            let right = rhs.document.frontmatter.completed
+                ?? rhs.document.frontmatter.modified
+                ?? rhs.document.frontmatter.created
+            if left != right {
+                return left > right
+            }
+            return lhs.document.frontmatter.title.localizedCaseInsensitiveCompare(rhs.document.frontmatter.title) == .orderedAscending
+        }
     }
 
     private func order(records: [TaskRecord], for perspective: PerspectiveDefinition, today: LocalDate) -> [TaskRecord] {
