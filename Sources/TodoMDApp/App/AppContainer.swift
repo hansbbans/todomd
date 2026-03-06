@@ -1613,6 +1613,45 @@ final class AppContainer: ObservableObject {
     }
 
     @discardableResult
+    func setDue(path: String, date: Date?) -> Bool {
+        do {
+            let updated = try repository.update(path: path) { document in
+                if let date {
+                    document.frontmatter.due = localDateFromDate(date)
+                } else {
+                    document.frontmatter.due = nil
+                    document.frontmatter.dueTime = nil
+                    document.frontmatter.persistentReminder = nil
+                }
+                document.frontmatter.modified = Date()
+            }
+            markSelfWrite(path: updated.identity.path)
+            refresh()
+            return true
+        } catch {
+            logger.error("Set due failed", metadata: ["path": path, "error": error.localizedDescription])
+            return false
+        }
+    }
+
+    @discardableResult
+    func setTags(path: String, tags: [String]) -> Bool {
+        do {
+            let normalizedTags = normalizeTags(tags)
+            let updated = try repository.update(path: path) { document in
+                document.frontmatter.tags = normalizedTags
+                document.frontmatter.modified = Date()
+            }
+            markSelfWrite(path: updated.identity.path)
+            refresh()
+            return true
+        } catch {
+            logger.error("Set tags failed", metadata: ["path": path, "error": error.localizedDescription])
+            return false
+        }
+    }
+
+    @discardableResult
     func offsetDueDate(path: String, component: Calendar.Component, value: Int) -> Bool {
         do {
             let calendar = Calendar.current

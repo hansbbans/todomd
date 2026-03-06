@@ -86,6 +86,9 @@ struct RootView: View {
     @State private var swipeAddProjectPath: String?
     @State private var editingPerspective: PerspectiveDefinition?
     @State private var builtInRulesTarget: BuiltInRulesTarget?
+    @State private var inboxTriageMode = false
+    @State private var inboxTriageSkippedPaths: Set<String> = []
+    @State private var inboxTriagePinnedPath: String?
     @AppStorage(BottomNavigationSettings.sectionsKey) private var bottomNavigationSectionsRawValue = BottomNavigationSettings.defaultSectionsRawValue
     @AppStorage("settings_pomodoro_enabled") private var pomodoroEnabled = false
 
@@ -135,6 +138,18 @@ struct RootView: View {
                         Image(systemName: "gearshape")
                     }
                     .accessibilityIdentifier("root.settingsButton")
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    if container.selectedView == .builtIn(.inbox), navigationPath.isEmpty {
+                        Button {
+                            toggleInboxTriageMode()
+                        } label: {
+                            Label(inboxTriageMode ? "List" : "Triage", systemImage: inboxTriageMode ? "list.bullet" : "rectangle.stack")
+                        }
+                        .keyboardShortcut("t", modifiers: [.command, .shift])
+                        .accessibilityIdentifier("root.triageToggle")
+                    }
                 }
             }
             .overlay(alignment: .bottomTrailing) {
@@ -337,6 +352,9 @@ struct RootView: View {
                 if !selectedView.isBrowse {
                     universalSearchText = ""
                 }
+                if selectedView != .builtIn(.inbox) {
+                    resetInboxTriageMode()
+                }
             }
         }
     }
@@ -446,7 +464,17 @@ struct RootView: View {
         } else {
             let records = container.filteredRecords()
 
-            if records.isEmpty {
+            if container.selectedView == .builtIn(.inbox), inboxTriageMode {
+                InboxTriageView(
+                    records: records,
+                    skippedPaths: $inboxTriageSkippedPaths,
+                    pinnedPath: $inboxTriagePinnedPath,
+                    onExit: { resetInboxTriageMode() },
+                    onOpenDetail: { path in
+                        navigationPath.append(path)
+                    }
+                )
+            } else if records.isEmpty {
                 VStack(spacing: 12) {
                     ContentUnavailableView(
                         "No Tasks",
@@ -1111,6 +1139,23 @@ struct RootView: View {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
 #endif
     }
+
+    private func toggleInboxTriageMode() {
+        if inboxTriageMode {
+            resetInboxTriageMode()
+            return
+        }
+        inboxTriageSkippedPaths.removeAll()
+        inboxTriagePinnedPath = container.filteredRecords().first?.identity.path
+        inboxTriageMode = true
+    }
+
+    private func resetInboxTriageMode() {
+        inboxTriageMode = false
+        inboxTriageSkippedPaths.removeAll()
+        inboxTriagePinnedPath = nil
+    }
+
     private func deferDateSheet(target: DeferDateTarget) -> some View {
         NavigationStack {
             Form {
