@@ -59,12 +59,6 @@ private struct ProjectColorChoice: Identifiable {
     var id: String { hex }
 }
 
-private struct ProjectIconChoice: Identifiable {
-    let symbol: String
-    let name: String
-    var id: String { symbol }
-}
-
 private enum InlineTaskPanel: Equatable {
     case date
     case destination
@@ -201,6 +195,7 @@ struct RootView: View {
     @State private var showingCreateProjectSheet = false
     @State private var newProjectName = ""
     @State private var newProjectColorHex = "1E88E5"
+    @State private var newProjectIconSymbol = "folder"
     @State private var isCreatingTask = false
     @State private var compactComposerContentVisible = false
     @State private var inlineTaskDraft = InlineTaskDraft()
@@ -656,7 +651,8 @@ struct RootView: View {
                                 label: project,
                                 icon: container.projectIconSymbol(for: project),
                                 isIndented: true,
-                                tintHex: container.projectColorHex(for: project)
+                                tintHex: container.projectColorHex(for: project),
+                                fallbackIcon: "folder"
                             )
                         }
                     }
@@ -1327,7 +1323,8 @@ struct RootView: View {
                                 view: .project(project),
                                 label: project,
                                 icon: container.projectIconSymbol(for: project),
-                                tintHex: container.projectColorHex(for: project)
+                                tintHex: container.projectColorHex(for: project),
+                                fallbackIcon: "folder"
                             )
                             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -1350,6 +1347,7 @@ struct RootView: View {
                     Button {
                         newProjectName = ""
                         newProjectColorHex = "1E88E5"
+                        newProjectIconSymbol = "folder"
                         showingCreateProjectSheet = true
                     } label: {
                         Image(systemName: "plus")
@@ -1371,7 +1369,8 @@ struct RootView: View {
                                 view: container.perspectiveViewIdentifier(for: perspective.id),
                                 label: perspective.name,
                                 icon: perspective.icon,
-                                tintHex: perspective.color
+                                tintHex: perspective.color,
+                                fallbackIcon: "list.bullet"
                             )
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .contextMenu {
@@ -1494,7 +1493,8 @@ struct RootView: View {
                                 view: container.perspectiveViewIdentifier(for: perspective.id),
                                 label: perspective.name,
                                 icon: perspective.icon,
-                                tintHex: perspective.color
+                                tintHex: perspective.color,
+                                fallbackIcon: "list.bullet"
                             )
                         }
                     }
@@ -1523,7 +1523,8 @@ struct RootView: View {
                                 view: .project(project),
                                 label: project,
                                 icon: container.projectIconSymbol(for: project),
-                                tintHex: container.projectColorHex(for: project)
+                                tintHex: container.projectColorHex(for: project),
+                                fallbackIcon: "folder"
                             )
                         }
                     }
@@ -1556,27 +1557,22 @@ struct RootView: View {
         ]
     }
 
-    private var projectIconChoices: [ProjectIconChoice] {
-        [
-            ProjectIconChoice(symbol: "folder", name: "Folder"),
-            ProjectIconChoice(symbol: "briefcase", name: "Briefcase"),
-            ProjectIconChoice(symbol: "hammer", name: "Hammer"),
-            ProjectIconChoice(symbol: "wrench.and.screwdriver", name: "Tools"),
-            ProjectIconChoice(symbol: "book.closed", name: "Book"),
-            ProjectIconChoice(symbol: "graduationcap", name: "Learning"),
-            ProjectIconChoice(symbol: "house", name: "Home"),
-            ProjectIconChoice(symbol: "cart", name: "Cart"),
-            ProjectIconChoice(symbol: "paperplane", name: "Launch"),
-            ProjectIconChoice(symbol: "star", name: "Star")
-        ]
-    }
-
     private var createProjectSheet: some View {
         Form {
             Section("Name") {
                 TextField("Project name", text: $newProjectName)
                     .modifier(RootViewWordsAutocapitalization())
                     .autocorrectionDisabled()
+            }
+
+            Section("Icon") {
+                AppIconPickerLink(
+                    label: "Icon",
+                    title: "Project Icon",
+                    fallbackSymbol: "folder",
+                    tint: color(forHex: newProjectColorHex) ?? theme.accentColor,
+                    selection: $newProjectIconSymbol
+                )
             }
 
             Section("Color") {
@@ -1627,12 +1623,13 @@ struct RootView: View {
             }
 
             Section("Icon") {
-                Picker("Icon", selection: $editingProjectIconSymbol) {
-                    ForEach(projectIconChoices) { choice in
-                        Label(choice.name, systemImage: choice.symbol)
-                            .tag(choice.symbol)
-                    }
-                }
+                AppIconPickerLink(
+                    label: "Icon",
+                    title: "Project Icon",
+                    fallbackSymbol: "folder",
+                    tint: color(forHex: editingProjectColorHex) ?? theme.accentColor,
+                    selection: $editingProjectIconSymbol
+                )
             }
 
             Section("Color") {
@@ -1685,14 +1682,27 @@ struct RootView: View {
         }
     }
 
-    private func browseFilterButton(view: ViewIdentifier, label: String, icon: String, tintHex: String? = nil) -> some View {
+    private func browseFilterButton(
+        view: ViewIdentifier,
+        label: String,
+        icon: String,
+        tintHex: String? = nil,
+        fallbackIcon: String? = nil
+    ) -> some View {
         let tint = color(forHex: tintHex)
+        let resolvedFallback = fallbackIcon ?? (icon.isEmpty ? "questionmark.circle" : icon)
         return Button {
             applyFilter(view)
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: icon)
-                    .foregroundStyle(container.selectedView == view ? (tint ?? theme.accentColor) : (tint ?? theme.textSecondaryColor))
+                AppIconGlyph(
+                    icon: icon,
+                    fallbackSymbol: resolvedFallback,
+                    pointSize: 17,
+                    weight: .semibold,
+                    tint: container.selectedView == view ? (tint ?? theme.accentColor) : (tint ?? theme.textSecondaryColor)
+                )
+                .frame(width: 20, height: 20)
                 Text(label)
                 Spacer()
                 if container.selectedView == view {
@@ -2016,10 +2026,15 @@ struct RootView: View {
     private func createProjectFromSheet() {
         let trimmedProjectName = newProjectName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedProjectName.isEmpty else { return }
-        guard let created = container.createProject(name: trimmedProjectName, colorHex: newProjectColorHex) else { return }
+        guard let created = container.createProject(
+            name: trimmedProjectName,
+            colorHex: newProjectColorHex,
+            iconSymbol: newProjectIconSymbol
+        ) else { return }
 
         newProjectName = ""
         newProjectColorHex = "1E88E5"
+        newProjectIconSymbol = "folder"
         showingCreateProjectSheet = false
         applyFilter(.project(created))
     }
@@ -2290,15 +2305,23 @@ struct RootView: View {
         label: String,
         icon: String,
         isIndented: Bool = false,
-        tintHex: String? = nil
+        tintHex: String? = nil,
+        fallbackIcon: String? = nil
     ) -> some View {
         let tint = color(forHex: tintHex)
+        let resolvedFallback = fallbackIcon ?? (icon.isEmpty ? "questionmark.circle" : icon)
         return Button {
             applyFilter(view)
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: icon)
-                    .foregroundStyle(container.selectedView == view ? (tint ?? theme.accentColor) : (tint ?? theme.textSecondaryColor))
+                AppIconGlyph(
+                    icon: icon,
+                    fallbackSymbol: resolvedFallback,
+                    pointSize: 17,
+                    weight: .semibold,
+                    tint: container.selectedView == view ? (tint ?? theme.accentColor) : (tint ?? theme.textSecondaryColor)
+                )
+                .frame(width: 20, height: 20)
                 Text(label)
                 Spacer()
                 if container.selectedView == view {
@@ -2441,10 +2464,14 @@ extension RootView {
             applyFilter(.project(summary.project))
         } label: {
             HStack(alignment: .top, spacing: 12) {
-                Image(systemName: container.projectIconSymbol(for: summary.project))
-                    .font(.system(size: 18, weight: .semibold))
-                    .frame(width: 28, height: 28)
-                    .foregroundStyle(color(forHex: container.projectColorHex(for: summary.project)) ?? theme.accentColor)
+                AppIconGlyph(
+                    icon: container.projectIconSymbol(for: summary.project),
+                    fallbackSymbol: "folder",
+                    pointSize: 18,
+                    weight: .semibold,
+                    tint: color(forHex: container.projectColorHex(for: summary.project)) ?? theme.accentColor
+                )
+                .frame(width: 28, height: 28)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(summary.project)

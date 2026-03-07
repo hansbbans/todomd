@@ -35,4 +35,21 @@ final class ProjectMetadataRepositoryTests: XCTestCase {
         XCTAssertTrue(loaded.colors.isEmpty)
         XCTAssertTrue(loaded.icons.isEmpty)
     }
+
+    func testProjectIconsRoundTripEmojiValues() throws {
+        let root = try TestSupport.tempDirectory(prefix: "ProjectMetadataRepoEmoji")
+        let repository = ProjectMetadataRepository()
+
+        let document = ProjectMetadataDocument(
+            version: 1,
+            projects: ["Trips"],
+            colors: [:],
+            icons: ["Trips": "✈️"]
+        )
+
+        try repository.save(document, rootURL: root)
+        let loaded = try repository.load(rootURL: root)
+
+        XCTAssertEqual(loaded.icons["Trips"], "✈️")
+    }
 }
