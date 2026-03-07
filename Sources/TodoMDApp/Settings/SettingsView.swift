@@ -70,6 +70,7 @@ struct SettingsView: View {
     @AppStorage("settings_quick_entry_default_view") private var quickEntryDefaultView = BuiltInView.inbox.rawValue
     @AppStorage(QuickEntrySettings.fieldsKey) private var quickEntryFieldsRawValue = QuickEntrySettings.defaultFieldsRawValue
     @AppStorage(QuickEntrySettings.defaultDateModeKey) private var quickEntryDefaultDateModeRawValue = QuickEntryDefaultDateMode.none.rawValue
+    @AppStorage(ExpandedTaskSettings.actionsKey) private var expandedTaskActionsRawValue = ExpandedTaskSettings.defaultActionsRawValue
     @AppStorage("settings_pomodoro_enabled") private var pomodoroEnabled = false
     @AppStorage(TaskFolderPreferences.legacyFolderNameKey, store: TaskFolderPreferences.shared) private var iCloudFolderName = "todo.md"
     @State private var selectedFolderPath = TaskFolderPreferences.shared.string(forKey: TaskFolderPreferences.selectedFolderPathKey)
@@ -444,6 +445,29 @@ struct SettingsView: View {
                     .onMove(perform: moveQuickEntryFields)
                 }
 
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Expanded task quick actions")
+                        .font(.subheadline.weight(.semibold))
+
+                    ForEach(ExpandedTaskQuickAction.allCases.filter { $0 != .more }, id: \.self) { action in
+                        Toggle(action.title, isOn: expandedTaskActionBinding(action))
+                    }
+
+                    Text("The ... button always stays visible so the full task editor is one tap away.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if !selectedExpandedTaskQuickActions.isEmpty {
+                    Text("Expanded task action order (drag to reorder)")
+                        .font(.subheadline.weight(.semibold))
+
+                    ForEach(selectedExpandedTaskQuickActions, id: \.self) { action in
+                        Label(action.title, systemImage: action.systemImage)
+                    }
+                    .onMove(perform: moveExpandedTaskActions)
+                }
+
                 Text("Pomodoro appears in Areas on compact screens and in the sidebar on larger layouts.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -581,6 +605,37 @@ struct SettingsView: View {
         var fields = selectedQuickEntryFields
         fields.move(fromOffsets: source, toOffset: destination)
         quickEntryFieldsRawValue = QuickEntrySettings.encodeFields(fields)
+    }
+
+    private func expandedTaskActionBinding(_ action: ExpandedTaskQuickAction) -> Binding<Bool> {
+        Binding(
+            get: {
+                selectedExpandedTaskQuickActions.contains(action)
+            },
+            set: { isOn in
+                var actions = selectedExpandedTaskQuickActions
+                if isOn {
+                    if !actions.contains(action) {
+                        actions.append(action)
+                    }
+                } else {
+                    actions.removeAll { $0 == action }
+                }
+                expandedTaskActionsRawValue = ExpandedTaskSettings.encodeActions(actions)
+            }
+        )
+    }
+
+    private var selectedExpandedTaskQuickActions: [ExpandedTaskQuickAction] {
+        ExpandedTaskSettings
+            .decodeActions(expandedTaskActionsRawValue)
+            .filter { $0 != .more }
+    }
+
+    private func moveExpandedTaskActions(from source: IndexSet, to destination: Int) {
+        var actions = selectedExpandedTaskQuickActions
+        actions.move(fromOffsets: source, toOffset: destination)
+        expandedTaskActionsRawValue = ExpandedTaskSettings.encodeActions(actions + [.more])
     }
 }
 

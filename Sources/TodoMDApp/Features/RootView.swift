@@ -8,6 +8,25 @@ private struct DeferDateTarget: Identifiable {
     var id: String { path }
 }
 
+private struct ExpandedTaskDateTarget: Identifiable {
+    let path: String
+    let initialDate: Date?
+
+    var id: String { path }
+}
+
+private struct ExpandedTaskTagsTarget: Identifiable {
+    let path: String
+    let initialTags: [String]
+
+    var id: String { path }
+}
+
+private struct ExpandedTaskMoveTarget: Identifiable {
+    let path: String
+    var id: String { path }
+}
+
 private struct BuiltInRulesTarget: Identifiable {
     let view: BuiltInView
     var id: String { view.rawValue }
@@ -155,6 +174,22 @@ private struct RootViewInsetGroupedListStyle: ViewModifier {
     }
 }
 
+private struct RootNavigationTitleModifier: ViewModifier {
+    let title: String
+    let useInlineDisplayMode: Bool
+
+    func body(content: Content) -> some View {
+#if os(iOS)
+        content
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(useInlineDisplayMode ? .inline : .automatic)
+#else
+        content
+            .navigationTitle(title)
+#endif
+    }
+}
+
 private struct RootViewWordsAutocapitalization: ViewModifier {
     func body(content: Content) -> some View {
 #if os(iOS)
@@ -213,6 +248,10 @@ struct RootView: View {
     @State private var pendingDeletePerspective: PerspectiveDefinition?
     @State private var deferDateTarget: DeferDateTarget?
     @State private var deferDateValue = Date()
+    @State private var expandedTaskPath: String?
+    @State private var expandedTaskDateTarget: ExpandedTaskDateTarget?
+    @State private var expandedTaskTagsTarget: ExpandedTaskTagsTarget?
+    @State private var expandedTaskMoveTarget: ExpandedTaskMoveTarget?
     @State private var swipeAddProjectPath: String?
     @State private var editingPerspective: PerspectiveDefinition?
     @State private var builtInRulesTarget: BuiltInRulesTarget?
@@ -221,6 +260,7 @@ struct RootView: View {
     @State private var inboxTriagePinnedPath: String?
     @FocusState private var inlineTaskFocused: Bool
     @Namespace private var compactQuickAddNamespace
+    @AppStorage(ExpandedTaskSettings.actionsKey) private var expandedTaskActionsRawValue = ExpandedTaskSettings.defaultActionsRawValue
     @AppStorage("settings_pomodoro_enabled") private var pomodoroEnabled = false
 
     var body: some View {
@@ -254,6 +294,15 @@ struct RootView: View {
         }
         .sheet(item: $deferDateTarget) { target in
             deferDateSheet(target: target)
+        }
+        .sheet(item: $expandedTaskDateTarget) { target in
+            expandedTaskDateSheet(target: target)
+        }
+        .sheet(item: $expandedTaskTagsTarget) { target in
+            expandedTaskTagsSheet(target: target)
+        }
+        .sheet(item: $expandedTaskMoveTarget) { target in
+            expandedTaskMoveSheet(target: target)
         }
         .sheet(item: $editingPerspective) { perspective in
             NavigationStack {
@@ -300,6 +349,9 @@ struct RootView: View {
             actions: {
                 Button("Delete", role: .destructive) {
                     if let pendingDeletePath {
+                        if expandedTaskPath == pendingDeletePath {
+                            expandedTaskPath = nil
+                        }
                         _ = container.deleteTask(path: pendingDeletePath)
                         self.pendingDeletePath = nil
                     }
@@ -400,6 +452,7 @@ struct RootView: View {
         .onChange(of: container.navigationTaskPath) { _, newPath in
             guard let newPath else { return }
             cancelInlineTaskComposer()
+            expandedTaskPath = nil
             appendToActiveNavigationPath(newPath)
             container.clearPendingNavigationPath()
         }
@@ -423,6 +476,7 @@ struct RootView: View {
         }
         .onDisappear {
             cancelInlineTaskComposer()
+            expandedTaskPath = nil
             inlineComposerTransitionTask?.cancel()
             inlineComposerTransitionTask = nil
             completionAnimationTasks.values.forEach { $0.cancel() }
@@ -444,6 +498,7 @@ struct RootView: View {
             if horizontalSizeClass == .compact {
                 syncCompactSelectedTab()
             }
+            expandedTaskPath = nil
             cancelInlineTaskComposer()
         }
         .onChange(of: compactSelectedTab) { _, newTab in
@@ -453,6 +508,7 @@ struct RootView: View {
         }
         .onChange(of: activeNavigationDepth) { _, count in
             if count > 0 {
+                expandedTaskPath = nil
                 cancelInlineTaskComposer()
             }
         }
@@ -546,12 +602,18 @@ struct RootView: View {
             .navigationDestination(for: String.self) { path in
                 TaskDetailView(path: path)
             }
-            .navigationTitle(navigationTitle())
+            .modifier(RootNavigationTitleModifier(title: navigationTitle(), useInlineDisplayMode: usesCalendarHeroHeader))
             .toolbar {
                 detailToolbar
             }
             .safeAreaInset(edge: .bottom) {
-                if shouldReserveFloatingAddButtonSpace {
+                if shouldShowExpandedTaskBottomBar {
+                    expandedTaskBottomBar
+                        .padding(.horizontal, 8)
+                        .padding(.top, 8)
+                        .padding(.bottom, 4)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else if shouldReserveFloatingAddButtonSpace {
                     Color.clear
                         .frame(height: 92)
                         .accessibilityHidden(true)
@@ -572,6 +634,7 @@ struct RootView: View {
             .refreshable {
                 container.refresh()
             }
+            .animation(.spring(response: 0.34, dampingFraction: 0.9, blendDuration: 0.12), value: shouldShowExpandedTaskBottomBar)
     }
 
     @ToolbarContentBuilder
@@ -736,6 +799,12 @@ struct RootView: View {
                 )
             } else if records.isEmpty, shouldRenderInlineTaskComposerInList {
                 List {
+                    if container.selectedView == .builtIn(.today) {
+                        todayCalendarHeroListRow
+                        if container.isCalendarConnected {
+                            todayCalendarCardListRow
+                        }
+                    }
                     inlineTaskComposerListRow
                 }
                 .id("\(container.selectedView.rawValue)-inline-empty")
@@ -744,33 +813,72 @@ struct RootView: View {
                 .background(theme.backgroundColor)
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             } else if records.isEmpty {
-                VStack(spacing: 12) {
-                    ContentUnavailableView(
-                        "No Tasks",
-                        systemImage: "checkmark.circle",
-                        description: Text("Nothing in \(titleForCurrentView()) right now.")
-                    )
+                if container.selectedView == .builtIn(.today) {
+                    taskList(id: "\(container.selectedView.rawValue)-empty") {
+                        todayCalendarHeroListRow
 
-                    if !container.diagnostics.isEmpty {
-                        VStack(spacing: 6) {
-                            Text("\(container.diagnostics.count) file(s) could not be parsed.")
-                                .font(.footnote)
-                                .foregroundStyle(theme.textSecondaryColor)
-                            NavigationLink("Review Unparseable Files") {
-                                UnparseableFilesView()
+                        if container.isCalendarConnected {
+                            todayCalendarCardListRow
+                        }
+
+                        VStack(spacing: 12) {
+                            ContentUnavailableView(
+                                "No Tasks",
+                                systemImage: "checkmark.circle",
+                                description: Text("Nothing in \(titleForCurrentView()) right now.")
+                            )
+
+                            if !container.diagnostics.isEmpty {
+                                VStack(spacing: 6) {
+                                    Text("\(container.diagnostics.count) file(s) could not be parsed.")
+                                        .font(.footnote)
+                                        .foregroundStyle(theme.textSecondaryColor)
+                                    NavigationLink("Review Unparseable Files") {
+                                        UnparseableFilesView()
+                                    }
+                                    .font(.footnote.weight(.semibold))
+                                }
                             }
-                            .font(.footnote.weight(.semibold))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, container.isCalendarConnected ? 10 : 24)
+                        .padding(.bottom, 40)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                    }
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                } else {
+                    VStack(spacing: 12) {
+                        ContentUnavailableView(
+                            "No Tasks",
+                            systemImage: "checkmark.circle",
+                            description: Text("Nothing in \(titleForCurrentView()) right now.")
+                        )
+
+                        if !container.diagnostics.isEmpty {
+                            VStack(spacing: 6) {
+                                Text("\(container.diagnostics.count) file(s) could not be parsed.")
+                                    .font(.footnote)
+                                    .foregroundStyle(theme.textSecondaryColor)
+                                NavigationLink("Review Unparseable Files") {
+                                    UnparseableFilesView()
+                                }
+                                .font(.footnote.weight(.semibold))
+                            }
                         }
                     }
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
-                .transition(.move(edge: .trailing).combined(with: .opacity))
             } else {
-                List {
+                taskList(id: container.selectedView.rawValue) {
                     if container.selectedView == .builtIn(.today) {
-                        if shouldRenderInlineTaskComposerInList {
-                            inlineTaskComposerListRow
-                        }
+                        todayCalendarHeroListRow
+
                         if isEditing {
+                            if shouldRenderInlineTaskComposerInList {
+                                inlineTaskComposerListRow
+                            }
                             ForEach(records) { record in
                                 taskRowItem(record)
                             }
@@ -781,15 +889,11 @@ struct RootView: View {
                             }
                         } else {
                             if container.isCalendarConnected {
-                                Section {
-                                    TodayCalendarCard(events: container.calendarTodayEvents)
-                                        .padding(.horizontal, 20)
-                                        .padding(.top, 8)
-                                        .padding(.bottom, 14)
-                                        .listRowInsets(EdgeInsets())
-                                        .listRowBackground(Color.clear)
-                                        .listRowSeparator(.hidden)
-                                }
+                                todayCalendarCardListRow
+                            }
+
+                            if shouldRenderInlineTaskComposerInList {
+                                inlineTaskComposerListRow
                             }
 
                             ForEach(container.todaySections()) { section in
@@ -817,13 +921,29 @@ struct RootView: View {
                         }
                     }
                 }
-                .id(container.selectedView.rawValue)
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .background(theme.backgroundColor)
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
+    }
+
+    private var todayCalendarHeroListRow: some View {
+        CalendarHeroHeader(kind: .today)
+            .padding(.horizontal, 24)
+            .padding(.top, 72)
+            .padding(.bottom, container.isCalendarConnected ? 4 : 12)
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+    }
+
+    private var todayCalendarCardListRow: some View {
+        TodayCalendarCard(events: container.calendarTodayEvents)
+            .padding(.horizontal, 24)
+            .padding(.top, 2)
+            .padding(.bottom, 14)
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
     }
 
     private var inlineTaskComposerListRow: some View {
@@ -1795,7 +1915,7 @@ struct RootView: View {
     }
 
     private var shouldShowFloatingAddButton: Bool {
-        horizontalSizeClass == .compact && shouldShowInlineTaskButton && !isCreatingTask
+        horizontalSizeClass == .compact && shouldShowInlineTaskButton && !isCreatingTask && expandedTaskPath == nil
     }
 
     private var shouldReserveFloatingAddButtonSpace: Bool {
@@ -1812,6 +1932,10 @@ struct RootView: View {
 
     private var shouldShowCompactInlineTaskComposer: Bool {
         shouldRenderInlineTaskComposer && horizontalSizeClass == .compact
+    }
+
+    private var shouldShowExpandedTaskBottomBar: Bool {
+        horizontalSizeClass == .compact && isAtActiveNavigationRoot && expandedTaskPath != nil
     }
 
     private var compactComposerOpenAnimation: Animation {
@@ -1853,6 +1977,88 @@ struct RootView: View {
         .accessibilityLabel("Add Task")
         .accessibilityIdentifier("root.inlineAddButton")
         .transition(.scale(scale: 0.86, anchor: .bottomTrailing).combined(with: .opacity))
+    }
+
+    @ViewBuilder
+    private var expandedTaskBottomBar: some View {
+        if let path = expandedTaskPath {
+            HStack(spacing: 0) {
+                ExpandedTaskFooterButton(
+                    title: "Move",
+                    systemImage: "folder",
+                    tint: Color.white.opacity(0.92),
+                    action: {
+                        showExpandedTaskMoveEditor(path: path)
+                    }
+                )
+
+                Rectangle()
+                    .fill(Color.white.opacity(0.08))
+                    .frame(width: 1, height: 28)
+                    .padding(.vertical, 8)
+
+                ExpandedTaskFooterButton(
+                    title: "Delete",
+                    systemImage: "trash",
+                    tint: theme.overdueColor.opacity(0.98),
+                    action: {
+                        expandedTaskPath = nil
+                        pendingDeletePath = path
+                    }
+                )
+            }
+            .padding(4)
+            .background(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.black.opacity(0.92),
+                                Color(red: 0.06, green: 0.07, blue: 0.09).opacity(0.98)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(Color.white.opacity(0.06), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.34), radius: 20, y: 8)
+            .accessibilityIdentifier("expandedTask.bottomBar")
+        }
+    }
+
+    private func taskList<ID: Hashable, Content: View>(
+        id: ID,
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        ScrollViewReader { proxy in
+            List {
+                content()
+            }
+            .id(id)
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(theme.backgroundColor)
+            .onChange(of: expandedTaskPath) { _, path in
+                guard let path else { return }
+                scheduleExpandedTaskScroll(to: path, proxy: proxy)
+            }
+        }
+    }
+
+    private func scheduleExpandedTaskScroll(to path: String, proxy: ScrollViewProxy) {
+        let delays: [TimeInterval] = [0.0, 0.14, 0.34, 0.52]
+        for delay in delays {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                guard expandedTaskPath == path else { return }
+                withAnimation(.spring(response: 0.34, dampingFraction: 0.88, blendDuration: 0.12)) {
+                    proxy.scrollTo(path, anchor: horizontalSizeClass == .compact ? .center : .top)
+                }
+            }
+        }
     }
 
     private func canCreateInlineTask(in view: ViewIdentifier) -> Bool {
@@ -2017,7 +2223,19 @@ struct RootView: View {
         if container.selectedView.isBrowse {
             return "Areas"
         }
+        if usesCalendarHeroHeader {
+            return ""
+        }
         return titleForCurrentView()
+    }
+
+    private var usesCalendarHeroHeader: Bool {
+        switch container.selectedView {
+        case .builtIn(.today), .builtIn(.upcoming):
+            return true
+        default:
+            return false
+        }
     }
 
     private func matchesQuery(_ value: String, query: String) -> Bool {
@@ -2115,10 +2333,56 @@ struct RootView: View {
         }
     }
 
+    private func expandedTaskDateSheet(target: ExpandedTaskDateTarget) -> some View {
+        ExpandedTaskDateEditorSheet(initialDate: target.initialDate) { date in
+            _ = container.setDue(path: target.path, date: date)
+            expandedTaskDateTarget = nil
+        } onCancel: {
+            expandedTaskDateTarget = nil
+        }
+    }
+
+    private func expandedTaskTagsSheet(target: ExpandedTaskTagsTarget) -> some View {
+        ExpandedTaskTagsEditorSheet(
+            initialTags: target.initialTags,
+            suggestedTags: container.availableTags()
+        ) { tags in
+            _ = container.setTags(path: target.path, tags: tags)
+            expandedTaskTagsTarget = nil
+        } onCancel: {
+            expandedTaskTagsTarget = nil
+        }
+    }
+
+    private func expandedTaskMoveSheet(target: ExpandedTaskMoveTarget) -> some View {
+        let groupedAreas = container.projectsByArea()
+        let groupedProjects = Set(groupedAreas.flatMap(\.projects))
+        let ungroupedProjects = container.allProjects().filter { !groupedProjects.contains($0) }
+        let currentFrontmatter = container.record(for: target.path)?.document.frontmatter
+
+        return ExpandedTaskMoveEditorSheet(
+            currentArea: currentFrontmatter?.area,
+            currentProject: currentFrontmatter?.project,
+            groupedAreas: groupedAreas,
+            ungroupedProjects: ungroupedProjects
+        ) { area, project in
+            _ = container.moveTask(path: target.path, area: area, project: project)
+            expandedTaskMoveTarget = nil
+        } onCancel: {
+            expandedTaskMoveTarget = nil
+        }
+    }
+
     private func completeWithAnimation(path: String) {
         guard !pathsCompleting.contains(path),
               !pathsSlidingOut.contains(path),
               completionAnimationTasks[path] == nil else { return }
+
+        if expandedTaskPath == path {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                expandedTaskPath = nil
+            }
+        }
 
         let task = Task { @MainActor in
             defer { completionAnimationTasks[path] = nil }
@@ -2165,25 +2429,101 @@ struct RootView: View {
         _ = pathsSlidingOut.remove(path)
     }
 
+    private var expandedTaskQuickActions: [ExpandedTaskQuickAction] {
+        ExpandedTaskSettings.decodeActions(expandedTaskActionsRawValue)
+    }
+
+    private func toggleExpandedTask(path: String) {
+        guard !isEditing else { return }
+        cancelInlineTaskComposer()
+        withAnimation(.spring(response: 0.36, dampingFraction: 0.88, blendDuration: 0.14)) {
+            expandedTaskPath = expandedTaskPath == path ? nil : path
+        }
+    }
+
+    private func showExpandedTaskDateEditor(for record: TaskRecord) {
+        expandedTaskDateTarget = ExpandedTaskDateTarget(
+            path: record.identity.path,
+            initialDate: dateValue(for: record.document.frontmatter.due)
+        )
+    }
+
+    private func showExpandedTaskTagsEditor(for record: TaskRecord) {
+        expandedTaskTagsTarget = ExpandedTaskTagsTarget(
+            path: record.identity.path,
+            initialTags: record.document.frontmatter.tags
+        )
+    }
+
+    private func showExpandedTaskMoveEditor(path: String) {
+        expandedTaskMoveTarget = ExpandedTaskMoveTarget(path: path)
+    }
+
+    private func openFullTaskEditor(path: String) {
+        expandedTaskPath = nil
+        appendToActiveNavigationPath(path)
+    }
+
+    private func saveExpandedTaskTextEdits(path: String, title: String, notes: String) {
+        guard var editState = container.makeEditState(path: path) else { return }
+
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else { return }
+
+        let trimmedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard editState.title != trimmedTitle || editState.subtitle != trimmedNotes else { return }
+
+        editState.title = trimmedTitle
+        editState.subtitle = trimmedNotes
+        _ = container.updateTask(path: path, editState: editState)
+    }
+
     private func taskRowItem(_ record: TaskRecord) -> some View {
         let path = record.identity.path
         let isDone = record.document.frontmatter.status == .done
         let quickProjects = container.recentProjects(limit: 3, excluding: record.document.frontmatter.project)
         let isCompleting = pathsCompleting.contains(path)
         let isSlidingOut = pathsSlidingOut.contains(path)
-        return TaskRow(
+        return ExpandedTaskRow(
             record: record,
+            isExpanded: expandedTaskPath == path,
+            visibleQuickActions: expandedTaskQuickActions,
+            showsInlineFooter: horizontalSizeClass != .compact,
             isCompleting: isCompleting || isSlidingOut,
-            onComplete: { completeWithAnimation(path: path) }
+            onExpand: { toggleExpandedTask(path: path) },
+            onComplete: { completeWithAnimation(path: path) },
+            onSaveTextEdits: { title, notes in
+                saveExpandedTaskTextEdits(path: path, title: title, notes: notes)
+            },
+            onToday: {
+                _ = container.setDue(path: path, date: Date())
+            },
+            onCalendar: {
+                showExpandedTaskDateEditor(for: record)
+            },
+            onToggleFlag: {
+                _ = container.toggleFlag(path: path)
+            },
+            onSetPriority: { priority in
+                _ = container.setPriority(path: path, priority: priority)
+            },
+            onTags: {
+                showExpandedTaskTagsEditor(for: record)
+            },
+            onMore: {
+                openFullTaskEditor(path: path)
+            },
+            onMove: {
+                showExpandedTaskMoveEditor(path: path)
+            },
+            onDelete: {
+                expandedTaskPath = nil
+                pendingDeletePath = path
+            }
         )
+        .id(path)
         .accessibilityIdentifier("taskRow.\(record.document.frontmatter.title)")
-        .accessibilityHint("Swipe right for quick actions. Swipe left to complete. Long press for more options.")
-        .contentShape(Rectangle())
-        .onTapGesture {
-            guard !isEditing else { return }
-            cancelInlineTaskComposer()
-            appendToActiveNavigationPath(record.identity.path)
-        }
+        .accessibilityHint("Tap to expand. Swipe right for quick actions. Swipe left to complete. Long press for more options.")
         .contextMenu {
             Menu("Quick Settings") {
                 Menu("Change Due Date") {
@@ -2521,16 +2861,76 @@ extension RootView {
     }
 }
 
-private struct TaskRow: View {
+private struct ExpandedTaskRow: View {
     private struct MetadataSegment {
         let text: String
         let color: Color
     }
 
+    private enum Field: Hashable {
+        case title
+        case notes
+    }
+
     let record: TaskRecord
+    let isExpanded: Bool
+    let visibleQuickActions: [ExpandedTaskQuickAction]
+    let showsInlineFooter: Bool
     let isCompleting: Bool
+    let onExpand: () -> Void
     let onComplete: () -> Void
+    let onSaveTextEdits: (String, String) -> Void
+    let onToday: () -> Void
+    let onCalendar: () -> Void
+    let onToggleFlag: () -> Void
+    let onSetPriority: (TaskPriority) -> Void
+    let onTags: () -> Void
+    let onMore: () -> Void
+    let onMove: () -> Void
+    let onDelete: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var theme: ThemeManager
+    @FocusState private var focusedField: Field?
+    @State private var titleDraft: String
+    @State private var notesDraft: String
+
+    init(
+        record: TaskRecord,
+        isExpanded: Bool,
+        visibleQuickActions: [ExpandedTaskQuickAction],
+        showsInlineFooter: Bool,
+        isCompleting: Bool,
+        onExpand: @escaping () -> Void,
+        onComplete: @escaping () -> Void,
+        onSaveTextEdits: @escaping (String, String) -> Void,
+        onToday: @escaping () -> Void,
+        onCalendar: @escaping () -> Void,
+        onToggleFlag: @escaping () -> Void,
+        onSetPriority: @escaping (TaskPriority) -> Void,
+        onTags: @escaping () -> Void,
+        onMore: @escaping () -> Void,
+        onMove: @escaping () -> Void,
+        onDelete: @escaping () -> Void
+    ) {
+        self.record = record
+        self.isExpanded = isExpanded
+        self.visibleQuickActions = visibleQuickActions
+        self.showsInlineFooter = showsInlineFooter
+        self.isCompleting = isCompleting
+        self.onExpand = onExpand
+        self.onComplete = onComplete
+        self.onSaveTextEdits = onSaveTextEdits
+        self.onToday = onToday
+        self.onCalendar = onCalendar
+        self.onToggleFlag = onToggleFlag
+        self.onSetPriority = onSetPriority
+        self.onTags = onTags
+        self.onMore = onMore
+        self.onMove = onMove
+        self.onDelete = onDelete
+        _titleDraft = State(initialValue: record.document.frontmatter.title)
+        _notesDraft = State(initialValue: record.document.frontmatter.description ?? "")
+    }
 
     private var completionAccessibilityIdentifier: String {
         "taskRow.complete.\(record.document.frontmatter.title)"
@@ -2539,43 +2939,393 @@ private struct TaskRow: View {
     var body: some View {
         let frontmatter = record.document.frontmatter
 
-        HStack(alignment: .top, spacing: 12) {
-            TaskCheckbox(
-                isCompleted: isCompleting || frontmatter.status == .done || frontmatter.status == .cancelled,
-                isDashed: frontmatter.status == .inProgress && !isCompleting,
-                tint: checkboxTint(for: frontmatter),
-                accessibilityIdentifier: completionAccessibilityIdentifier,
-                onTap: onComplete
-            )
-            .padding(.top, 2)
+        VStack(alignment: .leading, spacing: isExpanded ? 17 : 0) {
+            HStack(alignment: .top, spacing: 12) {
+                TaskCheckbox(
+                    isCompleted: isCompleting || frontmatter.status == .done || frontmatter.status == .cancelled,
+                    isDashed: frontmatter.status == .inProgress && !isCompleting,
+                    tint: checkboxTint(for: frontmatter),
+                    accessibilityIdentifier: completionAccessibilityIdentifier,
+                    onTap: onComplete
+                )
+                .padding(.top, isExpanded ? 4 : 2)
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(frontmatter.title)
-                    .font(.body)
-                    .fontWeight(.regular)
-                    .foregroundStyle(isCompleting ? theme.textSecondaryColor : theme.textPrimaryColor)
-                    .strikethrough(isCompleting, color: theme.textSecondaryColor)
-                    .lineLimit(2)
+                VStack(alignment: .leading, spacing: isExpanded ? 8 : 3) {
+                    if isExpanded {
+                        expandedTextContent(frontmatter: frontmatter)
+                    } else {
+                        collapsedTextContent(frontmatter: frontmatter)
+                    }
+                }
 
-                if let metadataText = metadataLine(frontmatter: frontmatter) {
-                    metadataText
+                Spacer(minLength: 0)
+
+                if !isExpanded, frontmatter.flagged {
+                    Image(systemName: "flag.fill")
                         .font(.footnote)
-                        .lineLimit(1)
+                        .foregroundStyle(theme.flaggedColor)
+                        .padding(.top, 2)
                 }
             }
 
-            Spacer(minLength: 0)
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 14) {
+                    expandedQuickActions(frontmatter: frontmatter)
+                        .padding(.leading, 34)
 
-            if frontmatter.flagged {
-                Image(systemName: "flag.fill")
-                    .font(.footnote)
-                    .foregroundStyle(theme.flaggedColor)
-                    .padding(.top, 2)
+                    if showsInlineFooter {
+                        Rectangle()
+                            .fill(expandedDividerColor)
+                            .frame(height: 1)
+                            .padding(.leading, 34)
+                            .padding(.trailing, 2)
+
+                        expandedFooter
+                            .padding(.leading, 34)
+                    }
+                }
+                .transition(expandedSupplementaryTransition)
             }
         }
-        .padding(.leading, 20)
-        .padding(.trailing, 16)
-        .padding(.vertical, 13)
+        .padding(.leading, isExpanded ? 16 : 20)
+        .padding(.trailing, isExpanded ? 17 : 16)
+        .padding(.top, isExpanded ? 17 : 13)
+        .padding(.bottom, isExpanded ? 16 : 13)
+        .background(expandedBackground)
+        .overlay(expandedBorder)
+        .shadow(color: isExpanded ? Color.black.opacity(colorScheme == .dark ? 0.3 : 0.12) : .clear, radius: 28, y: 16)
+        .shadow(color: isExpanded ? Color.black.opacity(colorScheme == .dark ? 0.17 : 0.05) : .clear, radius: 12, y: 5)
+        .padding(.horizontal, isExpanded ? 10 : 0)
+        .padding(.vertical, isExpanded ? 7 : 0)
+        .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .zIndex(isExpanded ? 1 : 0)
+        .onTapGesture {
+            if !isExpanded {
+                onExpand()
+            }
+        }
+        .onChange(of: isExpanded) { _, expanded in
+            if expanded {
+                syncDraftsFromRecord()
+                DispatchQueue.main.async {
+                    if focusedField == nil {
+                        focusedField = .title
+                    }
+                }
+            } else {
+                saveTextEdits()
+            }
+        }
+        .onChange(of: focusedField) { _, field in
+            if field == nil {
+                saveTextEdits()
+            }
+        }
+        .onChange(of: record.document.frontmatter.title) { _, _ in
+            guard focusedField == nil else { return }
+            syncDraftsFromRecord()
+        }
+        .onChange(of: record.document.frontmatter.description ?? "") { _, _ in
+            guard focusedField == nil else { return }
+            syncDraftsFromRecord()
+        }
+        .onDisappear {
+            saveTextEdits()
+        }
+        .animation(.spring(response: 0.36, dampingFraction: 0.88, blendDuration: 0.14), value: isExpanded)
+    }
+
+    private func collapsedTextContent(frontmatter: TaskFrontmatterV1) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(frontmatter.title)
+                .font(.body)
+                .fontWeight(.regular)
+                .foregroundStyle(isCompleting ? theme.textSecondaryColor : theme.textPrimaryColor)
+                .strikethrough(isCompleting, color: theme.textSecondaryColor)
+                .lineLimit(2)
+
+            if let metadataText = metadataLine(frontmatter: frontmatter) {
+                metadataText
+                    .font(.footnote)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private func expandedTextContent(frontmatter: TaskFrontmatterV1) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ZStack(alignment: .topLeading) {
+                if titleDraft.isEmpty {
+                    Text("Task")
+                        .font(.system(size: 16, weight: .regular))
+                        .foregroundStyle(theme.textTertiaryColor)
+                        .padding(.top, 1)
+                }
+
+                TextField("", text: $titleDraft, axis: .vertical)
+                    .modifier(RootViewWordsAutocapitalization())
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundStyle(theme.textPrimaryColor)
+                    .focused($focusedField, equals: .title)
+                    .lineLimit(1...3)
+                    .submitLabel(.done)
+            }
+
+            ZStack(alignment: .topLeading) {
+                if notesDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text("Notes")
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundStyle(expandedNotePlaceholderColor)
+                        .padding(.top, 1)
+                }
+
+                TextField("", text: $notesDraft, axis: .vertical)
+                    .modifier(RootViewWordsAutocapitalization())
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(expandedNoteTextColor)
+                    .focused($focusedField, equals: .notes)
+                    .lineLimit(1...5)
+            }
+            .frame(minHeight: 102, alignment: .topLeading)
+
+            if frontmatter.flagged || frontmatter.priority != .none {
+                HStack(spacing: 8) {
+                    if frontmatter.flagged {
+                        Label("Flagged", systemImage: "flag.fill")
+                            .foregroundStyle(theme.flaggedColor)
+                    }
+
+                    if frontmatter.priority != .none {
+                        Label(frontmatter.priority.rawValue.capitalized, systemImage: "exclamationmark")
+                            .foregroundStyle(theme.priorityColor(frontmatter.priority))
+                    }
+                }
+                .font(.caption2.weight(.semibold))
+            }
+        }
+    }
+
+    private func expandedQuickActions(frontmatter: TaskFrontmatterV1) -> some View {
+        HStack(spacing: 18) {
+            ForEach(visibleQuickActions) { action in
+                quickActionButton(action, frontmatter: frontmatter)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .padding(.top, 16)
+        .padding(.trailing, 6)
+    }
+
+    @ViewBuilder
+    private func quickActionButton(_ action: ExpandedTaskQuickAction, frontmatter: TaskFrontmatterV1) -> some View {
+        switch action {
+        case .today:
+            ExpandedTaskQuickActionButton(
+                icon: action.systemImage,
+                tint: frontmatter.due != nil
+                    ? (isOverdue(frontmatter) ? theme.overdueColor : theme.accentColor)
+                    : theme.textSecondaryColor,
+                accessibilityLabel: "Set due date to today",
+                action: onToday
+            )
+        case .calendar:
+            ExpandedTaskQuickActionButton(
+                icon: action.systemImage,
+                tint: frontmatter.due == nil ? theme.textSecondaryColor : theme.accentColor,
+                accessibilityLabel: "Choose due date",
+                action: onCalendar
+            )
+        case .priority:
+            Menu {
+                Button(frontmatter.flagged ? "Remove Flag" : "Flag") {
+                    onToggleFlag()
+                }
+                Divider()
+                ForEach(TaskPriority.allCases, id: \.self) { priority in
+                    Button(priority.rawValue.capitalized) {
+                        onSetPriority(priority)
+                    }
+                }
+            } label: {
+                ExpandedTaskQuickActionGlyph(
+                    icon: frontmatter.flagged ? "flag.fill" : action.systemImage,
+                    tint: priorityTint(for: frontmatter)
+                )
+            }
+            .menuStyle(.button)
+        case .tags:
+            ExpandedTaskQuickActionButton(
+                icon: action.systemImage,
+                tint: frontmatter.tags.isEmpty ? theme.textSecondaryColor : theme.accentColor,
+                accessibilityLabel: "Edit tags",
+                action: onTags
+            )
+        case .more:
+            ExpandedTaskQuickActionButton(
+                icon: action.systemImage,
+                tint: theme.textSecondaryColor,
+                accessibilityLabel: "Open full task editor",
+                action: onMore
+            )
+        }
+    }
+
+    private var expandedFooter: some View {
+        HStack(spacing: 0) {
+            ExpandedTaskFooterButton(
+                title: "Move",
+                systemImage: "arrow.right",
+                tint: expandedFooterPrimaryTextColor,
+                action: onMove
+            )
+
+            Rectangle()
+                .fill(expandedFooterDividerColor)
+                .frame(width: 1, height: 22)
+                .padding(.vertical, 6)
+
+            ExpandedTaskFooterButton(
+                title: "Delete",
+                systemImage: "trash",
+                tint: theme.overdueColor,
+                action: onDelete
+            )
+        }
+        .padding(4)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(expandedFooterBarGradient)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(expandedFooterBorderColor, lineWidth: 1)
+        )
+    }
+
+    private var expandedBackground: some View {
+        RoundedRectangle(cornerRadius: 24, style: .continuous)
+            .fill(isExpanded ? expandedCardGradient : LinearGradient(colors: [.clear], startPoint: .top, endPoint: .bottom))
+            .overlay {
+                if isExpanded {
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(colorScheme == .dark ? 0.035 : 0.18),
+                                    Color.clear,
+                                    Color.black.opacity(colorScheme == .dark ? 0.08 : 0.02)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                }
+            }
+    }
+
+    private var expandedBorder: some View {
+        RoundedRectangle(cornerRadius: 24, style: .continuous)
+            .stroke(isExpanded ? expandedBorderColor : .clear, lineWidth: 1)
+    }
+
+    private var expandedCardGradient: LinearGradient {
+        if colorScheme == .dark {
+            return LinearGradient(
+                colors: [
+                    Color(red: 0.11, green: 0.12, blue: 0.16),
+                    Color(red: 0.08, green: 0.09, blue: 0.12)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+
+        return LinearGradient(
+            colors: [
+                theme.surfaceColor.opacity(0.98),
+                theme.backgroundColor.opacity(0.96)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private var expandedBorderColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.06) : theme.textSecondaryColor.opacity(0.16)
+    }
+
+    private var expandedDividerColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.06) : theme.textSecondaryColor.opacity(0.09)
+    }
+
+    private var expandedSupplementaryTransition: AnyTransition {
+        .asymmetric(
+            insertion: .offset(y: 8)
+                .combined(with: .opacity)
+                .combined(with: .scale(scale: 0.98, anchor: .topTrailing)),
+            removal: .opacity.combined(with: .scale(scale: 0.985, anchor: .topTrailing))
+        )
+    }
+
+    private var expandedNoteTextColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.82) : theme.textSecondaryColor
+    }
+
+    private var expandedNotePlaceholderColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.3) : theme.textSecondaryColor.opacity(0.7)
+    }
+
+    private var expandedFooterPrimaryTextColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.92) : theme.textPrimaryColor
+    }
+
+    private var expandedFooterBarGradient: LinearGradient {
+        if colorScheme == .dark {
+            return LinearGradient(
+                colors: [
+                    Color.white.opacity(0.055),
+                    Color.white.opacity(0.03)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+
+        return LinearGradient(
+            colors: [
+                theme.surfaceColor.opacity(0.92),
+                theme.backgroundColor.opacity(0.88)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private var expandedFooterBorderColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.07) : theme.textSecondaryColor.opacity(0.12)
+    }
+
+    private var expandedFooterDividerColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.08) : theme.textSecondaryColor.opacity(0.12)
+    }
+
+    private func syncDraftsFromRecord() {
+        titleDraft = record.document.frontmatter.title
+        notesDraft = record.document.frontmatter.description ?? ""
+    }
+
+    private func saveTextEdits() {
+        guard isExpanded else { return }
+        onSaveTextEdits(titleDraft, notesDraft)
+    }
+
+    private func priorityTint(for frontmatter: TaskFrontmatterV1) -> Color {
+        if frontmatter.flagged {
+            return theme.flaggedColor
+        }
+        return frontmatter.priority == .none ? theme.textSecondaryColor : theme.priorityColor(frontmatter.priority)
     }
 
     private func checkboxTint(for frontmatter: TaskFrontmatterV1) -> Color {
@@ -2787,6 +3537,308 @@ private struct TaskRow: View {
             }
         }
         return "\(day)\(suffix)"
+    }
+}
+
+private struct ExpandedTaskQuickActionGlyph: View {
+    let icon: String
+    let tint: Color
+
+    var body: some View {
+        Image(systemName: icon)
+            .font(.system(size: 18, weight: .regular))
+            .foregroundStyle(tint)
+            .frame(width: 32, height: 32)
+            .contentShape(Rectangle())
+    }
+}
+
+private struct ExpandedTaskQuickActionButton: View {
+    let icon: String
+    let tint: Color
+    let accessibilityLabel: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ExpandedTaskQuickActionGlyph(icon: icon, tint: tint)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
+    }
+}
+
+private struct ExpandedTaskFooterButton: View {
+    let title: String
+    let systemImage: String
+    let tint: Color
+    let action: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 14, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 11)
+            .foregroundStyle(tint)
+        }
+        .buttonStyle(ExpandedTaskFooterButtonStyle(pressedFill: pressedFill))
+    }
+
+    private var pressedFill: Color {
+        colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05)
+    }
+}
+
+private struct ExpandedTaskFooterButtonStyle: ButtonStyle {
+    let pressedFill: Color
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(pressedFill.opacity(configuration.isPressed ? 1 : 0.001))
+            )
+            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .opacity(configuration.isPressed ? 0.92 : 1)
+            .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
+    }
+}
+
+private struct ExpandedTaskDateEditorSheet: View {
+    @State private var hasDate: Bool
+    @State private var selectedDate: Date
+
+    let onSave: (Date?) -> Void
+    let onCancel: () -> Void
+
+    init(
+        initialDate: Date?,
+        onSave: @escaping (Date?) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        _hasDate = State(initialValue: initialDate != nil)
+        _selectedDate = State(initialValue: initialDate ?? Date())
+        self.onSave = onSave
+        self.onCancel = onCancel
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Toggle("Set due date", isOn: $hasDate)
+
+                if hasDate {
+                    DatePicker("Due date", selection: $selectedDate, displayedComponents: .date)
+
+                    Button("Clear Date", role: .destructive) {
+                        hasDate = false
+                    }
+                }
+            }
+            .navigationTitle("Date")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onCancel)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        onSave(hasDate ? selectedDate : nil)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct ExpandedTaskTagsEditorSheet: View {
+    let suggestedTags: [String]
+    let onSave: ([String]) -> Void
+    let onCancel: () -> Void
+
+    @State private var tagsText: String
+    @EnvironmentObject private var theme: ThemeManager
+
+    init(
+        initialTags: [String],
+        suggestedTags: [String],
+        onSave: @escaping ([String]) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.suggestedTags = suggestedTags
+        self.onSave = onSave
+        self.onCancel = onCancel
+        _tagsText = State(initialValue: initialTags.joined(separator: ", "))
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("work, finance, errands", text: $tagsText)
+                        .modifier(RootViewNeverAutocapitalization())
+#if os(iOS)
+                        .autocorrectionDisabled(true)
+#endif
+
+                    Text("Use commas or spaces. #prefix is optional.")
+                        .font(.caption)
+                        .foregroundStyle(theme.textSecondaryColor)
+                }
+
+                if !remainingSuggestedTags.isEmpty {
+                    Section("Suggestions") {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 8)], alignment: .leading, spacing: 8) {
+                            ForEach(remainingSuggestedTags, id: \.self) { tag in
+                                Button {
+                                    appendTag(tag)
+                                } label: {
+                                    Text("#\(tag)")
+                                        .font(.caption.weight(.semibold))
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 8)
+                                        .background(
+                                            Capsule(style: .continuous)
+                                                .fill(theme.surfaceColor)
+                                        )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Tags")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onCancel)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        onSave(parsedTags)
+                    }
+                }
+            }
+        }
+    }
+
+    private var parsedTags: [String] {
+        let delimiters = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ","))
+        var seen = Set<String>()
+        return tagsText
+            .split(whereSeparator: { element in
+                element.unicodeScalars.contains { delimiters.contains($0) }
+            })
+            .compactMap { token in
+                let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+                let stripped = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
+                let normalized = stripped.lowercased()
+                guard !normalized.isEmpty, !seen.contains(normalized) else { return nil }
+                seen.insert(normalized)
+                return normalized
+            }
+    }
+
+    private var remainingSuggestedTags: [String] {
+        let selected = Set(parsedTags)
+        return suggestedTags.filter { !selected.contains($0.lowercased()) }
+    }
+
+    private func appendTag(_ tag: String) {
+        var tags = parsedTags
+        guard !tags.contains(tag.lowercased()) else { return }
+        tags.append(tag.lowercased())
+        tagsText = tags.joined(separator: ", ")
+    }
+}
+
+private struct ExpandedTaskMoveEditorSheet: View {
+    let currentArea: String?
+    let currentProject: String?
+    let groupedAreas: [(area: String, projects: [String])]
+    let ungroupedProjects: [String]
+    let onMove: (String?, String?) -> Void
+    let onCancel: () -> Void
+    @EnvironmentObject private var theme: ThemeManager
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Button {
+                        onMove(nil, nil)
+                    } label: {
+                        moveRowLabel("Inbox", systemImage: "tray", isSelected: currentArea == nil && currentProject == nil)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                ForEach(groupedAreas, id: \.area) { group in
+                    Section(group.area) {
+                        Button {
+                            onMove(group.area, nil)
+                        } label: {
+                            moveRowLabel("Area Only", systemImage: "square.grid.2x2", isSelected: currentArea == group.area && currentProject == nil)
+                        }
+                        .buttonStyle(.plain)
+
+                        ForEach(group.projects, id: \.self) { project in
+                            Button {
+                                onMove(group.area, project)
+                            } label: {
+                                moveRowLabel(project, systemImage: "folder", isSelected: currentArea == group.area && currentProject == project)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                if !ungroupedProjects.isEmpty {
+                    Section("No Area") {
+                        ForEach(ungroupedProjects, id: \.self) { project in
+                            Button {
+                                onMove(nil, project)
+                            } label: {
+                                moveRowLabel(project, systemImage: "folder", isSelected: currentArea == nil && currentProject == project)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Move")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onCancel)
+                }
+            }
+        }
+    }
+
+    private func moveRowLabel(_ title: String, systemImage: String, isSelected: Bool) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: systemImage)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(isSelected ? theme.accentColor : theme.textSecondaryColor)
+
+            Text(title)
+                .foregroundStyle(theme.textPrimaryColor)
+
+            Spacer()
+
+            if isSelected {
+                Image(systemName: "checkmark")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(theme.accentColor)
+            }
+        }
     }
 }
 
