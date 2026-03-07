@@ -1031,7 +1031,7 @@ final class AppContainer: ObservableObject {
     }
 
     @discardableResult
-    func createProject(name: String, colorHex: String) -> String? {
+    func createProject(name: String, colorHex: String, iconSymbol: String? = nil) -> String? {
         let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedName.isEmpty else { return nil }
         guard let sanitizedColor = sanitizeProjectColorHex(colorHex) else { return nil }
@@ -1046,7 +1046,7 @@ final class AppContainer: ObservableObject {
         }
 
         setProjectColor(project: resolvedName, hex: sanitizedColor)
-        setProjectIcon(project: resolvedName, symbol: "folder")
+        setProjectIcon(project: resolvedName, symbol: iconSymbol ?? "folder")
         return resolvedName
     }
 

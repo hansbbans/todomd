@@ -20,8 +20,14 @@ struct PerspectivesView: View {
                         editingPerspective = perspective
                     } label: {
                         HStack(spacing: 12) {
-                            Image(systemName: perspective.icon)
-                                .foregroundStyle(color(forHex: perspective.color) ?? .accentColor)
+                            AppIconGlyph(
+                                icon: perspective.icon,
+                                fallbackSymbol: "list.bullet",
+                                pointSize: 17,
+                                weight: .semibold,
+                                tint: color(forHex: perspective.color) ?? .accentColor
+                            )
+                            .frame(width: 20, height: 20)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(perspective.name)
                                     .font(.headline)
@@ -139,7 +145,6 @@ struct PerspectiveEditorSheet: View {
     @State private var naturalLanguageFeedback: String?
     private let nlParser = NaturalLanguagePerspectiveParser()
 
-    private let iconChoices = ["list.bullet", "briefcase", "house", "star", "heart", "bolt", "clock", "tag", "flag", "checkmark.circle"]
     private let colorChoices: [(name: String, hex: String?)] = [
         ("Default", nil),
         ("Blue", "#4A90D9"),
@@ -158,7 +163,7 @@ struct PerspectiveEditorSheet: View {
         self.initialPerspective = initialPerspective
         self.onSave = onSave
         _name = State(initialValue: initialPerspective.name)
-        _icon = State(initialValue: initialPerspective.icon)
+        _icon = State(initialValue: AppIconToken(initialPerspective.icon, fallbackSymbol: "list.bullet").storageValue)
         _color = State(initialValue: initialPerspective.color)
         _sortField = State(initialValue: initialPerspective.sort.field)
         _groupBy = State(initialValue: initialPerspective.groupBy)
@@ -213,11 +218,13 @@ struct PerspectiveEditorSheet: View {
                     }
                     .accessibilityIdentifier("perspectives.nameField")
 
-                Picker("Icon", selection: $icon) {
-                    ForEach(iconChoices, id: \.self) { symbol in
-                        Label(symbol, systemImage: symbol).tag(symbol)
-                    }
-                }
+                AppIconPickerLink(
+                    label: "Icon",
+                    title: "Perspective Icon",
+                    fallbackSymbol: "list.bullet",
+                    tint: color(forHex: color) ?? .accentColor,
+                    selection: $icon
+                )
 
                 Picker("Color", selection: Binding(
                     get: { color ?? "" },
@@ -262,7 +269,7 @@ struct PerspectiveEditorSheet: View {
                 Button("Save") {
                     var updated = initialPerspective
                     updated.name = name
-                    updated.icon = icon
+                    updated.icon = AppIconToken.normalizedSelection(icon, fallbackSymbol: "list.bullet")
                     updated.color = color
                     updated.sort = PerspectiveSort(field: sortField, direction: .asc)
                     updated.groupBy = groupBy

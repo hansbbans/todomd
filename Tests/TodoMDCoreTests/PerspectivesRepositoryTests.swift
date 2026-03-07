@@ -47,4 +47,26 @@ final class PerspectivesRepositoryTests: XCTestCase {
         XCTAssertTrue(loaded.order.isEmpty)
         XCTAssertTrue(loaded.perspectives.isEmpty)
     }
+
+    func testPerspectiveIconsRoundTripEmojiValues() throws {
+        let root = try TestSupport.tempDirectory(prefix: "PerspectivesRepoEmoji")
+        let repository = PerspectivesRepository()
+
+        let perspective = PerspectiveDefinition(
+            id: "travel",
+            name: "Travel",
+            icon: "✈️"
+        )
+
+        let document = PerspectivesDocument(
+            version: 1,
+            order: ["travel"],
+            perspectives: ["travel": perspective]
+        )
+
+        try repository.save(document, rootURL: root)
+        let loaded = try repository.load(rootURL: root)
+
+        XCTAssertEqual(loaded.perspectives["travel"]?.icon, "✈️")
+    }
 }
