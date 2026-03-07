@@ -1384,3 +1384,86 @@ public struct PerspectiveQueryEngine {
         return try? LocalDate(year: year, month: month, day: day)
     }
 }
+
+public extension PerspectiveDefinition {
+    var isolatedProjectName: String? {
+        guard let candidates = PerspectiveProjectInference.projectNames(for: effectiveRules),
+              candidates.count == 1 else {
+            return nil
+        }
+        return candidates.first
+    }
+}
+
+private enum PerspectiveProjectInference {
+    static func projectNames(for group: PerspectiveRuleGroup) -> Set<String>? {
+        guard group.isEnabled else { return nil }
+
+        switch group.operator {
+        case .and:
+            var intersection: Set<String>?
+            for condition in group.conditions {
+                guard let next = projectNames(for: condition) else { continue }
+                intersection = intersection.map { $0.intersection(next) } ?? next
+            }
+            guard let intersection, !intersection.isEmpty else { return nil }
+            return intersection
+        case .or:
+            var union = Set<String>()
+            var sawConstrainedBranch = false
+            for condition in group.conditions {
+                guard let next = projectNames(for: condition) else { return nil }
+                sawConstrainedBranch = true
+                union.formUnion(next)
+            }
+            return sawConstrainedBranch && !union.isEmpty ? union : nil
+        case .not, .unknown:
+            return nil
+        }
+    }
+
+    private static func projectNames(for condition: PerspectiveCondition) -> Set<String>? {
+        switch condition {
+        case .rule(let rule):
+            return projectNames(for: rule)
+        case .group(let group):
+            return projectNames(for: group)
+        }
+    }
+
+    private static func projectNames(for rule: PerspectiveRule) -> Set<String>? {
+        guard rule.isEnabled, rule.field == .project else { return nil }
+
+        switch rule.operator {
+        case .equals:
+            let values = normalizedProjectNames(from: rule.value)
+            guard values.count == 1 else { return nil }
+            return Set(values)
+        case .in:
+            let values = Set(normalizedProjectNames(from: rule.value))
+            return values.isEmpty ? nil : values
+        default:
+            return nil
+        }
+    }
+
+    private static func normalizedProjectNames(from value: JSONValue?) -> [String] {
+        guard let value else { return [] }
+
+        switch value {
+        case .string(let string):
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.contains(",") {
+                return trimmed
+                    .split(separator: ",")
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+            }
+            return trimmed.isEmpty ? [] : [trimmed]
+        case .array(let values):
+            return values.flatMap(normalizedProjectNames(from:))
+        default:
+            return []
+        }
+    }
+}

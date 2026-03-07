@@ -509,6 +509,10 @@ struct QuickEntrySheet: View {
     private func applyInitialDefaultsIfNeeded() {
         guard !didApplyDefaults else { return }
         didApplyDefaults = true
+        if selectedProject == nil,
+           let inferredProject = container.inferredTaskProject(for: container.selectedView) {
+            selectedProject = inferredProject
+        }
         if supportsDueInputs {
             switch quickEntryDefaultDateMode {
             case .today:

@@ -1993,12 +1993,13 @@ struct RootView: View {
             draft.dueDate = Calendar.current.startOfDay(for: Date())
         case .area(let area):
             draft.area = area
-        case .project(let project):
-            draft.project = project
         case .tag(let tag):
             draft.tagsText = "#\(tag)"
         default:
             break
+        }
+        if let inferredProject = container.inferredTaskProject(for: view) {
+            draft.project = inferredProject
         }
         return draft
     }

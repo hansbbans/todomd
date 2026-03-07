@@ -139,4 +139,49 @@ final class PerspectiveQueryEngineTests: XCTestCase {
 
         XCTAssertTrue(engine.matches(record, perspective: perspective, today: try LocalDate(isoDate: "2025-03-03")))
     }
+
+    func testIsolatedProjectNameReturnsSingleProjectFromEqualsRule() {
+        let perspective = PerspectiveDefinition(
+            name: "Home",
+            rules: PerspectiveRuleGroup(
+                operator: .and,
+                conditions: [
+                    .rule(PerspectiveRule(field: .project, operator: .equals, value: "Home")),
+                    .rule(PerspectiveRule(field: .status, operator: .equals, value: TaskStatus.todo.rawValue))
+                ]
+            )
+        )
+
+        XCTAssertEqual(perspective.isolatedProjectName, "Home")
+    }
+
+    func testIsolatedProjectNameCollapsesIntersectionToSingleProject() {
+        let perspective = PerspectiveDefinition(
+            name: "Home Only",
+            rules: PerspectiveRuleGroup(
+                operator: .and,
+                conditions: [
+                    .rule(PerspectiveRule(field: .project, operator: .in, jsonValue: .array([.string("Home"), .string("Work")]))),
+                    .rule(PerspectiveRule(field: .project, operator: .equals, value: "Home"))
+                ]
+            )
+        )
+
+        XCTAssertEqual(perspective.isolatedProjectName, "Home")
+    }
+
+    func testIsolatedProjectNameReturnsNilForMultiProjectPerspective() {
+        let perspective = PerspectiveDefinition(
+            name: "Multiple Projects",
+            rules: PerspectiveRuleGroup(
+                operator: .or,
+                conditions: [
+                    .rule(PerspectiveRule(field: .project, operator: .equals, value: "Home")),
+                    .rule(PerspectiveRule(field: .project, operator: .equals, value: "Work"))
+                ]
+            )
+        )
+
+        XCTAssertNil(perspective.isolatedProjectName)
+    }
 }

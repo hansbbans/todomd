@@ -1444,9 +1444,25 @@ final class AppContainer: ObservableObject {
         .custom("perspective:\(perspectiveID)")
     }
 
-    func perspectiveName(for view: ViewIdentifier) -> String? {
+    func perspectiveDefinition(for view: ViewIdentifier) -> PerspectiveDefinition? {
         guard let id = perspectiveID(for: view) else { return nil }
-        return perspectives.first(where: { $0.id == id })?.name
+        return perspectives.first(where: { $0.id == id })
+    }
+
+    func perspectiveName(for view: ViewIdentifier) -> String? {
+        perspectiveDefinition(for: view)?.name
+    }
+
+    func inferredTaskProject(for view: ViewIdentifier) -> String? {
+        switch view {
+        case .project(let project):
+            return resolvedProjectName(for: project) ?? project
+        case .custom:
+            guard let project = perspectiveDefinition(for: view)?.isolatedProjectName else { return nil }
+            return resolvedProjectName(for: project) ?? project
+        default:
+            return nil
+        }
     }
 
     func canManuallyReorderSelectedView() -> Bool {
