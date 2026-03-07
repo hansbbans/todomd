@@ -4,22 +4,32 @@ public struct ParsedQuickEntry: Equatable, Sendable {
     public var title: String
     public var due: LocalDate?
     public var dueTime: LocalTime?
+    public var project: String?
     public var tags: [String]
 
-    public init(title: String, due: LocalDate?, dueTime: LocalTime? = nil, tags: [String]) {
+    public init(
+        title: String,
+        due: LocalDate?,
+        dueTime: LocalTime? = nil,
+        project: String? = nil,
+        tags: [String]
+    ) {
         self.title = title
         self.due = due
         self.dueTime = dueTime
+        self.project = project
         self.tags = tags
     }
 }
 
 public struct NaturalLanguageTaskParser {
     public var calendar: Calendar
+    public var availableProjects: [String]
     private var dateParser: NaturalLanguageDateParser { NaturalLanguageDateParser(calendar: calendar) }
 
-    public init(calendar: Calendar = .current) {
+    public init(calendar: Calendar = .current, availableProjects: [String] = []) {
         self.calendar = calendar
+        self.availableProjects = availableProjects
     }
 
     public func parse(_ input: String, relativeTo referenceDate: Date = Date()) -> ParsedQuickEntry? {
@@ -27,15 +37,23 @@ public struct NaturalLanguageTaskParser {
         guard !trimmedInput.isEmpty else { return nil }
 
         let (withoutTrailingTags, tags) = extractTrailingTags(from: trimmedInput)
-        let extraction = extractDueDate(from: withoutTrailingTags, relativeTo: referenceDate)
+        var withoutProject = withoutTrailingTags
+        let project = extractProject(from: &withoutProject)
+        let extraction = extractDueDate(from: withoutProject, relativeTo: referenceDate)
         let candidateTitle = extraction.title
 
         let normalizedTitle = normalizeWhitespace(candidateTitle)
-        let fallbackTitle = normalizeWhitespace(withoutTrailingTags)
+        let fallbackTitle = normalizeWhitespace(withoutProject)
         let resolvedTitle = normalizedTitle.isEmpty ? fallbackTitle : normalizedTitle
         guard !resolvedTitle.isEmpty else { return nil }
 
-        return ParsedQuickEntry(title: resolvedTitle, due: extraction.due, dueTime: extraction.dueTime, tags: tags)
+        return ParsedQuickEntry(
+            title: resolvedTitle,
+            due: extraction.due,
+            dueTime: extraction.dueTime,
+            project: project,
+            tags: tags
+        )
     }
 
     private func extractTrailingTags(from input: String) -> (String, [String]) {
@@ -204,6 +222,36 @@ public struct NaturalLanguageTaskParser {
             let hour = Int(normalized[hourRange]) ?? 0
             let minute = Int(normalized[minuteRange]) ?? 0
             return try? LocalTime(hour: hour, minute: minute)
+        }
+
+        return nil
+    }
+
+    private func extractProject(from value: inout String) -> String? {
+        let candidates = availableProjects
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .sorted { lhs, rhs in
+                if lhs.count != rhs.count { return lhs.count > rhs.count }
+                return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
+            }
+
+        for project in candidates {
+            let escaped = NSRegularExpression.escapedPattern(for: project)
+            let pattern = #"(?:^|\s)(?:in|under|project)\s+\#(escaped)(?=$|\s|[,.!?;])"#
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+                continue
+            }
+
+            let nsRange = NSRange(value.startIndex..<value.endIndex, in: value)
+            guard let match = regex.firstMatch(in: value, options: [], range: nsRange),
+                  let matchRange = Range(match.range, in: value) else {
+                continue
+            }
+
+            value.removeSubrange(matchRange)
+            value = normalizeWhitespace(value)
+            return project
         }
 
         return nil
