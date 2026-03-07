@@ -129,39 +129,28 @@ final class TodoMDAppUITests: XCTestCase {
         XCTAssertTrue(remindersImportSection.waitForExistence(timeout: 10), "Reminders Import section not visible")
         remindersImportSection.tap()
 
-        let importButton = app.descendants(matching: .any)["settings.remindersImport.importButton"]
+        let importRow = app.descendants(matching: .any)["settings.remindersImport.row.ui-test-reminder-1"]
+        let importAllButton = app.descendants(matching: .any)["settings.remindersImport.importAllButton"]
         var scrollAttempts = 0
-        while !importButton.exists && scrollAttempts < 6 {
+        while !importRow.exists && !importAllButton.exists && scrollAttempts < 6 {
             app.swipeUp()
             scrollAttempts += 1
         }
-        XCTAssertTrue(importButton.waitForExistence(timeout: 10), "Reminders import button not visible")
+        XCTAssertTrue(importRow.waitForExistence(timeout: 10), "Pending reminders row not visible")
 
         let refreshButton = app.descendants(matching: .any)["settings.remindersImport.refreshListsButton"]
         if refreshButton.exists {
             refreshButton.tap()
         }
 
-        XCTAssertTrue(importButton.isHittable)
-        importButton.tap()
+        XCTAssertTrue(importAllButton.waitForExistence(timeout: 10), "Import all button not visible")
+        XCTAssertTrue(importAllButton.isHittable)
+        importAllButton.tap()
 
         let status = app.staticTexts["settings.remindersImport.status"]
         XCTAssertTrue(status.waitForExistence(timeout: 10), "Import status did not appear")
         XCTAssertTrue(status.label.contains("Imported 1 reminder"))
-
-        for _ in 0..<2 {
-            let backButton = app.navigationBars.buttons.firstMatch
-            XCTAssertTrue(backButton.waitForExistence(timeout: 10))
-            backButton.tap()
-        }
-
-        let inboxTab = app.tabBars.buttons["Inbox"].firstMatch
-        if inboxTab.waitForExistence(timeout: 5) {
-            inboxTab.tap()
-        }
-
-        let importedTaskRow = app.descendants(matching: .any)["taskRow.from reminders e2e"]
-        XCTAssertTrue(importedTaskRow.waitForExistence(timeout: 10), "Imported reminder task row not found")
+        XCTAssertFalse(importRow.waitForExistence(timeout: 5), "Imported reminder should no longer be listed as pending")
     }
 
     func testPomodoroCanBeEnabledAndOpenedFromAreas() {

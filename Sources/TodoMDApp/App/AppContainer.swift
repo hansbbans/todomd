@@ -157,8 +157,10 @@ final class AppContainer: ObservableObject {
     @Published var calendarTodayEvents: [CalendarEventItem] = []
     @Published var calendarUpcomingSections: [CalendarDaySection] = []
     @Published private(set) var reminderLists: [ReminderList] = []
+    @Published private(set) var pendingReminderImports: [ReminderImportItem] = []
     @Published private(set) var selectedReminderListID: String?
     @Published var remindersImportStatusMessage: String?
+    @Published var isRefreshingReminderImports = false
     @Published var isRemindersImporting = false
     @Published private(set) var locationFavorites: [LocationFavorite] = []
 
@@ -203,6 +205,7 @@ final class AppContainer: ObservableObject {
     private var metadataRefreshWorkItem: DispatchWorkItem?
     private var suppressMetadataRefreshUntil: Date?
     private var calendarRefreshTask: Task<Void, Never>?
+    private var reminderImportRefreshGeneration = 0
     private var lastCalendarSyncAt: Date?
     private var startupValidationPending = false
 
@@ -316,6 +319,10 @@ final class AppContainer: ObservableObject {
 
     var rootFolderPath: String {
         rootURL.path
+    }
+
+    var isRemindersImportBusy: Bool {
+        isRefreshingReminderImports || isRemindersImporting
     }
 
     func reloadStorageLocation() {
@@ -2144,37 +2151,32 @@ final class AppContainer: ObservableObject {
     }
 
     func refreshReminderListsIfNeeded() async {
-        guard reminderLists.isEmpty else { return }
-        await refreshReminderLists()
+        await refreshReminderImportState(forceListRefresh: reminderLists.isEmpty)
     }
 
     func refreshReminderLists() async {
-        do {
-            let lists = try await remindersImportService.fetchLists()
-            reminderLists = lists
-            syncSelectedReminderList(with: lists)
-            if lists.isEmpty {
-                remindersImportStatusMessage = "No Reminders lists are available to import from."
-            } else if remindersImportStatusMessage == RemindersImportServiceError.accessDenied.localizedDescription {
-                remindersImportStatusMessage = nil
-            }
-        } catch {
-            reminderLists = []
-            selectedReminderListID = nil
-            remindersImportStatusMessage = error.localizedDescription
-            persistReminderListSelection()
-        }
+        await refreshReminderImportState(forceListRefresh: true)
+    }
+
+    func refreshReminderImports() async {
+        await refreshReminderImportState(forceListRefresh: false)
     }
 
     func setReminderListSelected(id: String) {
         if id.isEmpty {
             selectedReminderListID = nil
             persistReminderListSelection()
+            Task {
+                await refreshReminderImports()
+            }
             return
         }
         guard reminderLists.contains(where: { $0.id == id }) else { return }
         selectedReminderListID = id
         persistReminderListSelection()
+        Task {
+            await refreshReminderImports()
+        }
     }
 
     @discardableResult
@@ -2218,89 +2220,83 @@ final class AppContainer: ObservableObject {
     }
 
     func importFromReminders() async {
+        await importAllFromReminders()
+    }
+
+    func importAllFromReminders() async {
+        if pendingReminderImports.isEmpty {
+            await refreshReminderImportState(forceListRefresh: reminderLists.isEmpty)
+        }
+        await importReminderItems(pendingReminderImports)
+    }
+
+    func importReminderFromReminders(id: String) async {
+        guard !id.isEmpty else { return }
+
+        if let reminder = pendingReminderImports.first(where: { $0.id == id }) {
+            await importReminderItems([reminder])
+            return
+        }
+
+        await refreshReminderImportState(forceListRefresh: reminderLists.isEmpty)
+        guard let reminder = pendingReminderImports.first(where: { $0.id == id }) else {
+            remindersImportStatusMessage = "That reminder is no longer available to import."
+            return
+        }
+
+        await importReminderItems([reminder])
+    }
+
+    private func importReminderItems(_ reminders: [ReminderImportItem]) async {
         guard !isRemindersImporting else { return }
         isRemindersImporting = true
         defer { isRemindersImporting = false }
 
-        if reminderLists.isEmpty {
-            await refreshReminderLists()
+        guard !reminders.isEmpty else {
+            remindersImportStatusMessage = reminderImportEmptyStateMessage()
+            return
         }
 
-        do {
-            let reminders = try await remindersImportService.fetchIncompleteReminders(
-                calendarID: selectedReminderListID
-            )
-            guard !reminders.isEmpty else {
-                if selectedReminderListID == nil {
-                    remindersImportStatusMessage = "No incomplete reminders found in any list."
-                } else {
-                    remindersImportStatusMessage = "No incomplete reminders found in the selected list."
-                }
-                return
-            }
-
-            let candidates = reminders.compactMap(makeReminderImportCandidate(from:))
-            let skippedCount = max(0, reminders.count - candidates.count)
-            guard !candidates.isEmpty else {
-                remindersImportStatusMessage = "No reminders could be converted into valid tasks."
-                return
-            }
-
-            suppressMetadataRefresh(for: 3)
-            let createResult = await createReminderTasks(candidates: candidates, rootPath: rootURL.path)
-
-            for created in createResult.created {
-                markSelfWrite(path: created.path)
-            }
-
-            if !createResult.created.isEmpty {
-                refresh()
-            }
-
-            let importedReminderIDs = createResult.created.map(\.reminderID)
-            var completionResult: ReminderCompletionResult?
-            var completionError: String?
-            if !importedReminderIDs.isEmpty {
-                do {
-                    completionResult = try remindersImportService.markRemindersCompleted(withIDs: importedReminderIDs)
-                } catch {
-                    completionError = error.localizedDescription
-                }
-            }
-
-            var summary: [String] = []
-            let importedCount = createResult.created.count
-            if importedCount > 0 {
-                summary.append("Imported \(importedCount) reminder\(importedCount == 1 ? "" : "s") as tasks.")
-            }
-            if let completionResult {
-                if completionResult.completedCount == importedCount {
-                    summary.append("Marked imported reminders complete in Apple Reminders.")
-                } else {
-                    summary.append(
-                        "Marked \(completionResult.completedCount) reminder\(completionResult.completedCount == 1 ? "" : "s") complete in Apple Reminders."
-                    )
-                }
-                if completionResult.missingCount > 0 {
-                    summary.append(
-                        "\(completionResult.missingCount) reminder\(completionResult.missingCount == 1 ? "" : "s") could not be found for completion."
-                    )
-                }
-            } else if let completionError {
-                summary.append("Imported tasks but failed to mark reminders complete: \(completionError)")
-            }
-
-            let failedCount = createResult.failedCount + skippedCount
-            if failedCount > 0 {
-                summary.append(
-                    "\(failedCount) reminder\(failedCount == 1 ? "" : "s") were left in Reminders due to import errors."
-                )
-            }
-
-            remindersImportStatusMessage = summary.joined(separator: " ")
-        } catch {
-            remindersImportStatusMessage = error.localizedDescription
+        let candidates = reminders.compactMap(makeReminderImportCandidate(from:))
+        let skippedCount = max(0, reminders.count - candidates.count)
+        guard !candidates.isEmpty else {
+            remindersImportStatusMessage = reminders.count == 1
+                ? "That reminder could not be converted into a valid task."
+                : "No reminders could be converted into valid tasks."
+            return
         }
+
+        suppressMetadataRefresh(for: 3)
+        let createResult = await createReminderTasks(candidates: candidates, rootPath: rootURL.path)
+
+        for created in createResult.created {
+            markSelfWrite(path: created.path)
+        }
+
+        if !createResult.created.isEmpty {
+            refresh()
+        }
+
+        let importedReminderIDs = createResult.created.map(\.reminderID)
+        var completionResult: ReminderCompletionResult?
+        var completionError: String?
+        if !importedReminderIDs.isEmpty {
+            do {
+                completionResult = try remindersImportService.markRemindersCompleted(withIDs: importedReminderIDs)
+            } catch {
+                completionError = error.localizedDescription
+            }
+        }
+
+        let summary = reminderImportSummary(
+            importedCount: createResult.created.count,
+            failedCount: createResult.failedCount + skippedCount,
+            completionResult: completionResult,
+            completionError: completionError
+        )
+
+        await refreshReminderImportState(forceListRefresh: false)
+        remindersImportStatusMessage = summary
     }
 
     func isCalendarSourceSelected(_ sourceID: String) -> Bool {
@@ -2445,6 +2441,69 @@ final class AppContainer: ObservableObject {
 
     private func loadReminderListSelection() {
         selectedReminderListID = UserDefaults.standard.string(forKey: Self.settingsRemindersImportListIDKey)
+    }
+
+    private func refreshReminderImportState(forceListRefresh: Bool) async {
+        let refreshGeneration = nextReminderImportRefreshGeneration()
+        isRefreshingReminderImports = true
+        defer {
+            if refreshGeneration == reminderImportRefreshGeneration {
+                isRefreshingReminderImports = false
+            }
+        }
+
+        do {
+            let lists: [ReminderList]
+            if forceListRefresh || reminderLists.isEmpty {
+                lists = try await remindersImportService.fetchLists()
+                guard refreshGeneration == reminderImportRefreshGeneration else { return }
+                reminderLists = lists
+                syncSelectedReminderList(with: lists)
+            } else {
+                lists = reminderLists
+            }
+
+            guard !lists.isEmpty else {
+                guard refreshGeneration == reminderImportRefreshGeneration else { return }
+                pendingReminderImports = []
+                remindersImportStatusMessage = "No Reminders lists are available to import from."
+                return
+            }
+
+            let reminders = try await remindersImportService.fetchIncompleteReminders(
+                calendarID: selectedReminderListID
+            )
+            guard refreshGeneration == reminderImportRefreshGeneration else { return }
+            pendingReminderImports = reminders
+            if reminders.isEmpty {
+                remindersImportStatusMessage = reminderImportEmptyStateMessage()
+            } else {
+                remindersImportStatusMessage = nil
+            }
+        } catch RemindersImportServiceError.listNotFound where !forceListRefresh {
+            await refreshReminderImportState(forceListRefresh: true)
+        } catch {
+            guard refreshGeneration == reminderImportRefreshGeneration else { return }
+            if forceListRefresh || reminderLists.isEmpty {
+                reminderLists = []
+                selectedReminderListID = nil
+                persistReminderListSelection()
+            }
+            pendingReminderImports = []
+            remindersImportStatusMessage = error.localizedDescription
+        }
+    }
+
+    private func nextReminderImportRefreshGeneration() -> Int {
+        reminderImportRefreshGeneration += 1
+        return reminderImportRefreshGeneration
+    }
+
+    private func reminderImportEmptyStateMessage() -> String {
+        if selectedReminderListID == nil {
+            return "No new reminders found in any list."
+        }
+        return "No new reminders found in the selected list."
     }
 
     private func loadLocationFavorites() {
@@ -3407,18 +3466,67 @@ final class AppContainer: ObservableObject {
         _ = applyCurrentViewFilter()
     }
 
+    private var remindersImportParser: NaturalLanguageTaskParser {
+        NaturalLanguageTaskParser(availableProjects: allProjects())
+    }
+
+    private func reminderImportSummary(
+        importedCount: Int,
+        failedCount: Int,
+        completionResult: ReminderCompletionResult?,
+        completionError: String?
+    ) -> String {
+        var summary: [String] = []
+
+        if importedCount > 0 {
+            summary.append("Imported \(importedCount) reminder\(importedCount == 1 ? "" : "s") as tasks.")
+        }
+
+        if let completionResult {
+            if completionResult.completedCount == importedCount {
+                summary.append(
+                    importedCount == 1
+                        ? "Marked the imported reminder complete in Apple Reminders."
+                        : "Marked imported reminders complete in Apple Reminders."
+                )
+            } else if completionResult.completedCount > 0 {
+                summary.append(
+                    "Marked \(completionResult.completedCount) reminder\(completionResult.completedCount == 1 ? "" : "s") complete in Apple Reminders."
+                )
+            }
+
+            if completionResult.missingCount > 0 {
+                summary.append(
+                    "\(completionResult.missingCount) reminder\(completionResult.missingCount == 1 ? "" : "s") could not be found for completion."
+                )
+            }
+        } else if let completionError {
+            summary.append("Imported tasks but failed to mark reminders complete: \(completionError)")
+        }
+
+        if failedCount > 0 {
+            let verb = failedCount == 1 ? "was" : "were"
+            summary.append(
+                "\(failedCount) reminder\(failedCount == 1 ? "" : "s") \(verb) left in Reminders due to import errors."
+            )
+        }
+
+        return summary.joined(separator: " ")
+    }
+
     private func makeReminderImportCandidate(from reminder: ReminderImportItem) -> ReminderImportCandidate? {
         let titleInput = reminder.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !titleInput.isEmpty else { return nil }
 
-        let parsedTitle = quickEntryParser.parse(titleInput)
-        let parsedNotes = reminder.notes.flatMap { quickEntryParser.parse($0) }
+        let parser = remindersImportParser
+        let parsedTitle = parser.parse(titleInput)
+        let parsedNotes = reminder.notes.flatMap { parser.parse($0) }
 
         let resolvedTitle = (parsedTitle?.title ?? titleInput).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !resolvedTitle.isEmpty else { return nil }
 
         var due = parsedTitle?.due ?? parsedNotes?.due
-        var dueTime: LocalTime?
+        var dueTime = parsedTitle?.dueTime ?? parsedNotes?.dueTime
         if let dueDateComponents = reminder.dueDateComponents {
             let dueParts = localDateAndTime(from: dueDateComponents)
             if let mappedDue = dueParts.date {
@@ -3442,6 +3550,9 @@ final class AppContainer: ObservableObject {
         let modifiedAt = reminder.modifiedAt ?? createdAt
         let title = String(resolvedTitle.prefix(TaskValidation.maxTitleLength))
         let body = String((reminder.notes ?? "").prefix(TaskValidation.maxBodyLength))
+        let project = parsedTitle?.project ?? parsedNotes?.project
+        let resolvedProject = project.flatMap { resolvedProjectName(for: $0) ?? $0 }
+        let area = resolvedProject.flatMap(inferredArea(forProject:))
 
         let frontmatter = TaskFrontmatterV1(
             title: title,
@@ -3450,6 +3561,8 @@ final class AppContainer: ObservableObject {
             dueTime: dueTime,
             scheduled: scheduled,
             priority: taskPriority(fromReminderPriority: reminder.priority),
+            area: area,
+            project: resolvedProject,
             tags: tags,
             created: createdAt,
             modified: modifiedAt,

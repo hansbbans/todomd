@@ -241,13 +241,13 @@ struct SettingsView: View {
         Form {
             Section {
                 Text(
-                    "Import incomplete reminders using natural-language parsing, then delete them from Reminders."
+                    "Import incomplete reminders using natural-language parsing, then mark imported reminders complete in Reminders."
                 )
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
                 if container.reminderLists.isEmpty {
-                    Text("No Reminders lists available. Tap Refresh Lists to load them.")
+                    Text("No Reminders lists available. Tap Refresh to load them.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
@@ -258,24 +258,25 @@ struct SettingsView: View {
                         }
                     }
                     .accessibilityIdentifier("settings.remindersImport.listPicker")
-                    .disabled(container.isRemindersImporting)
+                    .disabled(container.isRemindersImportBusy)
                 }
 
-                Button("Refresh Lists") {
+                Button(container.isRefreshingReminderImports ? "Refreshing..." : "Refresh") {
                     Task {
                         await container.refreshReminderLists()
                     }
                 }
                 .accessibilityIdentifier("settings.remindersImport.refreshListsButton")
-                .disabled(container.isRemindersImporting)
+                .disabled(container.isRemindersImportBusy)
 
-                Button(container.isRemindersImporting ? "Importing..." : "Import Now") {
-                    Task {
-                        await container.importFromReminders()
+                if container.isRefreshingReminderImports && container.pendingReminderImports.isEmpty {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("Checking for new reminders…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
-                .accessibilityIdentifier("settings.remindersImport.importButton")
-                .disabled(container.isRemindersImporting || container.reminderLists.isEmpty)
 
                 if let remindersImportStatusMessage = container.remindersImportStatusMessage,
                    !remindersImportStatusMessage.isEmpty {
@@ -283,6 +284,27 @@ struct SettingsView: View {
                         .accessibilityIdentifier("settings.remindersImport.status")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+            }
+
+            if !container.pendingReminderImports.isEmpty {
+                Section {
+                    HStack {
+                        Text("From Reminders")
+                            .font(.headline)
+                        Spacer()
+                        Button(container.isRemindersImporting ? "Importing..." : "Import All") {
+                            Task {
+                                await container.importAllFromReminders()
+                            }
+                        }
+                        .accessibilityIdentifier("settings.remindersImport.importAllButton")
+                        .disabled(container.isRemindersImportBusy || container.pendingReminderImports.isEmpty)
+                    }
+
+                    ForEach(container.pendingReminderImports) { reminder in
+                        reminderImportRow(reminder)
+                    }
                 }
             }
         }
@@ -550,6 +572,27 @@ struct SettingsView: View {
                 container.setReminderListSelected(id: selectedID)
             }
         )
+    }
+
+    private func reminderImportRow(_ reminder: ReminderImportItem) -> some View {
+        Button {
+            Task {
+                await container.importReminderFromReminders(id: reminder.id)
+            }
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "arrow.down.circle")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                Text(reminder.title)
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(container.isRemindersImportBusy)
+        .accessibilityIdentifier("settings.remindersImport.row.\(reminder.id)")
     }
 
     private func color(for hex: String) -> Color {
