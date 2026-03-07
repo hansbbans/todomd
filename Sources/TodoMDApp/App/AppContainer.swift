@@ -2440,7 +2440,8 @@ final class AppContainer: ObservableObject {
     }
 
     private func loadReminderListSelection() {
-        selectedReminderListID = UserDefaults.standard.string(forKey: Self.settingsRemindersImportListIDKey)
+        selectedReminderListID = nil
+        UserDefaults.standard.removeObject(forKey: Self.settingsRemindersImportListIDKey)
     }
 
     private func refreshReminderImportState(forceListRefresh: Bool) async {

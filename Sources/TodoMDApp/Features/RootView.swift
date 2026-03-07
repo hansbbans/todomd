@@ -465,6 +465,7 @@ struct RootView: View {
             if horizontalSizeClass == .compact {
                 syncCompactSelectedTab()
             }
+            refreshInboxRemindersIfVisible()
             if let pending = container.navigationTaskPath {
                 appendToActiveNavigationPath(pending)
                 container.clearPendingNavigationPath()
@@ -494,6 +495,8 @@ struct RootView: View {
             }
             if selectedView != .builtIn(.inbox) {
                 resetInboxTriageMode()
+            } else {
+                refreshInboxRemindersIfVisible()
             }
             if horizontalSizeClass == .compact {
                 syncCompactSelectedTab()
@@ -501,6 +504,11 @@ struct RootView: View {
             expandedTaskPath = nil
             cancelInlineTaskComposer()
         }
+#if canImport(UIKit)
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            refreshInboxRemindersIfVisible()
+        }
+#endif
         .onChange(of: compactSelectedTab) { _, newTab in
             guard horizontalSizeClass == .compact else { return }
             guard compactRootTab(for: container.selectedView) != newTab else { return }
@@ -633,6 +641,9 @@ struct RootView: View {
             }
             .refreshable {
                 container.refresh()
+                if container.selectedView == .builtIn(.inbox) {
+                    await container.refreshReminderListsIfNeeded()
+                }
             }
             .animation(.spring(response: 0.34, dampingFraction: 0.9, blendDuration: 0.12), value: shouldShowExpandedTaskBottomBar)
     }
@@ -799,6 +810,9 @@ struct RootView: View {
                 )
             } else if records.isEmpty, shouldRenderInlineTaskComposerInList {
                 List {
+                    if container.selectedView == .builtIn(.inbox) {
+                        InboxRemindersImportPanel()
+                    }
                     if container.selectedView == .builtIn(.today) {
                         todayCalendarHeroListRow
                         if container.isCalendarConnected {
@@ -842,6 +856,37 @@ struct RootView: View {
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.top, container.isCalendarConnected ? 10 : 24)
+                        .padding(.bottom, 40)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                    }
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                } else if container.selectedView == .builtIn(.inbox) {
+                    taskList(id: "\(container.selectedView.rawValue)-empty") {
+                        InboxRemindersImportPanel()
+
+                        VStack(spacing: 12) {
+                            ContentUnavailableView(
+                                "No Tasks",
+                                systemImage: "checkmark.circle",
+                                description: Text("Nothing in \(titleForCurrentView()) right now.")
+                            )
+
+                            if !container.diagnostics.isEmpty {
+                                VStack(spacing: 6) {
+                                    Text("\(container.diagnostics.count) file(s) could not be parsed.")
+                                        .font(.footnote)
+                                        .foregroundStyle(theme.textSecondaryColor)
+                                    NavigationLink("Review Unparseable Files") {
+                                        UnparseableFilesView()
+                                    }
+                                    .font(.footnote.weight(.semibold))
+                                }
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 20)
                         .padding(.bottom, 40)
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
@@ -907,6 +952,9 @@ struct RootView: View {
                             }
                         }
                     } else {
+                        if container.selectedView == .builtIn(.inbox) {
+                            InboxRemindersImportPanel()
+                        }
                         if shouldRenderInlineTaskComposerInList {
                             inlineTaskComposerListRow
                         }
@@ -2738,6 +2786,18 @@ struct RootView: View {
                 return perspectiveName
             }
             return id
+        }
+    }
+
+    private func refreshInboxRemindersIfVisible(forceListRefresh: Bool = false) {
+        guard container.selectedView == .builtIn(.inbox) else { return }
+
+        Task {
+            if forceListRefresh {
+                await container.refreshReminderLists()
+            } else {
+                await container.refreshReminderListsIfNeeded()
+            }
         }
     }
 

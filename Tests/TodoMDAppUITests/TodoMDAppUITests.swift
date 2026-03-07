@@ -123,34 +123,17 @@ final class TodoMDAppUITests: XCTestCase {
 
         completeOnboarding(app: app)
 
-        openSettings(app: app)
-
-        let remindersImportSection = app.buttons["settings.section.remindersImport"]
-        XCTAssertTrue(remindersImportSection.waitForExistence(timeout: 10), "Reminders Import section not visible")
-        remindersImportSection.tap()
-
-        let importRow = app.descendants(matching: .any)["settings.remindersImport.row.ui-test-reminder-1"]
-        let importAllButton = app.descendants(matching: .any)["settings.remindersImport.importAllButton"]
-        var scrollAttempts = 0
-        while !importRow.exists && !importAllButton.exists && scrollAttempts < 6 {
-            app.swipeUp()
-            scrollAttempts += 1
-        }
+        let importRow = app.buttons["from reminders e2e"].firstMatch
+        let importAllButton = app.buttons["Import All"].firstMatch
         XCTAssertTrue(importRow.waitForExistence(timeout: 10), "Pending reminders row not visible")
-
-        let refreshButton = app.descendants(matching: .any)["settings.remindersImport.refreshListsButton"]
-        if refreshButton.exists {
-            refreshButton.tap()
-        }
 
         XCTAssertTrue(importAllButton.waitForExistence(timeout: 10), "Import all button not visible")
         XCTAssertTrue(importAllButton.isHittable)
         importAllButton.tap()
 
-        let status = app.staticTexts["settings.remindersImport.status"]
-        XCTAssertTrue(status.waitForExistence(timeout: 10), "Import status did not appear")
-        XCTAssertTrue(status.label.contains("Imported 1 reminder"))
         XCTAssertFalse(importRow.waitForExistence(timeout: 5), "Imported reminder should no longer be listed as pending")
+        let importSummary = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Imported 1 reminder")).firstMatch
+        XCTAssertTrue(importSummary.waitForExistence(timeout: 10), "Import summary did not appear in Inbox")
     }
 
     func testPomodoroCanBeEnabledAndOpenedFromAreas() {
