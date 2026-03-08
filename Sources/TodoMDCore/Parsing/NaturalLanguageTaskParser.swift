@@ -414,29 +414,25 @@ public struct NaturalLanguagePerspectiveParser {
     }
 
     private func parseExpression(_ query: String, referenceDate: Date) -> (group: PerspectiveRuleGroup, confidence: Double) {
-        for token in [" except ", " excluding ", " but not ", " not "] {
-            if let range = query.range(of: token) {
-                let left = String(query[..<range.lowerBound])
-                let right = String(query[range.upperBound...])
-                let lhs = parseExpression(left, referenceDate: referenceDate)
-                let rhs = parseExpression(right, referenceDate: referenceDate)
+        if let (left, right) = splitOnExclusion(query) {
+            let lhs = parseExpression(left, referenceDate: referenceDate)
+            let rhs = parseExpression(right, referenceDate: referenceDate)
 
-                var conditions: [PerspectiveCondition] = []
-                if !lhs.group.conditions.isEmpty {
-                    conditions.append(.group(lhs.group))
-                }
-                if !rhs.group.conditions.isEmpty {
-                    conditions.append(.group(PerspectiveRuleGroup(operator: .not, conditions: [.group(rhs.group)])))
-                }
-
-                return (
-                    PerspectiveRuleGroup(operator: .and, conditions: conditions),
-                    min(lhs.confidence, rhs.confidence)
-                )
+            var conditions: [PerspectiveCondition] = []
+            if !lhs.group.conditions.isEmpty {
+                conditions.append(.group(lhs.group))
             }
+            if !rhs.group.conditions.isEmpty {
+                conditions.append(.group(PerspectiveRuleGroup(operator: .not, conditions: [.group(rhs.group)])))
+            }
+
+            return (
+                PerspectiveRuleGroup(operator: .and, conditions: conditions),
+                min(lhs.confidence, rhs.confidence)
+            )
         }
 
-        let orParts = split(query, by: " or ")
+        let orParts = splitOnLogicalOr(query)
         if orParts.count > 1 {
             let parsedParts = orParts.map { parseConjunction($0, referenceDate: referenceDate) }
             let groups = parsedParts.map { PerspectiveCondition.group($0.group) }
@@ -449,6 +445,7 @@ public struct NaturalLanguagePerspectiveParser {
 
     private func parseConjunction(_ query: String, referenceDate: Date) -> (group: PerspectiveRuleGroup, confidence: Double) {
         var conditions: [PerspectiveCondition] = []
+        let excludesDoneStatus = query.contains("not done") || query.contains("not completed")
 
         if let projects = parseProjectList(query), projects.count > 1 {
             let projectRules = projects.map { PerspectiveCondition.rule(PerspectiveRule(field: .project, operator: .equals, value: $0)) }
@@ -475,6 +472,11 @@ public struct NaturalLanguagePerspectiveParser {
                 operator: .inNext,
                 jsonValue: .object(["op": .string("in_next"), "value": .number(7), "unit": .string("days")])
             )))
+        }
+
+        if let phrase = firstMatch(pattern: #"due ([a-z0-9\-\s]+?) or earlier"#, in: query),
+           let dateValue = resolvedDateValue(from: phrase, referenceDate: referenceDate) {
+            conditions.append(.rule(PerspectiveRule(field: .due, operator: .onOrBefore, jsonValue: dateValue)))
         }
 
         if let phrase = firstMatch(pattern: #"due before ([a-z0-9\-\s]+)"#, in: query),
@@ -523,7 +525,9 @@ public struct NaturalLanguagePerspectiveParser {
             conditions.append(.rule(PerspectiveRule(field: .estimatedMinutes, operator: .lessThan, jsonValue: .number(Double(minutes)))))
         }
 
-        if query.contains("someday") {
+        if excludesDoneStatus {
+            conditions.append(.rule(PerspectiveRule(field: .status, operator: .notEquals, value: TaskStatus.done.rawValue)))
+        } else if query.contains("someday") {
             conditions.append(.rule(PerspectiveRule(field: .status, operator: .equals, value: TaskStatus.someday.rawValue)))
         }
 
@@ -532,14 +536,14 @@ public struct NaturalLanguagePerspectiveParser {
             conditions.append(.rule(PerspectiveRule(field: .project, operator: .isNil)))
         }
 
-        if query.contains("completed this week") {
+        if query.contains("completed this week") && !query.contains("not completed this week") {
             conditions.append(.rule(PerspectiveRule(field: .status, operator: .equals, value: TaskStatus.done.rawValue)))
             conditions.append(.rule(PerspectiveRule(
                 field: .completed,
                 operator: .inPast,
                 jsonValue: .object(["op": .string("in_past"), "value": .number(7), "unit": .string("days")])
             )))
-        } else if query.contains("completed") {
+        } else if query.contains("completed") && !excludesDoneStatus {
             conditions.append(.rule(PerspectiveRule(field: .status, operator: .equals, value: TaskStatus.done.rawValue)))
         }
 
@@ -604,12 +608,12 @@ public struct NaturalLanguagePerspectiveParser {
     }
 
     private func parseSingleProject(_ query: String) -> String? {
-        guard let phrase = firstMatch(pattern: #"in project ([a-z0-9 _\-]+)"#, in: query) else { return nil }
+        guard let phrase = scopedPhrase(in: query, after: "in project ") else { return nil }
         return titleCase(phrase)
     }
 
     private func parseProjectList(_ query: String) -> [String]? {
-        guard let phrase = firstMatch(pattern: #"in projects ([a-z0-9 _\-,]+)"#, in: query) else { return nil }
+        guard let phrase = scopedPhrase(in: query, after: "in projects ") else { return nil }
         let names = phrase
             .replacingOccurrences(of: ",", with: " and ")
             .split(separator: " ")
@@ -681,6 +685,53 @@ public struct NaturalLanguagePerspectiveParser {
             .filter { !$0.isEmpty }
     }
 
+    private func splitOnExclusion(_ query: String) -> (String, String)? {
+        for token in [" except ", " excluding ", " but not "] {
+            if let range = query.range(of: token) {
+                let left = String(query[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+                let right = String(query[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                return (left, right)
+            }
+        }
+
+        guard let range = query.range(of: " not ") else { return nil }
+        let trailing = String(query[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        if ["done", "completed", "blocked", "cancelled", "someday"].contains(where: { trailing.hasPrefix($0) }) {
+            return nil
+        }
+
+        let left = String(query[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let right = trailing
+        return (left, right)
+    }
+
+    private func splitOnLogicalOr(_ query: String) -> [String] {
+        var parts: [String] = []
+        var segmentStart = query.startIndex
+        var searchStart = query.startIndex
+
+        while let range = query.range(of: " or ", range: searchStart..<query.endIndex) {
+            let trailing = query[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+            if trailing.hasPrefix("earlier") || trailing.hasPrefix("later") {
+                searchStart = range.upperBound
+                continue
+            }
+
+            let part = String(query[segmentStart..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !part.isEmpty {
+                parts.append(part)
+            }
+            segmentStart = range.upperBound
+            searchStart = range.upperBound
+        }
+
+        let tail = String(query[segmentStart...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !tail.isEmpty {
+            parts.append(tail)
+        }
+        return parts
+    }
+
     private func firstMatch(pattern: String, in value: String) -> String? {
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
             return nil
@@ -703,6 +754,40 @@ public struct NaturalLanguagePerspectiveParser {
             return .string(parsed.isoString)
         }
         return nil
+    }
+
+    private func scopedPhrase(in query: String, after prefix: String) -> String? {
+        guard let range = query.range(of: prefix) else { return nil }
+        let remainder = query[range.upperBound...]
+        let stopTokens = [
+            " due ",
+            " scheduled ",
+            " tagged ",
+            " high priority",
+            " medium priority",
+            " low priority",
+            " flagged",
+            " overdue",
+            " no due date",
+            " completed",
+            " not done",
+            " not completed",
+            " blocked",
+            " unblocked",
+            " that ",
+            " which ",
+            " where ",
+            " assigned ",
+            " repeating",
+            " recurring"
+        ]
+
+        let endIndex = stopTokens
+            .compactMap { token in remainder.range(of: token).map(\.lowerBound) }
+            .min() ?? remainder.endIndex
+
+        let phrase = String(remainder[..<endIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return phrase.isEmpty ? nil : phrase
     }
 
     private func titleCase(_ value: String) -> String {
@@ -793,6 +878,8 @@ public struct RulesNaturalizer: Sendable {
             return value == "today" ? "overdue" : "due before \(value)"
         case (.due, .on):
             return "due on \(value)"
+        case (.due, .onOrBefore):
+            return "due on or before \(value)"
         case (.due, .isNil):
             return "no due date"
         case (.scheduled, .on):
@@ -809,6 +896,8 @@ public struct RulesNaturalizer: Sendable {
             return "tagged \(value)"
         case (.status, .equals):
             return "status is \(value)"
+        case (.status, .notEquals):
+            return "status is not \(value)"
         case (.status, .in):
             return "status in \(value)"
         case (.recurrence, .isNotNil):

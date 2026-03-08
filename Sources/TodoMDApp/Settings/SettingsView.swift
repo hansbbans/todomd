@@ -5,6 +5,7 @@ import UserNotifications
 #endif
 
 private enum SettingsSection: String, CaseIterable, Identifiable {
+    case integrations
     case calendar
     case appearance
     case notifications
@@ -16,6 +17,8 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .integrations:
+            return "Integrations"
         case .calendar:
             return "Calendar"
         case .appearance:
@@ -33,6 +36,8 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
 
     var systemImage: String {
         switch self {
+        case .integrations:
+            return "square.3.layers.3d"
         case .calendar:
             return "calendar"
         case .appearance:
@@ -57,6 +62,7 @@ struct SettingsView: View {
     @AppStorage("settings_notify_auto_unblocked") private var notifyAutoUnblocked = true
     @AppStorage("settings_persistent_reminders_enabled") private var persistentRemindersEnabled = false
     @AppStorage("settings_persistent_reminder_interval_minutes") private var persistentReminderIntervalMinutes = 1
+    @AppStorage("settings_reminders_import_enabled") private var remindersImportEnabled = true
     @AppStorage("settings_google_calendar_enabled") private var calendarEnabled = true
     @AppStorage("settings_appearance_mode") private var appearanceMode = "system"
     @AppStorage("settings_archive_completed") private var archiveCompleted = false
@@ -77,6 +83,13 @@ struct SettingsView: View {
 
     var body: some View {
         List {
+            NavigationLink {
+                integrationsSettingsView
+            } label: {
+                Label(SettingsSection.integrations.title, systemImage: SettingsSection.integrations.systemImage)
+            }
+            .accessibilityIdentifier("settings.section.\(SettingsSection.integrations.rawValue)")
+
             NavigationLink {
                 calendarSettingsView
             } label: {
@@ -155,11 +168,38 @@ struct SettingsView: View {
         }
     }
 
+    private var integrationsSettingsView: some View {
+        Form {
+            Section {
+                Toggle("Reminders", isOn: $remindersImportEnabled)
+                    .accessibilityIdentifier("settings.integrations.remindersToggle")
+
+                Toggle("Calendar", isOn: $calendarEnabled)
+                    .accessibilityIdentifier("settings.integrations.calendarToggle")
+            }
+
+            Section {
+                Text("Turn Apple Reminders and Apple Calendar features on or off for todo.md.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle(SettingsSection.integrations.title)
+        .onChange(of: remindersImportEnabled) { _, _ in
+            Task {
+                await container.refreshReminderLists()
+            }
+        }
+        .onChange(of: calendarEnabled) { _, _ in
+            Task {
+                await container.refreshCalendar(force: true)
+            }
+        }
+    }
+
     private var calendarSettingsView: some View {
         Form {
             Section {
-                Toggle("Show Calendar Events", isOn: $calendarEnabled)
-
                 if calendarEnabled {
                     Text("Allow access to Apple Calendar to view events in Today and Upcoming.")
                         .font(.caption)
@@ -216,15 +256,14 @@ struct SettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                } else {
+                    Text("Enable Calendar in Integrations to configure calendars and show events in Today and Upcoming.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
         }
         .navigationTitle(SettingsSection.calendar.title)
-        .onChange(of: calendarEnabled) { _, _ in
-            Task {
-                await container.refreshCalendar(force: true)
-            }
-        }
     }
 
     private var appearanceSettingsView: some View {

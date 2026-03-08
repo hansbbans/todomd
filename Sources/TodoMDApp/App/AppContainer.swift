@@ -213,6 +213,7 @@ final class AppContainer: ObservableObject {
     private static let settingsNotifyAutoUnblockedKey = "settings_notify_auto_unblocked"
     private static let settingsPersistentRemindersEnabledKey = "settings_persistent_reminders_enabled"
     private static let settingsPersistentReminderIntervalMinutesKey = "settings_persistent_reminder_interval_minutes"
+    private static let settingsRemindersImportEnabledKey = "settings_reminders_import_enabled"
     private static let settingsArchiveCompletedKey = "settings_archive_completed"
     private static let settingsCompletedRetentionKey = "settings_completed_retention"
     private static let settingsDefaultPriorityKey = "settings_default_priority"
@@ -2224,6 +2225,7 @@ final class AppContainer: ObservableObject {
     }
 
     func importAllFromReminders() async {
+        guard isRemindersImportEnabled else { return }
         if pendingReminderImports.isEmpty {
             await refreshReminderImportState(forceListRefresh: reminderLists.isEmpty)
         }
@@ -2231,6 +2233,7 @@ final class AppContainer: ObservableObject {
     }
 
     func importReminderFromReminders(id: String) async {
+        guard isRemindersImportEnabled else { return }
         guard !id.isEmpty else { return }
 
         if let reminder = pendingReminderImports.first(where: { $0.id == id }) {
@@ -2248,6 +2251,7 @@ final class AppContainer: ObservableObject {
     }
 
     private func importReminderItems(_ reminders: [ReminderImportItem]) async {
+        guard isRemindersImportEnabled else { return }
         guard !isRemindersImporting else { return }
         isRemindersImporting = true
         defer { isRemindersImporting = false }
@@ -2445,6 +2449,11 @@ final class AppContainer: ObservableObject {
     }
 
     private func refreshReminderImportState(forceListRefresh: Bool) async {
+        guard isRemindersImportEnabled else {
+            clearReminderImportState()
+            return
+        }
+
         let refreshGeneration = nextReminderImportRefreshGeneration()
         isRefreshingReminderImports = true
         defer {
@@ -2505,6 +2514,18 @@ final class AppContainer: ObservableObject {
     private func nextReminderImportRefreshGeneration() -> Int {
         reminderImportRefreshGeneration += 1
         return reminderImportRefreshGeneration
+    }
+
+    private var isRemindersImportEnabled: Bool {
+        let defaults = UserDefaults.standard
+        return defaults.object(forKey: Self.settingsRemindersImportEnabledKey) as? Bool ?? true
+    }
+
+    private func clearReminderImportState() {
+        pendingReminderImports = []
+        reminderLists = []
+        remindersImportStatusMessage = nil
+        isRefreshingReminderImports = false
     }
 
     private func reminderImportEmptyStateMessage() -> String {

@@ -89,6 +89,9 @@ public struct NaturalLanguageDateParser {
             case "this":
                 targetWeekday = weekday
                 strictFuture = false
+            case "upcoming":
+                targetWeekday = weekday
+                strictFuture = false
             default:
                 return nil
             }

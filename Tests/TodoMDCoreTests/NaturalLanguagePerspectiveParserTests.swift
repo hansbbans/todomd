@@ -79,6 +79,28 @@ final class NaturalLanguagePerspectiveParserTests: XCTestCase {
         XCTAssertFalse(result.requiresCloudFallback)
     }
 
+    func testDueUpcomingFridayOrEarlierStaysSingleConjunction() {
+        let result = parser.parse(
+            "anything in project TL due upcoming Friday or earlier that are not done",
+            relativeTo: referenceDate
+        )
+        let rules = flattenedRules(result.rules)
+
+        XCTAssertEqual(result.rules.operator, .and)
+        XCTAssertTrue(rules.contains { $0.field == .project && $0.operator == .equals && $0.stringValue == "Tl" })
+        XCTAssertTrue(rules.contains { $0.field == .due && $0.operator == .onOrBefore && $0.stringValue == "2026-03-06" })
+        XCTAssertTrue(rules.contains { $0.field == .status && $0.operator == .notEquals && $0.stringValue == TaskStatus.done.rawValue })
+        XCTAssertEqual(result.confidence, 1)
+        XCTAssertFalse(result.requiresCloudFallback)
+    }
+
+    func testUpcomingWeekdayParsesInDateParser() {
+        let dateParser = NaturalLanguageDateParser(calendar: Calendar(identifier: .gregorian))
+        let parsed = dateParser.parse("upcoming friday", relativeTo: referenceDate)
+
+        XCTAssertEqual(parsed?.isoString, "2026-03-06")
+    }
+
     private func flattenedRules(_ group: PerspectiveRuleGroup) -> [PerspectiveRule] {
         group.conditions.flatMap { condition -> [PerspectiveRule] in
             switch condition {
