@@ -62,6 +62,8 @@ struct SettingsView: View {
     @AppStorage("settings_archive_completed") private var archiveCompleted = false
     @AppStorage("settings_completed_retention") private var completedRetention = "forever"
     @AppStorage("settings_default_priority") private var defaultPriority = TaskPriority.none.rawValue
+    @AppStorage(CompactTabSettings.leadingViewKey) private var compactPrimaryTabRawValue = CompactTabSettings.defaultLeadingView.rawValue
+    @AppStorage(CompactTabSettings.trailingViewKey) private var compactSecondaryTabRawValue = CompactTabSettings.defaultTrailingView.rawValue
     @AppStorage("settings_quick_entry_default_view") private var quickEntryDefaultView = BuiltInView.inbox.rawValue
     @AppStorage(QuickEntrySettings.fieldsKey) private var quickEntryFieldsRawValue = QuickEntrySettings.defaultFieldsRawValue
     @AppStorage(QuickEntrySettings.defaultDateModeKey) private var quickEntryDefaultDateModeRawValue = QuickEntryDefaultDateMode.none.rawValue
@@ -233,6 +235,28 @@ struct SettingsView: View {
                     Text("Light").tag("light")
                     Text("Dark").tag("dark")
                 }
+            }
+
+            Section("Compact Tab Bar") {
+                Picker("Fourth tab", selection: compactPrimaryTabBinding) {
+                    ForEach(compactPrimaryTabChoices, id: \.rawValue) { view in
+                        Label(view.displayTitle, systemImage: view.displaySystemImage)
+                            .tag(view.rawValue)
+                    }
+                }
+                .accessibilityIdentifier("settings.appearance.compactPrimaryTabPicker")
+
+                Picker("Fifth tab", selection: compactSecondaryTabBinding) {
+                    ForEach(compactSecondaryTabChoices, id: \.rawValue) { view in
+                        Label(view.displayTitle, systemImage: view.displaySystemImage)
+                            .tag(view.rawValue)
+                    }
+                }
+                .accessibilityIdentifier("settings.appearance.compactSecondaryTabPicker")
+
+                Text("Inbox, Today, and Areas stay pinned in slots 1-3. Choose which two extra lists appear in slots 4 and 5 on the iPhone tab bar.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .navigationTitle(SettingsSection.appearance.title)
@@ -498,6 +522,60 @@ struct SettingsView: View {
         case .failure(let error):
             folderSelectionErrorMessage = error.localizedDescription
         }
+    }
+
+    private var compactCustomTabSelection: (primary: BuiltInView, secondary: BuiltInView) {
+        CompactTabSettings.normalizedCustomViews(
+            leadingRawValue: compactPrimaryTabRawValue,
+            trailingRawValue: compactSecondaryTabRawValue,
+            pomodoroEnabled: pomodoroEnabled
+        )
+    }
+
+    private var compactPrimaryTabChoices: [BuiltInView] {
+        let selection = compactCustomTabSelection
+        return CompactTabSettings.availableCustomViews(pomodoroEnabled: pomodoroEnabled)
+            .filter { $0 == selection.primary || $0 != selection.secondary }
+    }
+
+    private var compactSecondaryTabChoices: [BuiltInView] {
+        let selection = compactCustomTabSelection
+        return CompactTabSettings.availableCustomViews(pomodoroEnabled: pomodoroEnabled)
+            .filter { $0 == selection.secondary || $0 != selection.primary }
+    }
+
+    private var compactPrimaryTabBinding: Binding<String> {
+        Binding(
+            get: {
+                compactCustomTabSelection.primary.rawValue
+            },
+            set: { newValue in
+                let normalized = CompactTabSettings.normalizedCustomViews(
+                    leadingRawValue: newValue,
+                    trailingRawValue: compactSecondaryTabRawValue,
+                    pomodoroEnabled: pomodoroEnabled
+                )
+                compactPrimaryTabRawValue = normalized.primary.rawValue
+                compactSecondaryTabRawValue = normalized.secondary.rawValue
+            }
+        )
+    }
+
+    private var compactSecondaryTabBinding: Binding<String> {
+        Binding(
+            get: {
+                compactCustomTabSelection.secondary.rawValue
+            },
+            set: { newValue in
+                let normalized = CompactTabSettings.normalizedCustomViews(
+                    leadingRawValue: compactPrimaryTabRawValue,
+                    trailingRawValue: newValue,
+                    pomodoroEnabled: pomodoroEnabled
+                )
+                compactPrimaryTabRawValue = normalized.primary.rawValue
+                compactSecondaryTabRawValue = normalized.secondary.rawValue
+            }
+        )
     }
 
     private func quickEntryFieldBinding(_ field: QuickEntryField) -> Binding<Bool> {
