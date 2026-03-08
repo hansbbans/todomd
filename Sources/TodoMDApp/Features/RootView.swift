@@ -35,41 +35,11 @@ private struct BuiltInRulesTarget: Identifiable {
 private enum CompactRootTab: String, Hashable, CaseIterable, Identifiable {
     case inbox
     case today
-    case upcoming
     case areas
-    case logbook
+    case customPrimary
+    case customSecondary
 
     var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .inbox:
-            return "Inbox"
-        case .today:
-            return "Today"
-        case .upcoming:
-            return "Upcoming"
-        case .areas:
-            return "Areas"
-        case .logbook:
-            return "Logbook"
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .inbox:
-            return "tray"
-        case .today:
-            return "star"
-        case .upcoming:
-            return "calendar"
-        case .areas:
-            return "square.grid.2x2"
-        case .logbook:
-            return "checkmark.circle"
-        }
-    }
 }
 
 private struct ProjectColorChoice: Identifiable {
@@ -222,9 +192,9 @@ struct RootView: View {
     @State private var navigationPath = NavigationPath()
     @State private var inboxNavigationPath = NavigationPath()
     @State private var todayNavigationPath = NavigationPath()
-    @State private var upcomingNavigationPath = NavigationPath()
+    @State private var customPrimaryNavigationPath = NavigationPath()
     @State private var areasNavigationPath = NavigationPath()
-    @State private var logbookNavigationPath = NavigationPath()
+    @State private var customSecondaryNavigationPath = NavigationPath()
     @State private var compactSelectedTab: CompactRootTab = .inbox
     @State private var universalSearchText = ""
     @State private var showingCreateProjectSheet = false
@@ -261,6 +231,8 @@ struct RootView: View {
     @FocusState private var inlineTaskFocused: Bool
     @Namespace private var compactQuickAddNamespace
     @AppStorage(ExpandedTaskSettings.actionsKey) private var expandedTaskActionsRawValue = ExpandedTaskSettings.defaultActionsRawValue
+    @AppStorage(CompactTabSettings.leadingViewKey) private var compactPrimaryTabRawValue = CompactTabSettings.defaultLeadingView.rawValue
+    @AppStorage(CompactTabSettings.trailingViewKey) private var compactSecondaryTabRawValue = CompactTabSettings.defaultTrailingView.rawValue
     @AppStorage("settings_pomodoro_enabled") private var pomodoroEnabled = false
 
     var body: some View {
@@ -462,6 +434,7 @@ struct RootView: View {
             container.clearQuickEntryRequest()
         }
         .onAppear {
+            normalizeCompactTabSettingsIfNeeded()
             if horizontalSizeClass == .compact {
                 syncCompactSelectedTab()
             }
@@ -484,9 +457,22 @@ struct RootView: View {
             completionAnimationTasks.removeAll()
         }
         .onChange(of: pomodoroEnabled) { _, isEnabled in
+            normalizeCompactTabSettingsIfNeeded()
             guard !isEnabled, container.selectedView == .builtIn(.pomodoro) else { return }
             withAnimation(.easeInOut(duration: 0.2)) {
                 container.selectedView = horizontalSizeClass == .compact ? .browse : .builtIn(.inbox)
+            }
+        }
+        .onChange(of: compactPrimaryTabRawValue) { _, _ in
+            normalizeCompactTabSettingsIfNeeded()
+            if horizontalSizeClass == .compact {
+                syncCompactSelectedTab()
+            }
+        }
+        .onChange(of: compactSecondaryTabRawValue) { _, _ in
+            normalizeCompactTabSettingsIfNeeded()
+            if horizontalSizeClass == .compact {
+                syncCompactSelectedTab()
             }
         }
         .onChange(of: container.selectedView) { _, selectedView in
@@ -543,17 +529,78 @@ struct RootView: View {
         .tint(theme.accentColor)
     }
 
+    private var compactCustomViews: (primary: BuiltInView, secondary: BuiltInView) {
+        CompactTabSettings.normalizedCustomViews(
+            leadingRawValue: compactPrimaryTabRawValue,
+            trailingRawValue: compactSecondaryTabRawValue,
+            pomodoroEnabled: pomodoroEnabled
+        )
+    }
+
+    private var compactPrimaryBuiltInView: BuiltInView {
+        compactCustomViews.primary
+    }
+
+    private var compactSecondaryBuiltInView: BuiltInView {
+        compactCustomViews.secondary
+    }
+
     private func compactTabScene(_ tab: CompactRootTab) -> AnyView {
         AnyView(
             detailPane(path: navigationPathBinding(for: tab)) {
                 detailContent(for: tab)
             }
             .tabItem {
-                Label(tab.title, systemImage: tab.systemImage)
+                Label(compactTabTitle(for: tab), systemImage: compactTabSystemImage(for: tab))
             }
             .tag(tab)
-            .accessibilityIdentifier("root.tab.\(tab.rawValue)")
+            .accessibilityIdentifier(compactTabAccessibilityIdentifier(for: tab))
         )
+    }
+
+    private func compactTabTitle(for tab: CompactRootTab) -> String {
+        switch tab {
+        case .inbox:
+            return BuiltInView.inbox.displayTitle
+        case .today:
+            return BuiltInView.today.displayTitle
+        case .customPrimary:
+            return compactPrimaryBuiltInView.displayTitle
+        case .areas:
+            return "Areas"
+        case .customSecondary:
+            return compactSecondaryBuiltInView.displayTitle
+        }
+    }
+
+    private func compactTabSystemImage(for tab: CompactRootTab) -> String {
+        switch tab {
+        case .inbox:
+            return BuiltInView.inbox.displaySystemImage
+        case .today:
+            return BuiltInView.today.displaySystemImage
+        case .customPrimary:
+            return compactPrimaryBuiltInView.displaySystemImage
+        case .areas:
+            return "square.grid.2x2"
+        case .customSecondary:
+            return compactSecondaryBuiltInView.displaySystemImage
+        }
+    }
+
+    private func compactTabAccessibilityIdentifier(for tab: CompactRootTab) -> String {
+        switch tab {
+        case .inbox:
+            return "root.tab.\(BuiltInView.inbox.rawValue)"
+        case .today:
+            return "root.tab.\(BuiltInView.today.rawValue)"
+        case .customPrimary:
+            return "root.tab.\(compactPrimaryBuiltInView.rawValue)"
+        case .areas:
+            return "root.tab.areas"
+        case .customSecondary:
+            return "root.tab.\(compactSecondaryBuiltInView.rawValue)"
+        }
     }
 
     private var activeCompactTab: CompactRootTab {
@@ -566,12 +613,12 @@ struct RootView: View {
             return $inboxNavigationPath
         case .today:
             return $todayNavigationPath
-        case .upcoming:
-            return $upcomingNavigationPath
+        case .customPrimary:
+            return $customPrimaryNavigationPath
         case .areas:
             return $areasNavigationPath
-        case .logbook:
-            return $logbookNavigationPath
+        case .customSecondary:
+            return $customSecondaryNavigationPath
         }
     }
 
@@ -1909,10 +1956,10 @@ struct RootView: View {
             return .inbox
         case .builtIn(.today):
             return .today
-        case .builtIn(.upcoming):
-            return .upcoming
-        case .builtIn(.logbook):
-            return .logbook
+        case .builtIn(let builtInView) where builtInView == compactPrimaryBuiltInView:
+            return .customPrimary
+        case .builtIn(let builtInView) where builtInView == compactSecondaryBuiltInView:
+            return .customSecondary
         default:
             return .areas
         }
@@ -1925,12 +1972,12 @@ struct RootView: View {
             return .builtIn(.inbox)
         case .today:
             return .builtIn(.today)
-        case .upcoming:
-            return .builtIn(.upcoming)
+        case .customPrimary:
+            return .builtIn(compactPrimaryBuiltInView)
         case .areas:
             return compactRootTab(for: currentView) == .areas ? currentView : .browse
-        case .logbook:
-            return .builtIn(.logbook)
+        case .customSecondary:
+            return .builtIn(compactSecondaryBuiltInView)
         }
     }
 
@@ -2748,30 +2795,7 @@ struct RootView: View {
     private func titleForCurrentView() -> String {
         switch container.selectedView {
         case .builtIn(let view):
-            switch view {
-            case .inbox:
-                return "Inbox"
-            case .myTasks:
-                return "My Tasks"
-            case .delegated:
-                return "Delegated"
-            case .today:
-                return "Today"
-            case .upcoming:
-                return "Upcoming"
-            case .logbook:
-                return "Logbook"
-            case .review:
-                return "Review"
-            case .anytime:
-                return "Anytime"
-            case .someday:
-                return "Someday"
-            case .flagged:
-                return "Flagged"
-            case .pomodoro:
-                return "Pomodoro"
-            }
+            return view.displayTitle
         case .area(let area):
             return area
         case .project(let project):
@@ -2789,6 +2813,20 @@ struct RootView: View {
         }
     }
 
+    private func normalizeCompactTabSettingsIfNeeded() {
+        let normalized = CompactTabSettings.normalizedCustomViews(
+            leadingRawValue: compactPrimaryTabRawValue,
+            trailingRawValue: compactSecondaryTabRawValue,
+            pomodoroEnabled: pomodoroEnabled
+        )
+
+        if compactPrimaryTabRawValue != normalized.primary.rawValue {
+            compactPrimaryTabRawValue = normalized.primary.rawValue
+        }
+        if compactSecondaryTabRawValue != normalized.secondary.rawValue {
+            compactSecondaryTabRawValue = normalized.secondary.rawValue
+        }
+    }
     private func refreshInboxRemindersIfVisible(forceListRefresh: Bool = false) {
         guard container.selectedView == .builtIn(.inbox) else { return }
 
