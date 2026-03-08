@@ -245,7 +245,7 @@ final class FakeRemindersImportService: RemindersImportServicing, @unchecked Sen
         [
             ReminderList(
                 id: Self.defaultListID,
-                name: "UI Test Reminders",
+                name: "Reminders",
                 sourceName: "Local"
             )
         ]

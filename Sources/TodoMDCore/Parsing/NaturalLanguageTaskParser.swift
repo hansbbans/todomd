@@ -6,19 +6,22 @@ public struct ParsedQuickEntry: Equatable, Sendable {
     public var dueTime: LocalTime?
     public var project: String?
     public var tags: [String]
+    public var recognizedDatePhrase: String?
 
     public init(
         title: String,
         due: LocalDate?,
         dueTime: LocalTime? = nil,
         project: String? = nil,
-        tags: [String]
+        tags: [String],
+        recognizedDatePhrase: String? = nil
     ) {
         self.title = title
         self.due = due
         self.dueTime = dueTime
         self.project = project
         self.tags = tags
+        self.recognizedDatePhrase = recognizedDatePhrase
     }
 }
 
@@ -38,7 +41,7 @@ public struct NaturalLanguageTaskParser {
 
         let (withoutTrailingTags, tags) = extractTrailingTags(from: trimmedInput)
         var withoutProject = withoutTrailingTags
-        let project = extractProject(from: &withoutProject)
+        let project = extractProject(from: &withoutProject) ?? extractTrailingProjectMention(from: &withoutProject)
         let extraction = extractDueDate(from: withoutProject, relativeTo: referenceDate)
         let candidateTitle = extraction.title
 
@@ -52,7 +55,8 @@ public struct NaturalLanguageTaskParser {
             due: extraction.due,
             dueTime: extraction.dueTime,
             project: project,
-            tags: tags
+            tags: tags,
+            recognizedDatePhrase: extraction.recognizedDatePhrase
         )
     }
 
@@ -71,9 +75,12 @@ public struct NaturalLanguageTaskParser {
         return (tokens.joined(separator: " "), tags)
     }
 
-    private func extractDueDate(from input: String, relativeTo referenceDate: Date) -> (title: String, due: LocalDate?, dueTime: LocalTime?) {
+    private func extractDueDate(
+        from input: String,
+        relativeTo referenceDate: Date
+    ) -> (title: String, due: LocalDate?, dueTime: LocalTime?, recognizedDatePhrase: String?) {
         let tokens = input.split(whereSeparator: { $0.isWhitespace }).map(String.init)
-        guard !tokens.isEmpty else { return (input, nil, nil) }
+        guard !tokens.isEmpty else { return (input, nil, nil, nil) }
 
         if let explicit = parseExplicitDatePhrase(tokens: tokens, relativeTo: referenceDate) {
             return explicit
@@ -85,15 +92,18 @@ public struct NaturalLanguageTaskParser {
                 let phrase = tokens.suffix(length).joined(separator: " ")
                 if let parsed = parseDatePhrase(phrase, relativeTo: referenceDate) {
                     let title = tokens.dropLast(length).joined(separator: " ")
-                    return (title, parsed.due, parsed.dueTime)
+                    return (title, parsed.due, parsed.dueTime, normalizeWhitespace(phrase))
                 }
             }
         }
 
-        return (input, nil, nil)
+        return (input, nil, nil, nil)
     }
 
-    private func parseExplicitDatePhrase(tokens: [String], relativeTo referenceDate: Date) -> (title: String, due: LocalDate?, dueTime: LocalTime?)? {
+    private func parseExplicitDatePhrase(
+        tokens: [String],
+        relativeTo referenceDate: Date
+    ) -> (title: String, due: LocalDate?, dueTime: LocalTime?, recognizedDatePhrase: String?)? {
         let connectors: Set<String> = ["by", "on", "due", "at"]
         for index in stride(from: tokens.count - 2, through: 0, by: -1) {
             let token = normalizedToken(tokens[index])
@@ -101,7 +111,8 @@ public struct NaturalLanguageTaskParser {
             let phrase = tokens[(index + 1)...].joined(separator: " ")
             if let parsed = parseDatePhrase(phrase, relativeTo: referenceDate) {
                 let title = tokens[..<index].joined(separator: " ")
-                return (title, parsed.due, parsed.dueTime)
+                let recognizedPhrase = normalizeWhitespace("\(tokens[index]) \(phrase)")
+                return (title, parsed.due, parsed.dueTime, recognizedPhrase)
             }
         }
 
@@ -251,6 +262,36 @@ public struct NaturalLanguageTaskParser {
 
             value.removeSubrange(matchRange)
             value = normalizeWhitespace(value)
+            return project
+        }
+
+        return nil
+    }
+
+    private func extractTrailingProjectMention(from value: inout String) -> String? {
+        let candidates = availableProjects
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .sorted { lhs, rhs in
+                if lhs.count != rhs.count { return lhs.count > rhs.count }
+                return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
+            }
+
+        let normalizedValue = normalizeWhitespace(value)
+        guard !normalizedValue.isEmpty else { return nil }
+        let loweredValue = normalizedValue.lowercased()
+
+        for project in candidates {
+            let mention = "@\(normalizeWhitespace(project).lowercased())"
+            if loweredValue == mention {
+                value = ""
+                return project
+            }
+
+            let suffix = " \(mention)"
+            guard loweredValue.hasSuffix(suffix) else { continue }
+            let endIndex = normalizedValue.index(normalizedValue.endIndex, offsetBy: -suffix.count)
+            value = normalizeWhitespace(String(normalizedValue[..<endIndex]))
             return project
         }
 

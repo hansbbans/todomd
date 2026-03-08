@@ -317,9 +317,16 @@ public final class FileWatcherService: @unchecked Sendable {
             let normalized = URL(fileURLWithPath: rawPath).standardizedFileURL.resolvingSymlinksInPath().path
             guard isPathWithinRoot(normalized), !isIgnoredWatchPath(normalized) else { continue }
 
-            if normalized.lowercased().hasSuffix(".md") {
+            if URL(fileURLWithPath: normalized).pathExtension.lowercased() == "md" {
                 if let parentDirectory = parentDirectoryPath(for: normalized) {
                     fileEventDirectories.insert(parentDirectory)
+                }
+                guard fileIO.shouldTrackMarkdownFile(path: normalized) else {
+                    if updatedFingerprints.removeValue(forKey: normalized) != nil {
+                        deletedPaths.insert(normalized)
+                        updatedKnownDirectories = buildKnownDirectories(from: updatedFingerprints.keys)
+                    }
+                    continue
                 }
                 if fileIO.directoryExists(path: normalized) {
                     dirtyDirectories.insert(normalized)

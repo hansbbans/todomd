@@ -54,6 +54,35 @@ private enum InlineTaskPanel: Equatable {
     case tags
 }
 
+private enum InlineTaskComposerSuggestionKind {
+    case project
+    case tag
+
+    var title: String {
+        switch self {
+        case .project:
+            return "Projects"
+        case .tag:
+            return "Tags"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .project:
+            return "tray"
+        case .tag:
+            return "tag"
+        }
+    }
+}
+
+private struct InlineTaskComposerSuggestionContext {
+    let kind: InlineTaskComposerSuggestionKind
+    let query: String
+    let suggestions: [String]
+}
+
 private struct InlineTaskDraft: Equatable {
     var title = ""
     var dueDate: Date?
@@ -228,6 +257,9 @@ struct RootView: View {
     @State private var inboxTriageMode = false
     @State private var inboxTriageSkippedPaths: Set<String> = []
     @State private var inboxTriagePinnedPath: String?
+    @State private var inlineAutoDatePhrase: String?
+    @State private var inlineTaskTitleMutationInFlight = false
+    @State private var showingInlineVoiceRamble = false
     @FocusState private var inlineTaskFocused: Bool
     @Namespace private var compactQuickAddNamespace
     @AppStorage(ExpandedTaskSettings.actionsKey) private var expandedTaskActionsRawValue = ExpandedTaskSettings.defaultActionsRawValue
@@ -253,6 +285,22 @@ struct RootView: View {
         .background(theme.backgroundColor.ignoresSafeArea())
         .sheet(isPresented: $showingQuickEntry) {
             QuickEntrySheet()
+        }
+        .sheet(isPresented: $showingInlineVoiceRamble) {
+            VoiceRambleSheet(
+                fallbackDue: inlineTaskDraft.dueDate.map(localDate(from:)),
+                fallbackDueTime: nil,
+                fallbackPriority: nil,
+                fallbackFlagged: inlineTaskDraft.flagged,
+                fallbackTags: inlineTaskDraft.normalizedTags,
+                fallbackArea: inlineTaskDraft.area,
+                fallbackProject: inlineTaskDraft.project,
+                defaultView: currentBuiltInView,
+                onTasksCreated: {
+                    showingInlineVoiceRamble = false
+                    cancelInlineTaskComposer()
+                }
+            )
         }
         .sheet(isPresented: $showingCreateProjectSheet) {
             NavigationStack {
@@ -1059,10 +1107,14 @@ struct RootView: View {
                     .focused($inlineTaskFocused)
                     .submitLabel(.done)
                     .accessibilityIdentifier("inlineTask.titleField")
+                    .onChange(of: inlineTaskDraft.title) { _, newValue in
+                        handleInlineTaskTitleChanged(newValue)
+                    }
                     .onSubmit {
                         commitInlineTaskComposer()
                     }
 
+                inlineTaskComposerDetectedMetadata
                 inlineTaskAccessoryBar
 
                 if let expandedInlineTaskPanel {
@@ -1123,6 +1175,9 @@ struct RootView: View {
                         .focused($inlineTaskFocused)
                         .submitLabel(.done)
                         .accessibilityIdentifier("inlineTask.titleField")
+                        .onChange(of: inlineTaskDraft.title) { _, newValue in
+                            handleInlineTaskTitleChanged(newValue)
+                        }
                         .onSubmit {
                             commitInlineTaskComposer()
                         }
@@ -1135,12 +1190,15 @@ struct RootView: View {
                 Spacer(minLength: 0)
             }
 
+            inlineTaskComposerDetectedMetadata
             compactInlineTaskAccessoryBar
 
             if let expandedInlineTaskPanel {
                 inlineTaskExpandedPanel(expandedInlineTaskPanel)
                     .padding(.top, 2)
             }
+
+            compactInlineTaskFooterBar
         }
         .frame(maxWidth: .infinity, minHeight: expandedInlineTaskPanel == nil ? 134 : nil, alignment: .topLeading)
         .padding(.horizontal, 18)
@@ -1288,6 +1346,22 @@ struct RootView: View {
         Color.white.opacity(0.48)
     }
 
+    private var inlineComposerMetadataBackgroundColor: Color {
+        horizontalSizeClass == .compact ? compactComposerBackgroundColor.opacity(0.98) : theme.surfaceColor
+    }
+
+    private var inlineComposerMetadataPrimaryTextColor: Color {
+        horizontalSizeClass == .compact ? compactComposerPrimaryTextColor : theme.textPrimaryColor
+    }
+
+    private var inlineComposerMetadataSecondaryTextColor: Color {
+        horizontalSizeClass == .compact ? compactComposerSecondaryTextColor : theme.textSecondaryColor
+    }
+
+    private var inlineComposerMetadataBorderColor: Color {
+        horizontalSizeClass == .compact ? Color.white.opacity(0.08) : theme.textSecondaryColor.opacity(0.12)
+    }
+
     private var compactInlineTaskAccessoryBar: some View {
         HStack(alignment: .center, spacing: 14) {
             CompactInlineLeadingButton(
@@ -1330,6 +1404,70 @@ struct RootView: View {
     }
 
     @ViewBuilder
+    private var inlineTaskComposerDetectedMetadata: some View {
+        if inlineAutoDatePhrase != nil || inlineTaskComposerSuggestionContext != nil {
+            VStack(alignment: .leading, spacing: 10) {
+                if let inlineAutoDatePhrase {
+                    inlineTaskAutoDateChip(phrase: inlineAutoDatePhrase)
+                }
+
+                if let context = inlineTaskComposerSuggestionContext,
+                   !context.suggestions.isEmpty {
+                    inlineTaskSuggestionPanel(context)
+                }
+            }
+        }
+    }
+
+    private var compactInlineTaskFooterBar: some View {
+        HStack(spacing: 12) {
+            Text(inlineTaskDestinationLabel)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(compactComposerSecondaryTextColor)
+                .lineLimit(1)
+
+            Spacer(minLength: 0)
+
+            Button {
+                showingInlineVoiceRamble = true
+            } label: {
+                Image(systemName: "waveform")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(compactComposerPrimaryTextColor)
+                    .frame(width: 42, height: 42)
+                    .background(
+                        Circle()
+                            .fill(Color.white.opacity(0.08))
+                    )
+                    .overlay(
+                        Circle()
+                            .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("inlineTask.voiceRambleButton")
+            .accessibilityLabel("Voice ramble")
+
+            Button {
+                commitInlineTaskComposer()
+            } label: {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 48, height: 48)
+                    .background(
+                        Circle()
+                            .fill(canCommitInlineTask ? theme.accentColor : Color.white.opacity(0.16))
+                    )
+            }
+            .buttonStyle(.plain)
+            .disabled(!canCommitInlineTask)
+            .accessibilityIdentifier("inlineTask.submitButton")
+            .accessibilityLabel("Add task")
+        }
+    }
+
+    @ViewBuilder
     private func inlineTaskExpandedPanel(_ panel: InlineTaskPanel) -> some View {
         switch panel {
         case .date:
@@ -1340,7 +1478,7 @@ struct RootView: View {
                         isSelected: inlineTaskDraft.dueDate.map(Calendar.current.isDateInToday) == true,
                         tint: theme.accentColor
                     ) {
-                        inlineTaskDraft.dueDate = Calendar.current.startOfDay(for: Date())
+                        applyInlineDueDate(Calendar.current.startOfDay(for: Date()))
                     }
 
                     InlineTaskOptionButton(
@@ -1349,7 +1487,7 @@ struct RootView: View {
                         tint: theme.accentColor
                     ) {
                         guard let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: Date()) else { return }
-                        inlineTaskDraft.dueDate = Calendar.current.startOfDay(for: tomorrow)
+                        applyInlineDueDate(Calendar.current.startOfDay(for: tomorrow))
                     }
 
                     InlineTaskOptionButton(
@@ -1358,7 +1496,7 @@ struct RootView: View {
                         tint: theme.accentColor
                     ) {
                         guard let nextWeek = Calendar.current.date(byAdding: .day, value: 7, to: Date()) else { return }
-                        inlineTaskDraft.dueDate = Calendar.current.startOfDay(for: nextWeek)
+                        applyInlineDueDate(Calendar.current.startOfDay(for: nextWeek))
                     }
 
                     InlineTaskOptionButton(
@@ -1366,7 +1504,7 @@ struct RootView: View {
                         isSelected: inlineTaskDraft.dueDate == nil,
                         tint: theme.textSecondaryColor
                     ) {
-                        inlineTaskDraft.dueDate = nil
+                        applyInlineDueDate(nil)
                     }
                 }
             }
@@ -1474,6 +1612,46 @@ struct RootView: View {
             .map { $0 }
     }
 
+    private var canCommitInlineTask: Bool {
+        !inlineTaskDraft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var inlineTaskComposerSuggestionContext: InlineTaskComposerSuggestionContext? {
+        let trimmedTitle = inlineTaskDraft.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let token = trimmedTitle.split(whereSeparator: { $0.isWhitespace }).last.map(String.init),
+              token.count >= 1 else {
+            return nil
+        }
+
+        if token.hasPrefix("@") {
+            let query = String(token.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+            let suggestions: [String]
+            if query.isEmpty {
+                suggestions = container.recentProjects(limit: 6, excluding: inlineTaskDraft.project)
+            } else {
+                suggestions = Array(container.allProjects().filter { project in
+                    matchesQuery(project, query: query)
+                }.prefix(6))
+            }
+
+            guard !suggestions.isEmpty else { return nil }
+            return InlineTaskComposerSuggestionContext(kind: .project, query: query, suggestions: suggestions)
+        }
+
+        if token.hasPrefix("#") {
+            let query = String(token.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+            let existing = Set(inlineTaskDraft.normalizedTags)
+            let filtered = container.availableTags().filter { tag in
+                !existing.contains(tag) && (query.isEmpty || matchesQuery(tag, query: query))
+            }
+            let suggestions = Array(filtered.prefix(8))
+            guard !suggestions.isEmpty else { return nil }
+            return InlineTaskComposerSuggestionContext(kind: .tag, query: query, suggestions: suggestions)
+        }
+
+        return nil
+    }
+
     private func toggleInlineTaskPanel(_ panel: InlineTaskPanel) {
         if expandedInlineTaskPanel == panel {
             expandedInlineTaskPanel = nil
@@ -1482,11 +1660,102 @@ struct RootView: View {
         }
     }
 
+    private func applyInlineDueDate(_ date: Date?, autoPhrase: String? = nil) {
+        inlineTaskDraft.dueDate = date
+        inlineAutoDatePhrase = autoPhrase
+    }
+
     private func appendInlineTag(_ tag: String) {
         let currentTags = inlineTaskDraft.normalizedTags
         guard !currentTags.contains(tag) else { return }
         let updatedTags = currentTags + [tag]
         inlineTaskDraft.tagsText = updatedTags.map { "#\($0)" }.joined(separator: " ")
+    }
+
+    private func inlineTaskAutoDateChip(phrase: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "calendar")
+                .font(.system(size: 12, weight: .semibold))
+            Text(phrase)
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .lineLimit(1)
+        }
+        .foregroundStyle(inlineComposerMetadataPrimaryTextColor)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(horizontalSizeClass == .compact ? Color.white.opacity(0.12) : theme.backgroundColor)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(inlineComposerMetadataBorderColor, lineWidth: 1)
+        )
+    }
+
+    private func inlineTaskSuggestionPanel(_ context: InlineTaskComposerSuggestionContext) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: context.kind.systemImage)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(context.kind.title)
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                if !context.query.isEmpty {
+                    Text(context.query)
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                        .foregroundStyle(inlineComposerMetadataSecondaryTextColor)
+                }
+            }
+            .foregroundStyle(inlineComposerMetadataPrimaryTextColor)
+
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(context.suggestions, id: \.self) { suggestion in
+                        Button {
+                            applyInlineTaskSuggestion(kind: context.kind, suggestion: suggestion)
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: context.kind.systemImage)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(inlineComposerMetadataSecondaryTextColor)
+                                Text(context.kind == .tag ? "#\(suggestion)" : suggestion)
+                                    .font(.system(size: 16, weight: .medium, design: .rounded))
+                                    .foregroundStyle(inlineComposerMetadataPrimaryTextColor)
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 11)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .frame(maxHeight: 220)
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(inlineComposerMetadataBackgroundColor)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(inlineComposerMetadataBorderColor, lineWidth: 1)
+        )
+    }
+
+    private func applyInlineTaskSuggestion(
+        kind: InlineTaskComposerSuggestionKind,
+        suggestion: String
+    ) {
+        inlineTaskDraft.title = titleWithoutTrailingSuggestionToken(from: inlineTaskDraft.title)
+        switch kind {
+        case .project:
+            inlineTaskDraft.project = suggestion
+            inlineTaskDraft.area = nil
+        case .tag:
+            appendInlineTag(suggestion)
+        }
     }
 
     private var browseSectionScreen: some View {
@@ -2189,6 +2458,7 @@ struct RootView: View {
 
         inlineTaskDraft = defaultInlineTaskDraft(for: container.selectedView)
         expandedInlineTaskPanel = nil
+        inlineAutoDatePhrase = nil
         compactComposerContentVisible = horizontalSizeClass != .compact
         withAnimation(compactComposerOpenAnimation) {
             isCreatingTask = true
@@ -2213,6 +2483,7 @@ struct RootView: View {
         guard isCreatingTask else { return }
         inlineComposerTransitionTask?.cancel()
         inlineComposerTransitionTask = nil
+        showingInlineVoiceRamble = false
         if horizontalSizeClass == .compact {
             withAnimation(.easeOut(duration: 0.12)) {
                 compactComposerContentVisible = false
@@ -2223,6 +2494,7 @@ struct RootView: View {
                     isCreatingTask = false
                 }
                 inlineTaskDraft = InlineTaskDraft()
+                inlineAutoDatePhrase = nil
                 inlineComposerTransitionTask = nil
             }
         } else {
@@ -2230,9 +2502,46 @@ struct RootView: View {
                 isCreatingTask = false
             }
             inlineTaskDraft = InlineTaskDraft()
+            inlineAutoDatePhrase = nil
         }
         inlineTaskFocused = false
         expandedInlineTaskPanel = nil
+    }
+
+    private func handleInlineTaskTitleChanged(_ value: String) {
+        guard !inlineTaskTitleMutationInFlight else { return }
+        let parser = NaturalLanguageTaskParser(availableProjects: container.allProjects())
+        guard let parsed = parser.parse(value),
+              let due = parsed.due,
+              parsed.dueTime == nil,
+              let phrase = parsed.recognizedDatePhrase else {
+            return
+        }
+
+        let currentTitle = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parsedTitle = parsed.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !parsedTitle.isEmpty, parsedTitle != currentTitle else { return }
+
+        inlineTaskTitleMutationInFlight = true
+        inlineTaskDraft.title = parsedTitle
+        if let parsedProject = parsed.project {
+            inlineTaskDraft.project = parsedProject
+            inlineTaskDraft.area = nil
+        }
+        if !parsed.tags.isEmpty {
+            for tag in parsed.tags {
+                appendInlineTag(tag)
+            }
+        }
+        let loweredPhrase = phrase.lowercased()
+        let chipPhrase = loweredPhrase.hasPrefix("due ")
+            || loweredPhrase.hasPrefix("by ")
+            || loweredPhrase.hasPrefix("on ")
+            || loweredPhrase.hasPrefix("at ")
+            ? loweredPhrase
+            : "due \(loweredPhrase)"
+        applyInlineDueDate(dateFromLocalDate(due), autoPhrase: chipPhrase)
+        inlineTaskTitleMutationInFlight = false
     }
 
     private func commitInlineTaskComposer() {
@@ -2303,6 +2612,33 @@ struct RootView: View {
             draft.project = inferredProject
         }
         return draft
+    }
+
+    private var currentBuiltInView: BuiltInView? {
+        if case .builtIn(let builtInView) = container.selectedView {
+            return builtInView
+        }
+        return nil
+    }
+
+    private func titleWithoutTrailingSuggestionToken(from value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let token = trimmed.split(whereSeparator: { $0.isWhitespace }).last.map(String.init),
+              token.hasPrefix("@") || token.hasPrefix("#") else {
+            return trimmed
+        }
+
+        let endIndex = trimmed.index(trimmed.endIndex, offsetBy: -token.count)
+        return trimmed[..<endIndex]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func dateFromLocalDate(_ localDate: LocalDate) -> Date? {
+        var components = DateComponents()
+        components.year = localDate.year
+        components.month = localDate.month
+        components.day = localDate.day
+        return Calendar.current.date(from: components)
     }
 
     private func localDate(from date: Date) -> LocalDate {
