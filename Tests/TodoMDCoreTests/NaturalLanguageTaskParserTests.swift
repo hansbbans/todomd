@@ -62,6 +62,7 @@ final class NaturalLanguageTaskParserTests: XCTestCase {
         XCTAssertEqual(result?.title, "buy cookies")
         XCTAssertEqual(result?.due?.isoString, "2025-03-09")
         XCTAssertNil(result?.dueTime)
+        XCTAssertEqual(result?.recognizedDatePhrase, "due sunday")
     }
 
     func testParsesKnownProjectAndDueDate() throws {
@@ -75,5 +76,17 @@ final class NaturalLanguageTaskParserTests: XCTestCase {
         XCTAssertEqual(result?.title, "submit brief")
         XCTAssertEqual(result?.project, "Launch Plan")
         XCTAssertEqual(result?.due?.isoString, "2025-03-02")
+    }
+
+    func testParsesTrailingProjectMention() throws {
+        let parser = NaturalLanguageTaskParser(
+            calendar: Calendar(identifier: .gregorian),
+            availableProjects: ["Launch Plan", "Errands"]
+        )
+
+        let result = parser.parse("submit brief @Launch Plan")
+        XCTAssertEqual(result?.title, "submit brief")
+        XCTAssertEqual(result?.project, "Launch Plan")
+        XCTAssertNil(result?.due)
     }
 }

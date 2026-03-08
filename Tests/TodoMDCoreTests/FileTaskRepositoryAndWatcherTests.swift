@@ -141,6 +141,25 @@ final class FileTaskRepositoryAndWatcherTests: XCTestCase {
         })
     }
 
+    func testFileWatcherIgnoresAgentsMarkdownFile() throws {
+        let root = try TestSupport.tempDirectory(prefix: "WatcherIgnoresAgents")
+        let repository = FileTaskRepository(rootURL: root)
+        let watcher = FileWatcherService(rootURL: root, repository: repository)
+
+        let agentsURL = root.appendingPathComponent("AGENTS.md")
+        try """
+        # Workspace instructions
+
+        This is not a task file.
+        """.write(to: agentsURL, atomically: true, encoding: .utf8)
+
+        let sync = try watcher.synchronize(now: Date())
+
+        XCTAssertEqual(sync.summary.failedCount, 0)
+        XCTAssertTrue(sync.events.isEmpty)
+        XCTAssertTrue(watcher.parseDiagnostics.isEmpty)
+    }
+
     func testSnapshotHydrationPrimesWatcherWithoutColdReparse() throws {
         let root = try TestSupport.tempDirectory(prefix: "SnapshotPrime")
         let repository = FileTaskRepository(rootURL: root)

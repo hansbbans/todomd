@@ -173,7 +173,6 @@ final class AppContainer: ObservableObject {
     private let weeklyReviewEngine = WeeklyReviewEngine()
     private let perspectiveQueryEngine = PerspectiveQueryEngine()
     private let dateParser = NaturalLanguageDateParser()
-    private let quickEntryParser = NaturalLanguageTaskParser()
     private let urlRouter = URLRouter()
     private let appleCalendarService = AppleCalendarService()
     private let remindersImportService: any RemindersImportServicing
@@ -222,6 +221,7 @@ final class AppContainer: ObservableObject {
     private static let settingsCalendarEnabledKey = "settings_google_calendar_enabled"
     private static let settingsCalendarSelectedIDsKey = "settings_google_calendar_selected_ids"
     private static let settingsRemindersImportListIDKey = "settings_reminders_import_list_id"
+    private static let remindersImportListName = "Reminders"
     private static let settingsLocationFavoritesKey = "settings_location_favorites_v1"
     private static let settingsProjectsKey = "settings_projects_v1"
     private static let settingsProjectColorsKey = "settings_project_colors_v1"
@@ -2471,6 +2471,13 @@ final class AppContainer: ObservableObject {
                 return
             }
 
+            guard let selectedReminderListID else {
+                guard refreshGeneration == reminderImportRefreshGeneration else { return }
+                pendingReminderImports = []
+                remindersImportStatusMessage = reminderImportMissingListMessage()
+                return
+            }
+
             let reminders = try await remindersImportService.fetchIncompleteReminders(
                 calendarID: selectedReminderListID
             )
@@ -2501,10 +2508,11 @@ final class AppContainer: ObservableObject {
     }
 
     private func reminderImportEmptyStateMessage() -> String {
-        if selectedReminderListID == nil {
-            return "No new reminders found in any list."
-        }
-        return "No new reminders found in the selected list."
+        "No new reminders found in \(Self.remindersImportListName)."
+    }
+
+    private func reminderImportMissingListMessage() -> String {
+        "No Reminders list named \(Self.remindersImportListName) is available to import from."
     }
 
     private func loadLocationFavorites() {
@@ -2588,13 +2596,17 @@ final class AppContainer: ObservableObject {
             return
         }
 
-        if let selectedReminderListID, lists.contains(where: { $0.id == selectedReminderListID }) {
-            return
-        }
-
-        // Default to all lists when selection is missing/invalid.
-        selectedReminderListID = nil
+        selectedReminderListID = preferredReminderImportList(in: lists)?.id
         persistReminderListSelection()
+    }
+
+    private func preferredReminderImportList(in lists: [ReminderList]) -> ReminderList? {
+        lists.first { list in
+            list.name.compare(
+                Self.remindersImportListName,
+                options: [.caseInsensitive, .diacriticInsensitive]
+            ) == .orderedSame
+        }
     }
 
     private func persistReminderListSelection() {
@@ -3468,6 +3480,10 @@ final class AppContainer: ObservableObject {
     }
 
     private var remindersImportParser: NaturalLanguageTaskParser {
+        NaturalLanguageTaskParser(availableProjects: allProjects())
+    }
+
+    private var quickEntryParser: NaturalLanguageTaskParser {
         NaturalLanguageTaskParser(availableProjects: allProjects())
     }
 

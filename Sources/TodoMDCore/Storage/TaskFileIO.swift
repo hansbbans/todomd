@@ -3,6 +3,8 @@ import Foundation
 public struct TaskFileIO {
     public var fileManager: FileManager
 
+    private static let ignoredMarkdownFilenames: Set<String> = ["agents.md"]
+
     public init(fileManager: FileManager = .default) {
         self.fileManager = fileManager
     }
@@ -23,7 +25,7 @@ public struct TaskFileIO {
 
         var urls: [URL] = []
         for case let url as URL in enumerator {
-            guard url.pathExtension.lowercased() == "md" else { continue }
+            guard shouldTrackMarkdownFile(url) else { continue }
             let resolved = url.standardizedFileURL.resolvingSymlinksInPath()
             let values = try resolved.resourceValues(forKeys: [.isDirectoryKey])
             guard values.isDirectory != true else { continue }
@@ -49,7 +51,7 @@ public struct TaskFileIO {
 
         var fingerprints: [TaskFileFingerprint] = []
         for case let url as URL in enumerator {
-            guard url.pathExtension.lowercased() == "md" else { continue }
+            guard shouldTrackMarkdownFile(url) else { continue }
             let resolved = url.standardizedFileURL.resolvingSymlinksInPath()
             let values = try resolved.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey])
             if values.isDirectory == true {
@@ -227,6 +229,16 @@ public struct TaskFileIO {
             fileSize: UInt64(values.fileSize ?? 0),
             modificationDate: values.contentModificationDate ?? Date.distantPast
         )
+    }
+
+    public func shouldTrackMarkdownFile(_ url: URL) -> Bool {
+        let normalized = url.standardizedFileURL.resolvingSymlinksInPath()
+        guard normalized.pathExtension.lowercased() == "md" else { return false }
+        return !Self.ignoredMarkdownFilenames.contains(normalized.lastPathComponent.lowercased())
+    }
+
+    public func shouldTrackMarkdownFile(path: String) -> Bool {
+        shouldTrackMarkdownFile(URL(fileURLWithPath: path))
     }
 }
 
