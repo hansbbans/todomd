@@ -152,12 +152,14 @@ private struct SectionHeaderView: View {
 
 private struct RootViewSearchableModifier: ViewModifier {
     @Binding var text: String
+    @Binding var isPresented: Bool
     let prompt: String
 
     func body(content: Content) -> some View {
 #if os(iOS)
         content.searchable(
             text: $text,
+            isPresented: $isPresented,
             placement: .navigationBarDrawer(displayMode: .automatic),
             prompt: prompt
         )
@@ -226,6 +228,7 @@ struct RootView: View {
     @State private var customSecondaryNavigationPath = NavigationPath()
     @State private var compactSelectedTab: CompactRootTab = .inbox
     @State private var universalSearchText = ""
+    @State private var isBrowseSearchPresented = false
     @State private var showingCreateProjectSheet = false
     @State private var newProjectName = ""
     @State private var newProjectColorHex = "1E88E5"
@@ -615,7 +618,7 @@ struct RootView: View {
         case .customPrimary:
             return compactPrimaryBuiltInView.displayTitle
         case .areas:
-            return "Areas"
+            return "Browse"
         case .customSecondary:
             return compactSecondaryBuiltInView.displayTitle
         }
@@ -873,27 +876,39 @@ struct RootView: View {
         }
     }
 
-    @ViewBuilder
-    private var mainContent: some View {
+    private var mainContent: AnyView {
         let searchQuery = universalSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         if container.selectedView.isBrowse {
-            browseContent(query: searchQuery)
-                .modifier(
+            return AnyView(
+                browseContent(query: searchQuery)
+                    .modifier(
                     RootViewSearchableModifier(
                         text: $universalSearchText,
-                        prompt: "Search tasks, areas, projects, tags"
+                        isPresented: $isBrowseSearchPresented,
+                        prompt: "Search tasks, workflows, projects, tags"
                     )
                 )
-        } else if container.selectedView == .builtIn(.upcoming) {
-            UpcomingCalendarView(sections: container.upcomingAgendaSections())
-        } else if container.selectedView == .builtIn(.review) {
-            weeklyReviewContent()
-        } else if container.selectedView == .builtIn(.pomodoro) {
-            PomodoroTimerView()
-        } else {
-            let records = container.filteredRecords()
+            )
+        }
+        if container.selectedView == .builtIn(.upcoming) {
+            return AnyView(
+                UpcomingCalendarView(sections: container.upcomingAgendaSections()) { record in
+                    taskRowItem(record)
+                }
+            )
+        }
+        if container.selectedView == .builtIn(.review) {
+            return AnyView(weeklyReviewContent())
+        }
+        if container.selectedView == .builtIn(.pomodoro) {
+            return AnyView(PomodoroTimerView())
+        }
+        return recordsMainContent(records: container.filteredRecords())
+    }
 
-            if container.selectedView == .builtIn(.inbox), inboxTriageMode {
+    private func recordsMainContent(records: [TaskRecord]) -> AnyView {
+        if container.selectedView == .builtIn(.inbox), inboxTriageMode {
+            return AnyView(
                 InboxTriageView(
                     records: records,
                     skippedPaths: $inboxTriageSkippedPaths,
@@ -903,170 +918,171 @@ struct RootView: View {
                         appendToActiveNavigationPath(path)
                     }
                 )
-            } else if records.isEmpty, shouldRenderInlineTaskComposerInList {
-                List {
-                    if container.selectedView == .builtIn(.inbox) {
-                        InboxRemindersImportPanel()
-                    }
-                    if container.selectedView == .builtIn(.today) {
-                        todayCalendarHeroListRow
-                        if container.isCalendarConnected {
-                            todayCalendarCardListRow
-                        }
-                    }
-                    inlineTaskComposerListRow
+            )
+        }
+        if records.isEmpty, shouldRenderInlineTaskComposerInList {
+            return AnyView(emptyInlineTaskComposerList)
+        }
+        if records.isEmpty {
+            return emptyStateMainContent()
+        }
+        return AnyView(populatedRecordsMainContent(records: records))
+    }
+
+    private var emptyInlineTaskComposerList: some View {
+        List {
+            if container.selectedView == .builtIn(.inbox) {
+                InboxRemindersImportPanel()
+            }
+            if container.selectedView == .builtIn(.today) {
+                todayCalendarHeroListRow
+                if container.isCalendarConnected {
+                    todayCalendarCardListRow
                 }
-                .id("\(container.selectedView.rawValue)-inline-empty")
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .background(theme.backgroundColor)
-                .transition(.move(edge: .trailing).combined(with: .opacity))
-            } else if records.isEmpty {
-                if container.selectedView == .builtIn(.today) {
-                    taskList(id: "\(container.selectedView.rawValue)-empty") {
-                        todayCalendarHeroListRow
+            }
+            inlineTaskComposerListRow
+        }
+        .id("\(container.selectedView.rawValue)-inline-empty")
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(theme.backgroundColor)
+        .transition(.move(edge: .trailing).combined(with: .opacity))
+    }
 
-                        if container.isCalendarConnected {
-                            todayCalendarCardListRow
-                        }
+    private func emptyStateMainContent() -> AnyView {
+        if container.selectedView == .builtIn(.today) {
+            return AnyView(todayEmptyStateContent)
+        }
+        if container.selectedView == .builtIn(.inbox) {
+            return AnyView(inboxEmptyStateContent)
+        }
+        return AnyView(
+            VStack(spacing: 12) {
+                emptyTasksUnavailableView
+                unparseableFilesSummary
+            }
+            .transition(.move(edge: .trailing).combined(with: .opacity))
+        )
+    }
 
-                        VStack(spacing: 12) {
-                            ContentUnavailableView(
-                                "No Tasks",
-                                systemImage: "checkmark.circle",
-                                description: Text("Nothing in \(titleForCurrentView()) right now.")
-                            )
+    private var todayEmptyStateContent: some View {
+        taskList(id: "\(container.selectedView.rawValue)-empty") {
+            todayCalendarHeroListRow
 
-                            if !container.diagnostics.isEmpty {
-                                VStack(spacing: 6) {
-                                    Text("\(container.diagnostics.count) file(s) could not be parsed.")
-                                        .font(.footnote)
-                                        .foregroundStyle(theme.textSecondaryColor)
-                                    NavigationLink("Review Unparseable Files") {
-                                        UnparseableFilesView()
-                                    }
-                                    .font(.footnote.weight(.semibold))
-                                }
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, container.isCalendarConnected ? 10 : 24)
-                        .padding(.bottom, 40)
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                    }
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-                } else if container.selectedView == .builtIn(.inbox) {
-                    taskList(id: "\(container.selectedView.rawValue)-empty") {
-                        InboxRemindersImportPanel()
+            if container.isCalendarConnected {
+                todayCalendarCardListRow
+            }
 
-                        VStack(spacing: 12) {
-                            ContentUnavailableView(
-                                "No Tasks",
-                                systemImage: "checkmark.circle",
-                                description: Text("Nothing in \(titleForCurrentView()) right now.")
-                            )
+            VStack(spacing: 12) {
+                emptyTasksUnavailableView
+                unparseableFilesSummary
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, container.isCalendarConnected ? 10 : 24)
+            .padding(.bottom, 40)
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+        }
+        .transition(.move(edge: .trailing).combined(with: .opacity))
+    }
 
-                            if !container.diagnostics.isEmpty {
-                                VStack(spacing: 6) {
-                                    Text("\(container.diagnostics.count) file(s) could not be parsed.")
-                                        .font(.footnote)
-                                        .foregroundStyle(theme.textSecondaryColor)
-                                    NavigationLink("Review Unparseable Files") {
-                                        UnparseableFilesView()
-                                    }
-                                    .font(.footnote.weight(.semibold))
-                                }
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 20)
-                        .padding(.bottom, 40)
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                    }
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-                } else {
-                    VStack(spacing: 12) {
-                        ContentUnavailableView(
-                            "No Tasks",
-                            systemImage: "checkmark.circle",
-                            description: Text("Nothing in \(titleForCurrentView()) right now.")
-                        )
+    private var inboxEmptyStateContent: some View {
+        taskList(id: "\(container.selectedView.rawValue)-empty") {
+            InboxRemindersImportPanel()
 
-                        if !container.diagnostics.isEmpty {
-                            VStack(spacing: 6) {
-                                Text("\(container.diagnostics.count) file(s) could not be parsed.")
-                                    .font(.footnote)
-                                    .foregroundStyle(theme.textSecondaryColor)
-                                NavigationLink("Review Unparseable Files") {
-                                    UnparseableFilesView()
-                                }
-                                .font(.footnote.weight(.semibold))
-                            }
-                        }
-                    }
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            VStack(spacing: 12) {
+                emptyTasksUnavailableView
+                unparseableFilesSummary
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 20)
+            .padding(.bottom, 40)
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+        }
+        .transition(.move(edge: .trailing).combined(with: .opacity))
+    }
+
+    private var emptyTasksUnavailableView: some View {
+        ContentUnavailableView(
+            "No Tasks",
+            systemImage: "checkmark.circle",
+            description: Text("Nothing in \(titleForCurrentView()) right now.")
+        )
+    }
+
+    @ViewBuilder
+    private var unparseableFilesSummary: some View {
+        if !container.diagnostics.isEmpty {
+            VStack(spacing: 6) {
+                Text("\(container.diagnostics.count) file(s) could not be parsed.")
+                    .font(.footnote)
+                    .foregroundStyle(theme.textSecondaryColor)
+                NavigationLink("Review Unparseable Files") {
+                    UnparseableFilesView()
                 }
-            } else {
-                taskList(id: container.selectedView.rawValue) {
-                    if container.selectedView == .builtIn(.today) {
-                        todayCalendarHeroListRow
-
-                        if isEditing {
-                            if shouldRenderInlineTaskComposerInList {
-                                inlineTaskComposerListRow
-                            }
-                            ForEach(records) { record in
-                                taskRowItem(record)
-                            }
-                            .onMove { source, destination in
-                                var reordered = records
-                                reordered.move(fromOffsets: source, toOffset: destination)
-                                container.saveManualOrder(filenames: reordered.map { $0.identity.filename })
-                            }
-                        } else {
-                            if container.isCalendarConnected {
-                                todayCalendarCardListRow
-                            }
-
-                            if shouldRenderInlineTaskComposerInList {
-                                inlineTaskComposerListRow
-                            }
-
-                            ForEach(container.todaySections()) { section in
-                                Section {
-                                    ForEach(section.records) { record in
-                                        taskRowItem(record)
-                                    }
-                                } header: {
-                                    SectionHeaderView(section.group.rawValue, count: section.records.count)
-                                }
-                            }
-                        }
-                    } else {
-                        if container.selectedView == .builtIn(.inbox) {
-                            InboxRemindersImportPanel()
-                        }
-                        if shouldRenderInlineTaskComposerInList {
-                            inlineTaskComposerListRow
-                        }
-                        ForEach(records) { record in
-                            taskRowItem(record)
-                        }
-                        .onMove { source, destination in
-                            guard container.canManuallyReorderSelectedView() else { return }
-                            var reordered = records
-                            reordered.move(fromOffsets: source, toOffset: destination)
-                            container.saveManualOrder(filenames: reordered.map { $0.identity.filename })
-                        }
-                    }
-                }
-                .transition(.move(edge: .trailing).combined(with: .opacity))
+                .font(.footnote.weight(.semibold))
             }
         }
+    }
+
+    private func populatedRecordsMainContent(records: [TaskRecord]) -> some View {
+        taskList(id: container.selectedView.rawValue) {
+            if container.selectedView == .builtIn(.today) {
+                todayCalendarHeroListRow
+
+                if isEditing {
+                    if shouldRenderInlineTaskComposerInList {
+                        inlineTaskComposerListRow
+                    }
+                    ForEach(records) { record in
+                        taskRowItem(record)
+                    }
+                    .onMove { source, destination in
+                        var reordered = records
+                        reordered.move(fromOffsets: source, toOffset: destination)
+                        container.saveManualOrder(filenames: reordered.map { $0.identity.filename })
+                    }
+                } else {
+                    if container.isCalendarConnected {
+                        todayCalendarCardListRow
+                    }
+
+                    if shouldRenderInlineTaskComposerInList {
+                        inlineTaskComposerListRow
+                    }
+
+                    ForEach(container.todaySections()) { section in
+                        Section {
+                            ForEach(section.records) { record in
+                                taskRowItem(record)
+                            }
+                        } header: {
+                            SectionHeaderView(section.group.rawValue, count: section.records.count)
+                        }
+                    }
+                }
+            } else {
+                if container.selectedView == .builtIn(.inbox) {
+                    InboxRemindersImportPanel()
+                }
+                if shouldRenderInlineTaskComposerInList {
+                    inlineTaskComposerListRow
+                }
+                ForEach(records) { record in
+                    taskRowItem(record)
+                }
+                .onMove { source, destination in
+                    guard container.canManuallyReorderSelectedView() else { return }
+                    var reordered = records
+                    reordered.move(fromOffsets: source, toOffset: destination)
+                    container.saveManualOrder(filenames: reordered.map { $0.identity.filename })
+                }
+            }
+        }
+        .transition(.move(edge: .trailing).combined(with: .opacity))
     }
 
     private var todayCalendarHeroListRow: some View {
@@ -1760,42 +1776,29 @@ struct RootView: View {
 
     private var browseSectionScreen: some View {
         List {
-            if horizontalSizeClass == .compact {
-                Section {
-                    NavigationLink {
-                        SettingsView()
-                    } label: {
-                        Label("Settings", systemImage: "gearshape")
-                    }
-                    .accessibilityIdentifier("root.settingsButton")
+            Section {
+                Button {
+                    isBrowseSearchPresented = true
+                } label: {
+                    Label("Search", systemImage: "magnifyingglass")
                 }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("root.browse.searchButton")
             }
 
-            Section("Lists") {
-                builtInBrowseFilterButton(.myTasks, label: "My Tasks", icon: "person")
-                builtInBrowseFilterButton(.delegated, label: "Delegated", icon: "person.2")
-                builtInBrowseFilterButton(.anytime, label: "Anytime", icon: "list.bullet")
-                builtInBrowseFilterButton(.someday, label: "Someday", icon: "clock")
-                builtInBrowseFilterButton(.flagged, label: "Flagged", icon: "flag")
-                builtInBrowseFilterButton(.review, label: "Review", icon: "checklist")
-                if pomodoroEnabled {
-                    builtInBrowseFilterButton(.pomodoro, label: "Pomodoro", icon: "timer")
+            Section {
+                NavigationLink {
+                    SettingsView()
+                } label: {
+                    Label("Settings", systemImage: "gearshape")
                 }
+                .accessibilityIdentifier("root.settingsButton")
             }
 
             let areas = container.availableAreas()
-            Section("Areas") {
-                if areas.isEmpty {
-                    Text("No areas yet")
-                        .foregroundStyle(theme.textSecondaryColor)
-                } else {
-                    ForEach(areas, id: \.self) { area in
-                        browseFilterButton(view: .area(area), label: area, icon: "square.grid.2x2")
-                    }
-                }
-            }
-
             let projects = container.allProjects()
+            let perspectives = container.perspectives
+
             Section {
                 if projects.isEmpty {
                     Text("No projects yet")
@@ -1842,12 +1845,30 @@ struct RootView: View {
                 }
             }
 
-            Section {
-                if container.perspectives.isEmpty {
-                    Text("No perspectives yet")
+            Section("Workflows") {
+                if areas.isEmpty {
+                    Text("No workflows yet")
                         .foregroundStyle(theme.textSecondaryColor)
                 } else {
-                    ForEach(container.perspectives) { perspective in
+                    ForEach(areas, id: \.self) { area in
+                        browseFilterButton(view: .area(area), label: area, icon: "square.grid.2x2")
+                    }
+                }
+            }
+
+            Section {
+                builtInBrowseFilterButton(.myTasks, label: "My Tasks", icon: "person")
+                builtInBrowseFilterButton(.delegated, label: "Delegated", icon: "person.2")
+                builtInBrowseFilterButton(.anytime, label: "Anytime", icon: "list.bullet")
+                builtInBrowseFilterButton(.someday, label: "Someday", icon: "clock")
+                builtInBrowseFilterButton(.flagged, label: "Flagged", icon: "flag")
+                builtInBrowseFilterButton(.review, label: "Review", icon: "checklist")
+                if pomodoroEnabled {
+                    builtInBrowseFilterButton(.pomodoro, label: "Pomodoro", icon: "timer")
+                }
+
+                if !perspectives.isEmpty {
+                    ForEach(perspectives) { perspective in
                         HStack(spacing: 8) {
                             browseFilterButton(
                                 view: container.perspectiveViewIdentifier(for: perspective.id),
@@ -1993,7 +2014,7 @@ struct RootView: View {
                 }
 
                 if !areas.isEmpty {
-                    Section("Areas") {
+                    Section("Workflows") {
                         ForEach(areas, id: \.self) { area in
                             browseFilterButton(view: .area(area), label: area, icon: "square.grid.2x2")
                         }

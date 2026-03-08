@@ -36,7 +36,7 @@ enum CalendarHeroKind {
         case .today:
             return 25
         case .upcoming:
-            return 31
+            return 25
         }
     }
 
@@ -45,7 +45,7 @@ enum CalendarHeroKind {
         case .today:
             return 34
         case .upcoming:
-            return 39
+            return 34
         }
     }
 
@@ -54,7 +54,7 @@ enum CalendarHeroKind {
         case .today:
             return 8
         case .upcoming:
-            return 18
+            return 8
         }
     }
 }
@@ -134,8 +134,9 @@ struct TodayCalendarCard: View {
     }
 }
 
-struct UpcomingCalendarView: View {
+struct UpcomingCalendarView<TaskRowContent: View>: View {
     let sections: [UpcomingAgendaSection]
+    let taskRow: (TaskRecord) -> TaskRowContent
     @EnvironmentObject private var theme: ThemeManager
 
     var body: some View {
@@ -144,7 +145,7 @@ struct UpcomingCalendarView: View {
                 CalendarHeroHeader(kind: .upcoming)
 
                 ForEach(sections) { section in
-                    UpcomingDaySectionView(section: section)
+                    UpcomingDaySectionView(section: section, taskRow: taskRow)
                 }
             }
             .padding(.horizontal, 24)
@@ -156,20 +157,21 @@ struct UpcomingCalendarView: View {
     }
 }
 
-private struct UpcomingDaySectionView: View {
+private struct UpcomingDaySectionView<TaskRowContent: View>: View {
     let section: UpcomingAgendaSection
+    let taskRow: (TaskRecord) -> TaskRowContent
     @EnvironmentObject private var theme: ThemeManager
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
             Text(dayNumberText)
-                .font(.system(size: 62, weight: .bold))
-                .tracking(-2.6)
+                .font(.system(size: 46, weight: .bold))
+                .tracking(-1.8)
                 .foregroundStyle(theme.textPrimaryColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
-                .frame(width: 54, alignment: .leading)
-                .offset(y: -4)
+                .frame(width: 42, alignment: .leading)
+                .offset(y: -2)
 
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -179,7 +181,7 @@ private struct UpcomingDaySectionView: View {
                         .frame(height: 1)
 
                     Text(dayHeaderLabel)
-                        .font(.system(size: 23, weight: .bold))
+                        .font(.system(size: 17, weight: .bold))
                         .foregroundStyle(theme.textPrimaryColor)
                         .tracking(-0.4)
                 }
@@ -187,13 +189,13 @@ private struct UpcomingDaySectionView: View {
 
                 if section.records.isEmpty && section.events.isEmpty {
                     Text("No tasks or events")
-                        .font(.system(size: 17, weight: .regular))
+                        .font(.system(size: 16.5, weight: .regular))
                         .foregroundStyle(theme.textSecondaryColor)
                 } else {
                     if !section.records.isEmpty {
                         VStack(alignment: .leading, spacing: 6) {
                             ForEach(section.records) { record in
-                                UpcomingTaskLineView(record: record)
+                                taskRow(record)
                             }
                         }
                     }
@@ -224,28 +226,6 @@ private struct UpcomingDaySectionView: View {
         formatter.dateFormat = "EEEE"
         return formatter.string(from: section.date)
     }
-
-}
-
-private struct UpcomingTaskLineView: View {
-    let record: TaskRecord
-    @EnvironmentObject private var theme: ThemeManager
-
-    var body: some View {
-        NavigationLink(value: record.identity.path) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: "circle")
-                    .foregroundStyle(theme.textSecondaryColor.opacity(0.82))
-                    .font(.system(size: 14, weight: .regular))
-                Text(record.document.frontmatter.title)
-                    .foregroundStyle(theme.textPrimaryColor.opacity(0.9))
-                    .lineLimit(1)
-            }
-            .font(.system(size: 17, weight: .regular))
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .buttonStyle(.plain)
-    }
 }
 
 private struct UpcomingEventLineView: View {
@@ -274,7 +254,7 @@ private struct UpcomingEventLineView: View {
                     .lineLimit(1)
             }
         }
-        .font(.system(size: 17, weight: .regular))
+        .font(.system(size: 16.5, weight: .regular))
     }
 
     private func formatTime(_ date: Date) -> String {
