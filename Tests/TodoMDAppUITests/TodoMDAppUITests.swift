@@ -309,7 +309,7 @@ final class TodoMDAppUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Pomodoro"].waitForExistence(timeout: 10), "Pomodoro view did not open")
     }
 
-    func testInboxTriagePriorityAssignmentCanAdvanceQueue() {
+    func testInboxSmartTriageManualProjectAssignmentCanAdvanceQueue() {
         let app = XCUIApplication()
         app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
         app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = "Library/Caches/TodoMDUITests/\(UUID().uuidString)"
@@ -325,15 +325,19 @@ final class TodoMDAppUITests: XCTestCase {
         let triageCard = app.descendants(matching: .any)["triage.card"]
         XCTAssertTrue(triageCard.waitForExistence(timeout: 10), "Triage card did not appear")
 
-        let highPriorityButton = app.buttons["1 High"]
-        XCTAssertTrue(highPriorityButton.waitForExistence(timeout: 10), "Priority shortcuts not visible in triage")
-        highPriorityButton.tap()
+        let rejectButton = app.buttons["triage.rejectButton"]
+        XCTAssertTrue(rejectButton.waitForExistence(timeout: 10), "Reject action not visible in smart triage")
 
-        let nextButton = app.buttons["triage.nextButton"]
-        XCTAssertTrue(nextButton.waitForExistence(timeout: 10), "Next button not visible in triage")
-        nextButton.tap()
+        let projectField = app.textFields["triage.projectField"]
+        XCTAssertTrue(projectField.waitForExistence(timeout: 10), "Project field not visible in smart triage")
+        projectField.tap()
+        projectField.typeText("Ops")
 
-        let emptyState = app.descendants(matching: .any)["triage.emptyState"]
+        let applyProjectButton = app.buttons["triage.projectApplyButton"]
+        XCTAssertTrue(applyProjectButton.waitForExistence(timeout: 10), "Apply project button not visible in smart triage")
+        applyProjectButton.tap()
+
+        let emptyState = app.descendants(matching: .any)["triage.emptyState"].firstMatch
         XCTAssertTrue(emptyState.waitForExistence(timeout: 10), "Triage queue did not advance to completion state")
     }
 

@@ -7,7 +7,9 @@ import CoreLocation
 
 @MainActor
 final class UserNotificationScheduler {
-    private let center: UNUserNotificationCenter
+    // UNUserNotificationCenter is thread-safe but not Sendable under Swift 6;
+    // nonisolated(unsafe) lets @MainActor async methods pass it across the concurrency boundary safely.
+    private nonisolated(unsafe) let center: UNUserNotificationCenter
     private let maxPendingTimedNotifications = 64
     private let maxPendingLocationNotifications = 20
     private let maxCatchUpNotificationsPerSync = 8
