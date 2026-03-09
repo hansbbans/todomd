@@ -48,6 +48,20 @@ private struct ProjectColorChoice: Identifiable {
     var id: String { hex }
 }
 
+private enum ProjectSheetMode: Identifiable, Equatable {
+    case create
+    case duplicate(sourceProject: String)
+
+    var id: String {
+        switch self {
+        case .create:
+            return "create"
+        case .duplicate(let sourceProject):
+            return "duplicate:\(sourceProject)"
+        }
+    }
+}
+
 private struct MainViewHeroConfiguration {
     let title: String
     let symbolName: String
@@ -235,10 +249,11 @@ struct RootView: View {
     @State private var compactSelectedTab: CompactRootTab = .inbox
     @State private var universalSearchText = ""
     @State private var isRootSearchPresented = false
-    @State private var showingCreateProjectSheet = false
+    @State private var activeProjectSheetMode: ProjectSheetMode?
     @State private var newProjectName = ""
     @State private var newProjectColorHex = "1E88E5"
     @State private var newProjectIconSymbol = "folder"
+    @State private var pendingProjectDuplicationSourceName: String?
     @State private var isCreatingTask = false
     @State private var compactComposerContentVisible = false
     @State private var inlineTaskDraft = InlineTaskDraft()
@@ -310,9 +325,9 @@ struct RootView: View {
                 }
             )
         }
-        .sheet(isPresented: $showingCreateProjectSheet) {
+        .sheet(item: $activeProjectSheetMode) { mode in
             NavigationStack {
-                createProjectSheet
+                createProjectSheet(mode: mode)
             }
         }
         .sheet(isPresented: $showingProjectSettingsSheet) {
@@ -511,6 +526,11 @@ struct RootView: View {
             inlineComposerTransitionTask = nil
             completionAnimationTasks.values.forEach { $0.cancel() }
             completionAnimationTasks.removeAll()
+        }
+        .onChange(of: showingProjectSettingsSheet) { _, isPresented in
+            guard !isPresented, let sourceProject = pendingProjectDuplicationSourceName else { return }
+            pendingProjectDuplicationSourceName = nil
+            prepareProjectSheetForDuplication(from: sourceProject)
         }
         .onChange(of: pomodoroEnabled) { _, isEnabled in
             normalizeCompactTabSettingsIfNeeded()
@@ -837,6 +857,9 @@ struct RootView: View {
                                 tintHex: container.projectColorHex(for: project),
                                 fallbackIcon: "folder"
                             )
+                            .contextMenu {
+                                projectContextMenu(for: project)
+                            }
                         }
                     }
                 }
@@ -1954,6 +1977,10 @@ struct RootView: View {
                             }
                             .buttonStyle(.plain)
                             .accessibilityLabel("Edit \(project)")
+                            .accessibilityIdentifier("project.edit.\(project)")
+                        }
+                        .contextMenu {
+                            projectContextMenu(for: project)
                         }
                     }
                 }
@@ -1962,10 +1989,7 @@ struct RootView: View {
                     Text("Projects")
                     Spacer()
                     Button {
-                        newProjectName = ""
-                        newProjectColorHex = "1E88E5"
-                        newProjectIconSymbol = "folder"
-                        showingCreateProjectSheet = true
+                        prepareProjectSheetForCreate()
                     } label: {
                         Image(systemName: "plus")
                             .font(.caption.weight(.bold))
@@ -2209,12 +2233,57 @@ struct RootView: View {
         ]
     }
 
-    private var createProjectSheet: some View {
+    private func projectSheetTitle(for mode: ProjectSheetMode) -> String {
+        switch mode {
+        case .create:
+            return "New Project"
+        case .duplicate:
+            return "Duplicate Project"
+        }
+    }
+
+    private func projectSheetConfirmationTitle(for mode: ProjectSheetMode) -> String {
+        switch mode {
+        case .create:
+            return "Create"
+        case .duplicate:
+            return "Duplicate"
+        }
+    }
+
+    private func projectSheetConfirmationAccessibilityIdentifier(for mode: ProjectSheetMode) -> String {
+        switch mode {
+        case .create:
+            return "projectSheet.createButton"
+        case .duplicate:
+            return "projectSheet.duplicateButton"
+        }
+    }
+
+    private func canSubmitProjectSheet(for mode: ProjectSheetMode) -> Bool {
+        let trimmedName = newProjectName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return false }
+
+        guard case .duplicate(let sourceProject) = mode else { return true }
+
+        let comparisonOptions: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
+        guard trimmedName.compare(sourceProject, options: comparisonOptions) != .orderedSame else {
+            return false
+        }
+
+        return !container.allProjects().contains(where: {
+            $0.compare(trimmedName, options: comparisonOptions) == .orderedSame
+                && $0.compare(sourceProject, options: comparisonOptions) != .orderedSame
+        })
+    }
+
+    private func createProjectSheet(mode: ProjectSheetMode) -> some View {
         Form {
             Section("Name") {
                 TextField("Project name", text: $newProjectName)
                     .modifier(RootViewWordsAutocapitalization())
                     .autocorrectionDisabled()
+                    .accessibilityIdentifier("projectSheet.nameField")
             }
 
             Section("Icon") {
@@ -2250,18 +2319,20 @@ struct RootView: View {
                 }
             }
         }
-        .navigationTitle("New Project")
+        .navigationTitle(projectSheetTitle(for: mode))
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") {
-                    showingCreateProjectSheet = false
+                    resetProjectSheetState()
+                    activeProjectSheetMode = nil
                 }
             }
             ToolbarItem(placement: .confirmationAction) {
-                Button("Create") {
-                    createProjectFromSheet()
+                Button(projectSheetConfirmationTitle(for: mode)) {
+                    guard canSubmitProjectSheet(for: mode) else { return }
+                    createProjectFromSheet(mode: mode)
                 }
-                .disabled(newProjectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .accessibilityIdentifier(projectSheetConfirmationAccessibilityIdentifier(for: mode))
             }
         }
     }
@@ -2357,6 +2428,7 @@ struct RootView: View {
                 TextField("Project name", text: $editingProjectName)
                     .modifier(RootViewWordsAutocapitalization())
                     .autocorrectionDisabled()
+                    .accessibilityIdentifier("projectSettings.nameField")
             }
 
             Section("Icon") {
@@ -2402,6 +2474,14 @@ struct RootView: View {
                     }
                 }
             }
+
+            Section {
+                Button("Duplicate Project") {
+                    pendingProjectDuplicationSourceName = editingProjectOriginalName
+                    showingProjectSettingsSheet = false
+                }
+                .accessibilityIdentifier("projectSettings.duplicateButton")
+            }
         }
         .navigationTitle("Project Settings")
         .toolbar {
@@ -2416,6 +2496,16 @@ struct RootView: View {
                 }
                 .disabled(editingProjectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func projectContextMenu(for project: String) -> some View {
+        Button("Edit") {
+            openProjectSettings(for: project)
+        }
+        Button("Duplicate") {
+            prepareProjectSheetForDuplication(from: project)
         }
     }
 
@@ -2953,19 +3043,48 @@ struct RootView: View {
         value.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
     }
 
-    private func createProjectFromSheet() {
-        let trimmedProjectName = newProjectName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedProjectName.isEmpty else { return }
-        guard let created = container.createProject(
-            name: trimmedProjectName,
-            colorHex: newProjectColorHex,
-            iconSymbol: newProjectIconSymbol
-        ) else { return }
-
+    private func resetProjectSheetState() {
         newProjectName = ""
         newProjectColorHex = "1E88E5"
         newProjectIconSymbol = "folder"
-        showingCreateProjectSheet = false
+    }
+
+    private func prepareProjectSheetForCreate() {
+        resetProjectSheetState()
+        activeProjectSheetMode = .create
+    }
+
+    private func prepareProjectSheetForDuplication(from project: String) {
+        newProjectName = container.suggestedDuplicateProjectName(for: project)
+        newProjectColorHex = container.projectColorHex(for: project) ?? "1E88E5"
+        newProjectIconSymbol = container.projectIconSymbol(for: project)
+        activeProjectSheetMode = .duplicate(sourceProject: project)
+    }
+
+    private func createProjectFromSheet(mode: ProjectSheetMode) {
+        let trimmedProjectName = newProjectName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedProjectName.isEmpty else { return }
+
+        let created: String?
+        if case .duplicate(let sourceProject) = mode {
+            created = container.duplicateProject(
+                originalName: sourceProject,
+                newName: trimmedProjectName,
+                colorHex: newProjectColorHex,
+                iconSymbol: newProjectIconSymbol
+            )
+        } else {
+            created = container.createProject(
+                name: trimmedProjectName,
+                colorHex: newProjectColorHex,
+                iconSymbol: newProjectIconSymbol
+            )
+        }
+
+        guard let created else { return }
+
+        resetProjectSheetState()
+        activeProjectSheetMode = nil
         applyFilter(.project(created))
     }
 

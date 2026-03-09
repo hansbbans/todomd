@@ -136,6 +136,111 @@ final class TodoMDAppUITests: XCTestCase {
         XCTAssertTrue(importSummary.waitForExistence(timeout: 10), "Import summary did not appear in Inbox")
     }
 
+    func testProjectCanBeDuplicatedFromSettings() {
+        let storageOverride = makeStorageOverridePath()
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let browseTab = app.tabBars.buttons["Browse"].firstMatch
+        XCTAssertTrue(browseTab.waitForExistence(timeout: 10), "Browse tab not visible")
+        browseTab.tap()
+
+        let createProjectButton = app.buttons["Create Project"].firstMatch
+        XCTAssertTrue(createProjectButton.waitForExistence(timeout: 10), "Create Project action not visible")
+        createProjectButton.tap()
+
+        let projectNameField = app.textFields["projectSheet.nameField"].firstMatch
+        XCTAssertTrue(projectNameField.waitForExistence(timeout: 10), "Project name field did not appear")
+        projectNameField.tap()
+        projectNameField.typeText("Weekly Template")
+
+        let createButton = app.buttons["projectSheet.createButton"].firstMatch
+        XCTAssertTrue(createButton.waitForExistence(timeout: 10), "Project create button did not appear")
+        createButton.tap()
+
+        createTask(app: app, title: "Plan meals")
+        XCTAssertTrue(
+            waitForMarkdownStorage(rootPath: storageOverride) { content in
+                content.contains("Plan meals") && content.contains("Weekly Template")
+            },
+            "Created project task was not persisted to disk"
+        )
+
+        app.terminate()
+
+        let relaunchedApp = XCUIApplication()
+        relaunchedApp.launchArguments += ["-ui-testing"]
+        relaunchedApp.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        relaunchedApp.launch()
+
+        XCTAssertTrue(rootViewReached(app: relaunchedApp, timeout: 10), "App did not relaunch into the root view")
+
+        let relaunchedBrowseTab = relaunchedApp.tabBars.buttons["Browse"].firstMatch
+        XCTAssertTrue(relaunchedBrowseTab.waitForExistence(timeout: 10), "Browse tab not visible after relaunch")
+        relaunchedBrowseTab.tap()
+
+        let editProjectButton = relaunchedApp.buttons["project.edit.Weekly Template"].firstMatch
+        XCTAssertTrue(editProjectButton.waitForExistence(timeout: 10), "Project settings button not visible")
+        editProjectButton.tap()
+
+        let duplicateProjectButton = relaunchedApp.buttons["projectSettings.duplicateButton"].firstMatch
+        XCTAssertTrue(duplicateProjectButton.waitForExistence(timeout: 10), "Duplicate Project action not visible")
+        duplicateProjectButton.tap()
+
+        let duplicateButton = relaunchedApp.buttons["projectSheet.duplicateButton"].firstMatch
+        XCTAssertTrue(duplicateButton.waitForExistence(timeout: 10), "Project duplicate button did not appear")
+        let duplicateNameField = relaunchedApp.textFields["projectSheet.nameField"].firstMatch
+        XCTAssertTrue(duplicateNameField.waitForExistence(timeout: 10), "Project duplicate name field did not appear")
+        XCTAssertEqual(
+            duplicateNameField.value as? String,
+            "Weekly Template Copy",
+            "Duplicate flow did not prefill the expected project name"
+        )
+        XCTAssertTrue(duplicateButton.isEnabled, "Project duplicate button should be enabled")
+        duplicateButton.tap()
+        XCTAssertTrue(
+            waitForFileContents(
+                at: URL(fileURLWithPath: storageOverride, isDirectory: true).appendingPathComponent(".projects.json"),
+                containing: "Weekly Template Copy"
+            ),
+            "Duplicated project metadata was not persisted to disk"
+        )
+        XCTAssertTrue(
+            waitForMarkdownStorage(rootPath: storageOverride) { content in
+                content.contains("Plan meals") && content.contains("Weekly Template Copy")
+            },
+            "Duplicated project task was not persisted to disk"
+        )
+
+        relaunchedApp.terminate()
+
+        let verificationApp = XCUIApplication()
+        verificationApp.launchArguments += ["-ui-testing"]
+        verificationApp.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        verificationApp.launch()
+
+        XCTAssertTrue(rootViewReached(app: verificationApp, timeout: 10), "App did not relaunch after duplication")
+
+        let verificationBrowseTab = verificationApp.tabBars.buttons["Browse"].firstMatch
+        XCTAssertTrue(verificationBrowseTab.waitForExistence(timeout: 10), "Browse tab not visible after duplication")
+        verificationBrowseTab.tap()
+
+        let copiedProjectEditButton = verificationApp.buttons["project.edit.Weekly Template Copy"].firstMatch
+        XCTAssertTrue(copiedProjectEditButton.waitForExistence(timeout: 10), "Duplicated project was not listed in Browse")
+
+        let copiedProjectButton = verificationApp.buttons["Weekly Template Copy"].firstMatch
+        XCTAssertTrue(copiedProjectButton.waitForExistence(timeout: 10), "Duplicated project button was not visible")
+        copiedProjectButton.tap()
+
+        let copiedTaskRow = verificationApp.descendants(matching: .any)["taskRow.Plan meals"].firstMatch
+        XCTAssertTrue(copiedTaskRow.waitForExistence(timeout: 10), "Duplicated project did not contain the copied task")
+    }
+
     func testPomodoroCanBeEnabledAndOpenedFromAreas() {
         let app = XCUIApplication()
         app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
@@ -284,5 +389,66 @@ final class TodoMDAppUITests: XCTestCase {
             .appendingPathComponent("TodoMDUITests", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
             .path
+    }
+
+    private func waitForFileContents(
+        at url: URL,
+        containing needle: String,
+        timeout: TimeInterval = 10,
+        pollInterval: TimeInterval = 0.2
+    ) -> Bool {
+        waitForCondition(timeout: timeout, pollInterval: pollInterval) {
+            guard let data = try? Data(contentsOf: url),
+                  let content = String(data: data, encoding: .utf8) else {
+                return false
+            }
+            return content.contains(needle)
+        }
+    }
+
+    private func waitForMarkdownStorage(
+        rootPath: String,
+        timeout: TimeInterval = 10,
+        pollInterval: TimeInterval = 0.2,
+        predicate: (String) -> Bool
+    ) -> Bool {
+        let rootURL = URL(fileURLWithPath: rootPath, isDirectory: true)
+
+        return waitForCondition(timeout: timeout, pollInterval: pollInterval) {
+            guard let urls = try? FileManager.default.contentsOfDirectory(
+                at: rootURL,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            ) else {
+                return false
+            }
+
+            for url in urls where url.pathExtension == "md" {
+                guard let data = try? Data(contentsOf: url),
+                      let content = String(data: data, encoding: .utf8) else {
+                    continue
+                }
+                if predicate(content) {
+                    return true
+                }
+            }
+
+            return false
+        }
+    }
+
+    private func waitForCondition(
+        timeout: TimeInterval,
+        pollInterval: TimeInterval,
+        predicate: () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if predicate() {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(pollInterval))
+        }
+        return predicate()
     }
 }

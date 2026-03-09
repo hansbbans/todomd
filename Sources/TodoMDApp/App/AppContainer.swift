@@ -1058,6 +1058,116 @@ final class AppContainer: ObservableObject {
         return resolvedName
     }
 
+    func suggestedDuplicateProjectName(for project: String) -> String {
+        let normalizedProject = project.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedProject = resolvedProjectName(for: normalizedProject) ?? normalizedProject
+        let baseName = resolvedProject.isEmpty ? "Project Copy" : "\(resolvedProject) Copy"
+
+        var candidate = baseName
+        var suffix = 2
+        while allProjects().contains(where: {
+            $0.compare(candidate, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+        }) {
+            candidate = "\(baseName) \(suffix)"
+            suffix += 1
+        }
+        return candidate
+    }
+
+    @discardableResult
+    func duplicateProject(
+        originalName: String,
+        newName: String,
+        colorHex: String?,
+        iconSymbol: String?
+    ) -> String? {
+        let normalizedOriginal = originalName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedNew = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedOriginal.isEmpty, !normalizedNew.isEmpty else { return nil }
+
+        let comparisonOptions: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
+        let resolvedOriginal = resolvedProjectName(for: normalizedOriginal) ?? normalizedOriginal
+        guard normalizedNew.compare(resolvedOriginal, options: comparisonOptions) != .orderedSame else {
+            return nil
+        }
+
+        if let resolvedExistingTarget = resolvedProjectName(for: normalizedNew),
+           resolvedExistingTarget.compare(resolvedOriginal, options: comparisonOptions) != .orderedSame {
+            return nil
+        }
+
+        let sourceView = ViewIdentifier.project(resolvedOriginal)
+        let sourceRecords = manualOrderService.ordered(
+            records: allIndexedRecords.filter { record in
+                guard let project = record.document.frontmatter.project?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !project.isEmpty else {
+                    return false
+                }
+                let status = record.document.frontmatter.status
+                return project.compare(resolvedOriginal, options: comparisonOptions) == .orderedSame
+                    && status != .done
+                    && status != .cancelled
+            },
+            view: sourceView
+        )
+
+        let duplicateColor = sanitizeProjectColorHex(colorHex)
+            ?? projectColorHex(for: resolvedOriginal)
+            ?? "1E88E5"
+        let duplicateIcon = sanitizeProjectIconSymbol(iconSymbol)
+            ?? sanitizeProjectIconSymbol(projectIconSymbol(for: resolvedOriginal))
+            ?? "folder"
+
+        guard let createdProject = createProject(
+            name: normalizedNew,
+            colorHex: duplicateColor,
+            iconSymbol: duplicateIcon
+        ) else {
+            return nil
+        }
+
+        let now = Date()
+        var duplicatedFilenames: [String] = []
+        duplicatedFilenames.reserveCapacity(sourceRecords.count)
+
+        do {
+            for sourceRecord in sourceRecords {
+                var duplicateDocument = sourceRecord.document
+                duplicateDocument.frontmatter.project = createdProject
+                duplicateDocument.frontmatter.created = now
+                duplicateDocument.frontmatter.modified = now
+                duplicateDocument.frontmatter.completed = nil
+                duplicateDocument.frontmatter.completedBy = nil
+
+                let createdRecord = try repository.create(document: duplicateDocument, preferredFilename: nil)
+                markSelfWrite(path: createdRecord.identity.path)
+                duplicatedFilenames.append(createdRecord.identity.filename)
+            }
+        } catch {
+            logger.error("Project duplicate failed", metadata: [
+                "original": resolvedOriginal,
+                "target": normalizedNew,
+                "error": error.localizedDescription
+            ])
+            refresh()
+            return nil
+        }
+
+        if !duplicatedFilenames.isEmpty {
+            do {
+                try manualOrderService.saveOrder(view: .project(createdProject), filenames: duplicatedFilenames)
+            } catch {
+                logger.error("Project duplicate order save failed", metadata: [
+                    "target": createdProject,
+                    "error": error.localizedDescription
+                ])
+            }
+        }
+
+        refresh()
+        return createdProject
+    }
+
     @discardableResult
     func updateProject(
         originalName: String,
