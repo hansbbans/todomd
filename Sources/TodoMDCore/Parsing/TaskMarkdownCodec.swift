@@ -120,7 +120,12 @@ public struct TaskMarkdownCodec {
     }
 
     private func decodeYAMLObject(yaml: String) throws -> [String: Any] {
-        let loaded = try Yams.load(yaml: yaml)
+        let loaded: Any
+        do {
+            loaded = try Yams.load(yaml: yaml) as Any
+        } catch {
+            throw TaskError.parseFailure("Invalid frontmatter YAML: \(renderParseFailureMessage(error))")
+        }
         guard let object = loaded as? [String: Any] else {
             throw TaskError.parseFailure("Frontmatter YAML is not an object")
         }
@@ -531,6 +536,26 @@ public struct TaskMarkdownCodec {
         default:
             return .none
         }
+    }
+
+    private func renderParseFailureMessage(_ error: Error) -> String {
+        if let localized = error as? LocalizedError {
+            if let description = localized.errorDescription?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !description.isEmpty {
+                return description
+            }
+            if let failureReason = localized.failureReason?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !failureReason.isEmpty {
+                return failureReason
+            }
+        }
+
+        let description = String(describing: error).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !description.isEmpty {
+            return description
+        }
+
+        return error.localizedDescription
     }
 }
 

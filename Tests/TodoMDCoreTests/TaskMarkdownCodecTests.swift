@@ -34,7 +34,24 @@ final class TaskMarkdownCodecTests: XCTestCase {
         """
 
         let codec = TaskMarkdownCodec()
-        XCTAssertThrowsError(try codec.parse(markdown: raw))
+        XCTAssertThrowsError(try codec.parse(markdown: raw)) { error in
+            XCTAssertEqual(error.localizedDescription, "Missing required field: title")
+        }
+    }
+
+    func testInvalidYAMLReportsConcreteReason() {
+        let raw = """
+        ---
+        title: [oops
+        created: \"2025-02-26T14:30:00Z\"
+        source: \"user\"
+        ---
+        """
+
+        let codec = TaskMarkdownCodec()
+        XCTAssertThrowsError(try codec.parse(markdown: raw)) { error in
+            XCTAssertTrue(error.localizedDescription.hasPrefix("Invalid frontmatter YAML:"))
+        }
     }
 
     func testValidationMaxLengths() throws {
