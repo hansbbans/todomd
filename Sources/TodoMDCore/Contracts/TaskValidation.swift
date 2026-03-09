@@ -7,6 +7,21 @@ public enum TaskValidationError: Error, Equatable, Sendable {
     case invalidFieldValue(field: String, value: String)
 }
 
+extension TaskValidationError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .requiredFieldMissing(let field):
+            return "Missing required field: \(field)"
+        case .fieldTooLong(let field, let limit):
+            return "Field \(field) exceeds maximum length of \(limit) characters"
+        case .invalidRange(let field, let min, let max):
+            return "Field \(field) must be between \(min) and \(max)"
+        case .invalidFieldValue(let field, let value):
+            return "Invalid value for \(field): \(value)"
+        }
+    }
+}
+
 public enum TaskValidation {
     public static let maxTitleLength = 500
     public static let maxDescriptionLength = 2_000

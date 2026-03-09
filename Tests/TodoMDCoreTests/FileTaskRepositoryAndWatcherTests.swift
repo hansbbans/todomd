@@ -184,6 +184,40 @@ final class FileTaskRepositoryAndWatcherTests: XCTestCase {
         XCTAssertTrue(watcher.parseDiagnostics.isEmpty)
     }
 
+    func testFileWatcherReportsParseFailureReason() throws {
+        let root = try TestSupport.tempDirectory(prefix: "WatcherParseFailureReason")
+        let repository = FileTaskRepository(rootURL: root)
+        let watcher = FileWatcherService(rootURL: root, repository: repository)
+
+        let invalidURL = root.appendingPathComponent("invalid.md")
+        try """
+        ---
+        title: Invalid
+        flagged: maybe
+        created: 2026-03-08T10:00:00Z
+        source: codex-agent
+        ---
+        """.write(to: invalidURL, atomically: true, encoding: .utf8)
+
+        let sync = try watcher.synchronize(now: Date())
+
+        XCTAssertEqual(sync.summary.failedCount, 1)
+        XCTAssertEqual(watcher.parseDiagnostics.count, 1)
+        XCTAssertEqual(watcher.parseDiagnostics.first?.reason, "Field flagged must be a boolean")
+
+        guard let event = sync.events.first else {
+            return XCTFail("Expected an unparseable event")
+        }
+
+        switch event {
+        case .unparseable(let path, let reason, _):
+            XCTAssertEqual(path, invalidURL.path)
+            XCTAssertEqual(reason, "Field flagged must be a boolean")
+        default:
+            XCTFail("Expected an unparseable event")
+        }
+    }
+
     func testSnapshotHydrationPrimesWatcherWithoutColdReparse() throws {
         let root = try TestSupport.tempDirectory(prefix: "SnapshotPrime")
         let repository = FileTaskRepository(rootURL: root)
