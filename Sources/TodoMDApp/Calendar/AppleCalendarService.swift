@@ -20,7 +20,9 @@ enum AppleCalendarServiceError: LocalizedError {
 
 @MainActor
 final class AppleCalendarService {
-    private let eventStore: EKEventStore
+    // EKEventStore is thread-safe but not Sendable under Swift 6; nonisolated(unsafe)
+    // lets the @MainActor async methods pass it across the concurrency boundary safely.
+    private nonisolated(unsafe) let eventStore: EKEventStore
 
     init(eventStore: EKEventStore = EKEventStore()) {
         self.eventStore = eventStore
