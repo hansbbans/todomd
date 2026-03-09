@@ -172,7 +172,6 @@ private struct SectionHeaderView: View {
 
 private struct RootViewSearchableModifier: ViewModifier {
     @Binding var text: String
-    @Binding var isPresented: Bool
     let prompt: String
     let isEnabled: Bool
 
@@ -181,7 +180,6 @@ private struct RootViewSearchableModifier: ViewModifier {
 #if os(iOS)
             content.searchable(
                 text: $text,
-                isPresented: $isPresented,
                 placement: .navigationBarDrawer(displayMode: .automatic),
                 prompt: prompt
             )
@@ -740,8 +738,7 @@ struct RootView: View {
             .modifier(
                 RootViewSearchableModifier(
                     text: $universalSearchText,
-                    isPresented: $isRootSearchPresented,
-                    prompt: "Search projects, perspectives, tags",
+                    prompt: "Search tasks, areas, projects, tags",
                     isEnabled: isAtActiveNavigationRoot && !inboxTriageMode
                 )
             )
