@@ -132,6 +132,13 @@ final class TodoMDAppUITests: XCTestCase {
         importAllButton.tap()
 
         XCTAssertFalse(importRow.waitForExistence(timeout: 5), "Imported reminder should no longer be listed as pending")
+
+        let importedTaskRow = app.descendants(matching: .any)["taskRow.from reminders e2e"].firstMatch
+        XCTAssertTrue(
+            importedTaskRow.waitForExistence(timeout: 10),
+            "Imported reminder task should appear in Inbox immediately without force-closing the app"
+        )
+
         let importSummary = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Imported 1 reminder")).firstMatch
         XCTAssertTrue(importSummary.waitForExistence(timeout: 10), "Import summary did not appear in Inbox")
     }

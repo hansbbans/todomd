@@ -108,6 +108,30 @@ final class FileTaskRepositoryAndWatcherTests: XCTestCase {
         })
     }
 
+    func testFileWatcherSuppressesNewSelfWrittenFilesUntilCallerUpsertsThem() throws {
+        let root = try TestSupport.tempDirectory(prefix: "WatcherSelfWriteCreate")
+        let repository = FileTaskRepository(rootURL: root)
+        let watcher = FileWatcherService(rootURL: root, repository: repository)
+        let fileIO = TaskFileIO()
+
+        let created = try repository.create(
+            document: .init(frontmatter: TestSupport.sampleFrontmatter(title: "Imported"), body: ""),
+            preferredFilename: "imported.md"
+        )
+
+        let fingerprint = try fileIO.fingerprint(for: created.identity.path)
+        watcher.markSelfWrite(path: created.identity.path, modificationDate: fingerprint.modificationDate)
+
+        let sync = try watcher.synchronize(now: Date())
+
+        XCTAssertEqual(sync.summary.ingestedCount, 0)
+        XCTAssertTrue(sync.records.isEmpty)
+        XCTAssertFalse(sync.events.contains { event in
+            if case .created(let path, _, _) = event { return path == created.identity.path }
+            return false
+        })
+    }
+
     func testFileWatcherAppliesRollingWindowBurstThreshold() throws {
         let root = try TestSupport.tempDirectory(prefix: "WatcherRollingWindow")
         let repository = FileTaskRepository(rootURL: root)
