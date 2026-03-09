@@ -1,11 +1,37 @@
 import SwiftUI
 
+struct MainHeroHeader: View {
+    let title: String
+    let symbolName: String
+    let iconColor: Color
+    @EnvironmentObject private var theme: ThemeManager
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 11) {
+            Image(systemName: symbolName)
+                .font(.system(size: 25, weight: .semibold))
+                .foregroundStyle(iconColor)
+                .frame(width: 29, alignment: .leading)
+
+            Text(title)
+                .font(.system(size: 34, weight: .bold))
+                .tracking(-1.2)
+                .foregroundStyle(theme.textPrimaryColor)
+
+            Spacer(minLength: 0)
+        }
+    }
+}
+
 enum CalendarHeroKind {
+    case inbox
     case today
     case upcoming
 
     var title: String {
         switch self {
+        case .inbox:
+            return "Inbox"
         case .today:
             return "Today"
         case .upcoming:
@@ -15,6 +41,8 @@ enum CalendarHeroKind {
 
     var symbolName: String {
         switch self {
+        case .inbox:
+            return "tray"
         case .today:
             return "star.fill"
         case .upcoming:
@@ -24,6 +52,8 @@ enum CalendarHeroKind {
 
     var iconColor: Color {
         switch self {
+        case .inbox:
+            return Color(red: 0.11, green: 0.60, blue: 0.98)
         case .today:
             return Color(red: 0.89, green: 0.71, blue: 0.13)
         case .upcoming:
@@ -33,6 +63,8 @@ enum CalendarHeroKind {
 
     var iconSize: CGFloat {
         switch self {
+        case .inbox:
+            return 25
         case .today:
             return 25
         case .upcoming:
@@ -42,6 +74,8 @@ enum CalendarHeroKind {
 
     var titleSize: CGFloat {
         switch self {
+        case .inbox:
+            return 34
         case .today:
             return 34
         case .upcoming:
@@ -51,6 +85,8 @@ enum CalendarHeroKind {
 
     var bottomPadding: CGFloat {
         switch self {
+        case .inbox:
+            return 8
         case .today:
             return 8
         case .upcoming:
@@ -61,22 +97,9 @@ enum CalendarHeroKind {
 
 struct CalendarHeroHeader: View {
     let kind: CalendarHeroKind
-    @EnvironmentObject private var theme: ThemeManager
 
     var body: some View {
-        HStack(alignment: .center, spacing: 11) {
-            Image(systemName: kind.symbolName)
-                .font(.system(size: kind.iconSize, weight: .semibold))
-                .foregroundStyle(kind.iconColor)
-                .frame(width: kind.iconSize + 4, alignment: .leading)
-
-            Text(kind.title)
-                .font(.system(size: kind.titleSize, weight: .bold))
-                .tracking(-1.2)
-                .foregroundStyle(theme.textPrimaryColor)
-
-            Spacer(minLength: 0)
-        }
+        MainHeroHeader(title: kind.title, symbolName: kind.symbolName, iconColor: kind.iconColor)
         .padding(.bottom, kind.bottomPadding)
         .accessibilityIdentifier("calendar.heroHeader.\(kind.title.lowercased())")
     }
