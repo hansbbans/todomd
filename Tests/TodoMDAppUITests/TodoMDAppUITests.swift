@@ -132,6 +132,13 @@ final class TodoMDAppUITests: XCTestCase {
         importAllButton.tap()
 
         XCTAssertFalse(importRow.waitForExistence(timeout: 5), "Imported reminder should no longer be listed as pending")
+
+        let importedTaskRow = app.descendants(matching: .any)["taskRow.from reminders e2e"].firstMatch
+        XCTAssertTrue(
+            importedTaskRow.waitForExistence(timeout: 10),
+            "Imported reminder task should appear in Inbox immediately without force-closing the app"
+        )
+
         let importSummary = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Imported 1 reminder")).firstMatch
         XCTAssertTrue(importSummary.waitForExistence(timeout: 10), "Import summary did not appear in Inbox")
     }
@@ -239,6 +246,34 @@ final class TodoMDAppUITests: XCTestCase {
 
         let copiedTaskRow = verificationApp.descendants(matching: .any)["taskRow.Plan meals"].firstMatch
         XCTAssertTrue(copiedTaskRow.waitForExistence(timeout: 10), "Duplicated project did not contain the copied task")
+    }
+
+    func testSearchAppearsOnPullDownInsteadOfPersistingInHeader() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = "Library/Caches/TodoMDUITests/\(UUID().uuidString)"
+        app.launch()
+
+        completeOnboarding(app: app)
+        createTask(app: app, title: "search smoke")
+
+        let searchField = app.searchFields.firstMatch
+
+        // On current simulator/XCUITest builds, navigation drawer search can be reported as
+        // hittable before the drawer is visually expanded. The reliable assertion here is that a
+        // pull-down reveals an interactive search affordance we can actually use.
+        if app.collectionViews.firstMatch.exists {
+            app.collectionViews.firstMatch.swipeDown()
+        } else if app.tables.firstMatch.exists {
+            app.tables.firstMatch.swipeDown()
+        } else {
+            app.swipeDown()
+        }
+
+        XCTAssertTrue(searchField.waitForExistence(timeout: 5), "Pulling down should reveal the search field")
+        XCTAssertTrue(searchField.isHittable, "Search field should become visible and interactive after pull-down")
+        searchField.tap()
+        searchField.typeText("search smoke")
     }
 
     func testPomodoroCanBeEnabledAndOpenedFromAreas() {

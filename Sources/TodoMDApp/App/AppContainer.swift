@@ -204,6 +204,7 @@ final class AppContainer: ObservableObject {
     private var metadataRefreshWorkItem: DispatchWorkItem?
     private var suppressMetadataRefreshUntil: Date?
     private var calendarRefreshTask: Task<Void, Never>?
+    private var foregroundRefreshTimer: Timer?
     private var reminderImportRefreshGeneration = 0
     private var lastCalendarSyncAt: Date?
     private var startupValidationPending = false
@@ -259,6 +260,7 @@ final class AppContainer: ObservableObject {
         hydrateInitialStateFromSnapshot()
         configureLifecycleObservers()
         startMetadataQuery()
+        startForegroundRefreshTimer()
         scheduleInitialRefresh()
     }
 
@@ -2384,6 +2386,16 @@ final class AppContainer: ObservableObject {
         let createResult = await createReminderTasks(candidates: candidates, rootPath: rootURL.path)
 
         for created in createResult.created {
+            do {
+                let record = try repository.load(path: created.path)
+                upsertRecordInMemory(record)
+            } catch {
+                logger.error("Failed to optimistically load imported reminder task", metadata: [
+                    "path": created.path,
+                    "reminderID": created.reminderID,
+                    "error": error.localizedDescription
+                ])
+            }
             markSelfWrite(path: created.path)
         }
 
@@ -3285,7 +3297,8 @@ final class AppContainer: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.startMetadataQuery()
-                self?.refresh()
+                self?.startForegroundRefreshTimer()
+                self?.refresh(forceFullScan: true)
             }
         })
 
@@ -3295,17 +3308,39 @@ final class AppContainer: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
+                self?.stopForegroundRefreshTimer()
                 self?.stopMetadataQuery()
             }
         })
 #endif
     }
 
+    private func startForegroundRefreshTimer() {
+#if canImport(UIKit)
+        guard foregroundRefreshTimer == nil else { return }
+        foregroundRefreshTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard UIApplication.shared.applicationState == .active else { return }
+                self.refresh()
+            }
+        }
+#endif
+    }
+
+    private func stopForegroundRefreshTimer() {
+        foregroundRefreshTimer?.invalidate()
+        foregroundRefreshTimer = nil
+    }
+
     private func startMetadataQuery() {
         guard metadataQuery == nil else { return }
 
         let query = NSMetadataQuery()
-        query.searchScopes = [NSMetadataQueryUbiquitousDocumentsScope]
+        // Monitor the selected task folder directly. The task root may live outside this app's
+        // iCloud container (for example inside Obsidian's folder in iCloud Drive), so limiting the
+        // search scope to NSMetadataQueryUbiquitousDocumentsScope can miss updates entirely.
+        query.searchScopes = [rootURL]
         query.predicate = NSPredicate(format: "%K BEGINSWITH %@", NSMetadataItemPathKey, rootURL.path)
 
         let center = NotificationCenter.default
