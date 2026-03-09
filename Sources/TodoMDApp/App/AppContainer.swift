@@ -168,8 +168,10 @@ final class AppContainer: ObservableObject {
     private var fileWatcher: FileWatcherService
     private var manualOrderService: ManualOrderService
     private var projectMetadataRepository: ProjectMetadataRepository
+    private var triageRulesRepository: TriageRulesRepository
     private var perspectivesRepository: PerspectivesRepository
     private let queryEngine = TaskQueryEngine()
+    private let triageSuggestionEngine = ProjectTriageSuggestionEngine()
     private let weeklyReviewEngine = WeeklyReviewEngine()
     private let perspectiveQueryEngine = PerspectiveQueryEngine()
     private let dateParser = NaturalLanguageDateParser()
@@ -197,6 +199,7 @@ final class AppContainer: ObservableObject {
     private var metadataIndex = TaskMetadataIndex.build(from: [TaskRecord]())
     private var cachedPerspectivesDocument = PerspectivesDocument()
     private var snapshotDiagnostics: [ParseFailureDiagnostic] = []
+    private var triageRules = TriageRulesDocument()
 
     private var metadataQuery: NSMetadataQuery?
     private var metadataObserverTokens: [NSObjectProtocol] = []
@@ -247,12 +250,14 @@ final class AppContainer: ObservableObject {
         self.fileWatcher = FileWatcherService(rootURL: rootURL, repository: repository)
         self.manualOrderService = ManualOrderService(rootURL: rootURL)
         self.projectMetadataRepository = ProjectMetadataRepository()
+        self.triageRulesRepository = TriageRulesRepository()
         self.perspectivesRepository = PerspectivesRepository()
 
         loadCalendarSourceSelection()
         loadReminderListSelection()
         loadLocationFavorites()
         loadProjectMetadataFromDisk()
+        loadTriageRulesFromDisk()
         migrateLegacyProjectMetadataFromSettingsIfNeeded()
         loadPerspectivesFromDisk()
         migrateLegacyPerspectivesFromSettingsIfNeeded()
@@ -793,6 +798,7 @@ final class AppContainer: ObservableObject {
         fileWatcher = FileWatcherService(rootURL: rootURL, repository: repository)
         manualOrderService = ManualOrderService(rootURL: rootURL)
         projectMetadataRepository = ProjectMetadataRepository()
+        triageRulesRepository = TriageRulesRepository()
         perspectivesRepository = PerspectivesRepository()
 
         canonicalByPath = [:]
@@ -810,10 +816,12 @@ final class AppContainer: ObservableObject {
         userProjects = []
         projectColorsByProject = [:]
         projectIconsByProject = [:]
+        triageRules = TriageRulesDocument()
         cachedPerspectivesDocument = PerspectivesDocument()
         perspectives = []
         perspectivesWarningMessage = nil
         loadProjectMetadataFromDisk()
+        loadTriageRulesFromDisk()
         migrateLegacyProjectMetadataFromSettingsIfNeeded()
         loadPerspectivesFromDisk()
         hydrateInitialStateFromSnapshot()
@@ -967,6 +975,40 @@ final class AppContainer: ObservableObject {
         }
 
         return unique.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    func inboxProjectSuggestion(path: String) -> ProjectTriageSuggestion? {
+        guard let record = canonicalByPath[path] else { return nil }
+        let bootstrapRecords: [TaskRecord]
+        if triageRules.isEmpty {
+            bootstrapRecords = allIndexedRecords.filter { indexed in
+                indexed.identity.path != path && indexed.document.frontmatter.project != nil
+            }
+        } else {
+            bootstrapRecords = []
+        }
+
+        return triageSuggestionEngine.suggest(
+            for: record,
+            availableProjects: allProjects(),
+            rules: triageRules,
+            bootstrapRecords: bootstrapRecords
+        )
+    }
+
+    @discardableResult
+    func applyInboxTriageProject(path: String, project: String, weight: Int = 1) -> Bool {
+        let normalizedProject = project.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProject.isEmpty, let record = canonicalByPath[path] else { return false }
+        guard addToProject(path: path, project: normalizedProject) else { return false }
+        triageSuggestionEngine.learn(
+            rules: &triageRules,
+            from: record,
+            assignedProject: normalizedProject,
+            weight: max(1, weight)
+        )
+        persistTriageRulesToDisk()
+        return true
     }
 
     func projectColorHex(for project: String) -> String? {
@@ -2693,6 +2735,15 @@ final class AppContainer: ObservableObject {
         }
     }
 
+    private func loadTriageRulesFromDisk() {
+        do {
+            triageRules = try triageRulesRepository.load(rootURL: rootURL)
+        } catch {
+            triageRules = TriageRulesDocument()
+            logger.error("Failed to load triage rules", metadata: ["error": error.localizedDescription])
+        }
+    }
+
     private func applyProjectMetadata(_ document: ProjectMetadataDocument) {
         userProjects = sanitizedProjectList(document.projects)
         projectColorsByProject = sanitizedProjectColorMap(document.colors)
@@ -2787,6 +2838,14 @@ final class AppContainer: ObservableObject {
             try projectMetadataRepository.save(document, rootURL: rootURL)
         } catch {
             logger.error("Failed to persist project metadata", metadata: ["error": error.localizedDescription])
+        }
+    }
+
+    private func persistTriageRulesToDisk() {
+        do {
+            try triageRulesRepository.save(triageRules, rootURL: rootURL)
+        } catch {
+            logger.error("Failed to persist triage rules", metadata: ["error": error.localizedDescription])
         }
     }
 

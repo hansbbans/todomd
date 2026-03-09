@@ -2,7 +2,6 @@ import SwiftUI
 
 private enum InboxTriageField: Hashable {
     case project
-    case tags
 }
 
 struct InboxTriageView: View {
@@ -16,7 +15,7 @@ struct InboxTriageView: View {
     let onOpenDetail: (String) -> Void
 
     @State private var projectDraft = ""
-    @State private var tagsDraft = ""
+    @State private var rejectedPaths: Set<String> = []
     @FocusState private var focusedField: InboxTriageField?
 
     private var activeRecords: [TaskRecord] {
@@ -39,8 +38,9 @@ struct InboxTriageView: View {
         max(0, records.count - activeRecords.count)
     }
 
-    private var currentTags: [String] {
-        currentRecord?.document.frontmatter.tags ?? []
+    private var currentSuggestion: ProjectTriageSuggestion? {
+        guard let currentPath, !rejectedPaths.contains(currentPath) else { return nil }
+        return container.inboxProjectSuggestion(path: currentPath)
     }
 
     private var projectSuggestions: [String] {
@@ -54,22 +54,6 @@ struct InboxTriageView: View {
         return Array(base.prefix(6))
     }
 
-    private var tagSuggestions: [String] {
-        let query = tagsDraft
-            .split(separator: ",")
-            .last?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "#", with: "") ?? ""
-        let existing = Set(currentTags)
-        let base = container.availableTags().filter { !existing.contains($0) }
-        let filtered = query.isEmpty
-            ? base
-            : base.filter { tag in
-                tag.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
-            }
-        return Array(filtered.prefix(8))
-    }
-
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -77,9 +61,8 @@ struct InboxTriageView: View {
 
                 if let record = currentRecord {
                     taskCard(record)
-                    quickActionCard(record)
-                    projectCard(record)
-                    tagsCard(record)
+                    suggestionCard(record)
+                    manualCorrectionCard(record)
                     footerActions(record)
                 } else {
                     emptyStateCard
@@ -100,7 +83,7 @@ struct InboxTriageView: View {
     private var headerCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Inbox Triage")
+                Text("Inbox Smart Triage")
                     .font(.system(.title2, design: .rounded).weight(.semibold))
                     .foregroundStyle(theme.textPrimaryColor)
 
@@ -117,7 +100,7 @@ struct InboxTriageView: View {
                 .font(.callout)
                 .foregroundStyle(theme.textSecondaryColor)
 
-            Text("Keyboard: P project, T tags, D today, M tomorrow, W next week, X clear date, 0-3 priority, Return next.")
+            Text("Keyboard: A accept suggestion, R reject, P project field, Return next.")
                 .font(.caption)
                 .foregroundStyle(theme.textSecondaryColor)
         }
@@ -173,40 +156,52 @@ struct InboxTriageView: View {
         .accessibilityIdentifier("triage.card")
     }
 
-    private func quickActionCard(_ record: TaskRecord) -> some View {
+    private func suggestionCard(_ record: TaskRecord) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Fast Assign")
+            Text("Suggested Project")
                 .font(.headline)
                 .foregroundStyle(theme.textPrimaryColor)
 
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Priority")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(theme.textSecondaryColor)
+            if let suggestion = currentSuggestion {
+                Text(suggestion.project)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(theme.textPrimaryColor)
+                    .accessibilityIdentifier("triage.suggestedProject")
 
-                HStack(spacing: 8) {
-                    priorityButton(title: "0 None", priority: .none, shortcut: "0", current: record.document.frontmatter.priority)
-                    priorityButton(title: "1 High", priority: .high, shortcut: "1", current: record.document.frontmatter.priority)
-                    priorityButton(title: "2 Medium", priority: .medium, shortcut: "2", current: record.document.frontmatter.priority)
-                    priorityButton(title: "3 Low", priority: .low, shortcut: "3", current: record.document.frontmatter.priority)
+                let keywordText = suggestion.matchedKeywords.map { "\($0.keyword) (\($0.weight))" }.joined(separator: ", ")
+                if !keywordText.isEmpty {
+                    Text("Reason: matched keywords \(keywordText)")
+                        .font(.caption)
+                        .foregroundStyle(theme.textSecondaryColor)
+                        .accessibilityIdentifier("triage.suggestionReason")
                 }
-            }
 
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Due Date")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(theme.textSecondaryColor)
-
-                HStack(spacing: 8) {
-                    dueButton(title: "D Today", shortcut: "d", date: Date())
-                    dueButton(title: "M Tomorrow", shortcut: "m", date: Calendar.current.date(byAdding: .day, value: 1, to: Date()))
-                    dueButton(title: "W Next Week", shortcut: "w", date: Calendar.current.date(byAdding: .day, value: 7, to: Date()))
-                    Button("X Clear") {
-                        applyDue(nil)
+                HStack(spacing: 10) {
+                    Button("Accept") {
+                        acceptSuggestion(suggestion)
                     }
-                    .keyboardShortcut("x", modifiers: [])
+                    .keyboardShortcut("a", modifiers: [])
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("triage.acceptButton")
+
+                    Button("Reject") {
+                        rejectSuggestion(record)
+                    }
+                    .keyboardShortcut("r", modifiers: [])
                     .buttonStyle(.bordered)
+                    .accessibilityIdentifier("triage.rejectButton")
                 }
+            } else {
+                Text("No suggestion yet. Choose a project manually to train future suggestions.")
+                    .font(.callout)
+                    .foregroundStyle(theme.textSecondaryColor)
+
+                Button("Reject") {
+                    rejectSuggestion(record)
+                }
+                .keyboardShortcut("r", modifiers: [])
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("triage.rejectButton")
             }
         }
         .padding(20)
@@ -214,9 +209,9 @@ struct InboxTriageView: View {
         .background(cardBackground)
     }
 
-    private func projectCard(_ record: TaskRecord) -> some View {
+    private func manualCorrectionCard(_ record: TaskRecord) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Project")
+            Text("Manual Correction")
                 .font(.headline)
                 .foregroundStyle(theme.textPrimaryColor)
 
@@ -257,84 +252,8 @@ struct InboxTriageView: View {
                 }
             }
 
-            if let currentProject = record.document.frontmatter.project,
-               !currentProject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text("Current: \(currentProject)")
-                    .font(.caption)
-                    .foregroundStyle(theme.textSecondaryColor)
-            }
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(cardBackground)
-    }
-
-    private func tagsCard(_ record: TaskRecord) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Tags")
-                .font(.headline)
-                .foregroundStyle(theme.textPrimaryColor)
-
-            HStack(spacing: 10) {
-                TextField("Add tags (comma-separated)", text: $tagsDraft)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($focusedField, equals: .tags)
-                    .submitLabel(.done)
-                    .onSubmit {
-                        applyTagsDraft()
-                    }
-                    .accessibilityIdentifier("triage.tagsField")
-
-                Button("Focus T") {
-                    focusedField = .tags
-                }
-                .keyboardShortcut("t", modifiers: [])
-                .buttonStyle(.bordered)
-
-                Button("Apply") {
-                    applyTagsDraft()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(normalizedTagTokens(from: tagsDraft).isEmpty)
-                .accessibilityIdentifier("triage.tagsApplyButton")
-            }
-
-            if !currentTags.isEmpty {
-                FlowRow(items: currentTags) { tag in
-                    HStack(spacing: 6) {
-                        Text("#\(tag)")
-                            .font(.caption)
-                        Button {
-                            removeTag(tag)
-                        } label: {
-                            Image(systemName: "xmark")
-                                .font(.caption2.weight(.bold))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(theme.backgroundColor)
-                    .clipShape(Capsule())
-                }
-            }
-
-            if !tagSuggestions.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(tagSuggestions, id: \.self) { tag in
-                            Button("#\(tag)") {
-                                applyTags(currentTags + [tag])
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                    }
-                }
-            }
-
-            let dueText = dueSummary(for: record.document.frontmatter)
-            if !dueText.isEmpty {
-                Text("Due: \(dueText)")
+            if rejectedPaths.contains(record.identity.path) {
+                Text("Suggestion rejected for this task.")
                     .font(.caption)
                     .foregroundStyle(theme.textSecondaryColor)
             }
@@ -383,6 +302,7 @@ struct InboxTriageView: View {
             if !records.isEmpty {
                 Button("Restart Queue") {
                     skippedPaths.removeAll()
+                    rejectedPaths.removeAll()
                     pinnedPath = records.first?.identity.path
                 }
                 .buttonStyle(.borderedProminent)
@@ -414,27 +334,10 @@ struct InboxTriageView: View {
             )
     }
 
-    private func priorityButton(title: String, priority: TaskPriority, shortcut: KeyEquivalent, current: TaskPriority) -> some View {
-        Button(title) {
-            guard let currentPath else { return }
-            _ = container.setPriority(path: currentPath, priority: priority)
-        }
-        .keyboardShortcut(shortcut, modifiers: [])
-        .buttonStyle(.borderedProminent)
-        .tint(current == priority ? theme.accentColor : theme.textSecondaryColor.opacity(0.28))
-    }
-
-    private func dueButton(title: String, shortcut: KeyEquivalent, date: Date?) -> some View {
-        Button(title) {
-            applyDue(date)
-        }
-        .keyboardShortcut(shortcut, modifiers: [])
-        .buttonStyle(.bordered)
-    }
-
     private func syncQueueState() {
         let validPaths = Set(records.map(\.identity.path))
         skippedPaths = skippedPaths.intersection(validPaths)
+        rejectedPaths = rejectedPaths.intersection(validPaths)
         if let pinnedPath,
            (!validPaths.contains(pinnedPath) || skippedPaths.contains(pinnedPath)) {
             self.pinnedPath = nil
@@ -447,11 +350,9 @@ struct InboxTriageView: View {
     private func syncDraftsFromCurrentRecord() {
         guard let currentRecord else {
             projectDraft = ""
-            tagsDraft = ""
             return
         }
         projectDraft = currentRecord.document.frontmatter.project ?? ""
-        tagsDraft = ""
     }
 
     private func advanceQueue() {
@@ -467,9 +368,18 @@ struct InboxTriageView: View {
         pinnedPath = nil
     }
 
-    private func applyDue(_ date: Date?) {
+    private func acceptSuggestion(_ suggestion: ProjectTriageSuggestion) {
         guard let currentPath else { return }
-        _ = container.setDue(path: currentPath, date: date)
+        if container.applyInboxTriageProject(path: currentPath, project: suggestion.project, weight: 2) {
+            rejectedPaths.remove(currentPath)
+            projectDraft = ""
+            advanceQueue()
+        }
+    }
+
+    private func rejectSuggestion(_ record: TaskRecord) {
+        rejectedPaths.insert(record.identity.path)
+        focusedField = .project
     }
 
     private func applyProjectDraft() {
@@ -480,44 +390,12 @@ struct InboxTriageView: View {
 
     private func applyProject(_ project: String) {
         guard let currentPath else { return }
-        if container.addToProject(path: currentPath, project: project) {
+        if container.applyInboxTriageProject(path: currentPath, project: project, weight: 1) {
+            rejectedPaths.remove(currentPath)
             projectDraft = ""
-            pinnedPath = nil
             focusedField = nil
+            advanceQueue()
         }
-    }
-
-    private func applyTagsDraft() {
-        let additions = normalizedTagTokens(from: tagsDraft)
-        guard !additions.isEmpty else { return }
-        applyTags(currentTags + additions)
-        tagsDraft = ""
-        focusedField = nil
-    }
-
-    private func applyTags(_ tags: [String]) {
-        guard let currentPath else { return }
-        _ = container.setTags(path: currentPath, tags: tags)
-    }
-
-    private func removeTag(_ tag: String) {
-        applyTags(currentTags.filter { $0 != tag })
-    }
-
-    private func normalizedTagTokens(from raw: String) -> [String] {
-        var seen = Set<String>()
-        return raw
-            .split(separator: ",")
-            .map { token in
-                token.trimmingCharacters(in: .whitespacesAndNewlines)
-                    .lowercased()
-                    .replacingOccurrences(of: "#", with: "")
-            }
-            .filter { token in
-                guard !token.isEmpty, !seen.contains(token) else { return false }
-                seen.insert(token)
-                return true
-            }
     }
 
     private func metadataSummary(for frontmatter: TaskFrontmatterV1) -> String {
@@ -525,43 +403,11 @@ struct InboxTriageView: View {
         if frontmatter.priority != .none {
             parts.append(frontmatter.priority.rawValue.capitalized)
         }
-        let due = dueSummary(for: frontmatter)
-        if !due.isEmpty {
-            parts.append(due)
-        }
         if let project = frontmatter.project?.trimmingCharacters(in: .whitespacesAndNewlines),
            !project.isEmpty {
             parts.append(project)
         }
         parts.append(contentsOf: frontmatter.tags.prefix(3).map { "#\($0)" })
         return parts.joined(separator: "  ·  ")
-    }
-
-    private func dueSummary(for frontmatter: TaskFrontmatterV1) -> String {
-        guard let due = frontmatter.due else { return "" }
-        var components = DateComponents()
-        components.year = due.year
-        components.month = due.month
-        components.day = due.day
-        let calendar = Calendar.current
-        guard let date = calendar.date(from: components) else { return due.isoString }
-        if calendar.isDateInToday(date) { return "Today" }
-        if calendar.isDateInTomorrow(date) { return "Tomorrow" }
-        let formatter = DateFormatter()
-        formatter.setLocalizedDateFormatFromTemplate("MMM d")
-        return formatter.string(from: date)
-    }
-}
-
-private struct FlowRow<Content: View, Item: Hashable>: View {
-    let items: [Item]
-    let content: (Item) -> Content
-
-    var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 80), spacing: 8)], alignment: .leading, spacing: 8) {
-            ForEach(items, id: \.self) { item in
-                content(item)
-            }
-        }
     }
 }
