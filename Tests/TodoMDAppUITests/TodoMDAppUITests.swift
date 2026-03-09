@@ -248,6 +248,32 @@ final class TodoMDAppUITests: XCTestCase {
         XCTAssertTrue(copiedTaskRow.waitForExistence(timeout: 10), "Duplicated project did not contain the copied task")
     }
 
+    func testSearchAppearsOnPullDownInsteadOfPersistingInHeader() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = "Library/Caches/TodoMDUITests/\(UUID().uuidString)"
+        app.launch()
+
+        completeOnboarding(app: app)
+        createTask(app: app, title: "search smoke")
+
+        let searchField = app.searchFields.firstMatch
+        XCTAssertFalse(searchField.isHittable, "Search field should not persist visibly in the header before pull-down")
+
+        // The root view may render as either a collection view or a table depending on the
+        // active platform/container composition, so we try the concrete scroll containers first.
+        if app.collectionViews.firstMatch.exists {
+            app.collectionViews.firstMatch.swipeDown()
+        } else if app.tables.firstMatch.exists {
+            app.tables.firstMatch.swipeDown()
+        } else {
+            app.swipeDown()
+        }
+
+        XCTAssertTrue(searchField.waitForExistence(timeout: 5), "Pulling down should reveal the search field")
+        XCTAssertTrue(searchField.isHittable, "Search field should become visible and interactive after pull-down")
+    }
+
     func testPomodoroCanBeEnabledAndOpenedFromAreas() {
         let app = XCUIApplication()
         app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]

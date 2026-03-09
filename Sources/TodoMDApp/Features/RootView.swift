@@ -174,18 +174,23 @@ private struct RootViewSearchableModifier: ViewModifier {
     @Binding var text: String
     @Binding var isPresented: Bool
     let prompt: String
+    let isEnabled: Bool
 
     func body(content: Content) -> some View {
+        if isEnabled {
 #if os(iOS)
-        content.searchable(
-            text: $text,
-            isPresented: $isPresented,
-            placement: .navigationBarDrawer(displayMode: .automatic),
-            prompt: prompt
-        )
+            content.searchable(
+                text: $text,
+                isPresented: $isPresented,
+                placement: .navigationBarDrawer(displayMode: .automatic),
+                prompt: prompt
+            )
 #else
-        content.searchable(text: $text, prompt: prompt)
+            content.searchable(text: $text, prompt: prompt)
 #endif
+        } else {
+            content
+        }
     }
 }
 
@@ -736,7 +741,8 @@ struct RootView: View {
                 RootViewSearchableModifier(
                     text: $universalSearchText,
                     isPresented: $isRootSearchPresented,
-                    prompt: "Search projects, perspectives, tags"
+                    prompt: "Search projects, perspectives, tags",
+                    isEnabled: isAtActiveNavigationRoot && !inboxTriageMode
                 )
             )
             .modifier(RootNavigationTitleModifier(title: navigationTitle(), useInlineDisplayMode: usesInContentHeroHeader))
