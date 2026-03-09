@@ -48,6 +48,12 @@ private struct ProjectColorChoice: Identifiable {
     var id: String { hex }
 }
 
+private struct MainViewHeroConfiguration {
+    let title: String
+    let symbolName: String
+    let iconColor: Color
+}
+
 private enum InlineTaskPanel: Equatable {
     case date
     case destination
@@ -228,7 +234,7 @@ struct RootView: View {
     @State private var customSecondaryNavigationPath = NavigationPath()
     @State private var compactSelectedTab: CompactRootTab = .inbox
     @State private var universalSearchText = ""
-    @State private var isBrowseSearchPresented = false
+    @State private var isRootSearchPresented = false
     @State private var showingCreateProjectSheet = false
     @State private var newProjectName = ""
     @State private var newProjectColorHex = "1E88E5"
@@ -284,7 +290,6 @@ struct RootView: View {
                 }
             }
         }
-        .animation(.easeInOut(duration: 0.18), value: container.selectedView)
         .background(theme.backgroundColor.ignoresSafeArea())
         .sheet(isPresented: $showingQuickEntry) {
             QuickEntrySheet()
@@ -527,9 +532,7 @@ struct RootView: View {
             }
         }
         .onChange(of: container.selectedView) { _, selectedView in
-            if !selectedView.isBrowse {
-                universalSearchText = ""
-            }
+            dismissRootSearch()
             if selectedView != .builtIn(.inbox) {
                 resetInboxTriageMode()
             } else {
@@ -555,6 +558,7 @@ struct RootView: View {
             if count > 0 {
                 expandedTaskPath = nil
                 cancelInlineTaskComposer()
+                dismissRootSearch()
             }
         }
     }
@@ -708,7 +712,14 @@ struct RootView: View {
             .navigationDestination(for: String.self) { path in
                 TaskDetailView(path: path)
             }
-            .modifier(RootNavigationTitleModifier(title: navigationTitle(), useInlineDisplayMode: usesCalendarHeroHeader))
+            .modifier(
+                RootViewSearchableModifier(
+                    text: $universalSearchText,
+                    isPresented: $isRootSearchPresented,
+                    prompt: "Search projects, perspectives, tags"
+                )
+            )
+            .modifier(RootNavigationTitleModifier(title: navigationTitle(), useInlineDisplayMode: usesInContentHeroHeader))
             .toolbar {
                 detailToolbar
             }
@@ -788,7 +799,7 @@ struct RootView: View {
     private var sidebar: some View {
         List {
             Section("Areas") {
-                navButton(view: .browse, label: "Areas", icon: "square.grid.2x2")
+                navButton(view: .browse, label: "Browse", icon: "square.grid.2x2")
             }
 
             Section("Views") {
@@ -878,16 +889,16 @@ struct RootView: View {
 
     private var mainContent: AnyView {
         let searchQuery = universalSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if shouldShowRootSearchContent {
+            return AnyView(
+                rootSearchContent(query: searchQuery)
+                    .transition(rootScreenTransition)
+            )
+        }
         if container.selectedView.isBrowse {
             return AnyView(
                 browseContent(query: searchQuery)
-                    .modifier(
-                    RootViewSearchableModifier(
-                        text: $universalSearchText,
-                        isPresented: $isBrowseSearchPresented,
-                        prompt: "Search tasks, workflows, projects, tags"
-                    )
-                )
+                .transition(rootScreenTransition)
             )
         }
         if container.selectedView == .builtIn(.upcoming) {
@@ -895,15 +906,33 @@ struct RootView: View {
                 UpcomingCalendarView(sections: container.upcomingAgendaSections()) { record in
                     taskRowItem(record)
                 }
+                .transition(rootScreenTransition)
             )
         }
         if container.selectedView == .builtIn(.review) {
-            return AnyView(weeklyReviewContent())
+            return AnyView(
+                weeklyReviewContent()
+                    .transition(rootScreenTransition)
+            )
         }
         if container.selectedView == .builtIn(.pomodoro) {
-            return AnyView(PomodoroTimerView())
+            return AnyView(
+                PomodoroTimerView(
+                    header: currentMainHeroConfiguration.map { configuration in
+                        AnyView(MainHeroHeader(
+                            title: configuration.title,
+                            symbolName: configuration.symbolName,
+                            iconColor: configuration.iconColor
+                        ))
+                    }
+                )
+                .transition(rootScreenTransition)
+            )
         }
-        return recordsMainContent(records: container.filteredRecords())
+        return AnyView(
+            recordsMainContent(records: container.filteredRecords())
+                .transition(rootScreenTransition)
+        )
     }
 
     private func recordsMainContent(records: [TaskRecord]) -> AnyView {
@@ -931,11 +960,12 @@ struct RootView: View {
 
     private var emptyInlineTaskComposerList: some View {
         List {
+            mainHeroListRow
+
             if container.selectedView == .builtIn(.inbox) {
                 InboxRemindersImportPanel()
             }
             if container.selectedView == .builtIn(.today) {
-                todayCalendarHeroListRow
                 if container.isCalendarConnected {
                     todayCalendarCardListRow
                 }
@@ -946,7 +976,6 @@ struct RootView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(theme.backgroundColor)
-        .transition(.move(edge: .trailing).combined(with: .opacity))
     }
 
     private func emptyStateMainContent() -> AnyView {
@@ -957,17 +986,13 @@ struct RootView: View {
             return AnyView(inboxEmptyStateContent)
         }
         return AnyView(
-            VStack(spacing: 12) {
-                emptyTasksUnavailableView
-                unparseableFilesSummary
-            }
-            .transition(.move(edge: .trailing).combined(with: .opacity))
+            genericEmptyStateContent
         )
     }
 
     private var todayEmptyStateContent: some View {
         taskList(id: "\(container.selectedView.rawValue)-empty") {
-            todayCalendarHeroListRow
+            mainHeroListRow
 
             if container.isCalendarConnected {
                 todayCalendarCardListRow
@@ -984,11 +1009,11 @@ struct RootView: View {
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
         }
-        .transition(.move(edge: .trailing).combined(with: .opacity))
     }
 
     private var inboxEmptyStateContent: some View {
         taskList(id: "\(container.selectedView.rawValue)-empty") {
+            mainHeroListRow
             InboxRemindersImportPanel()
 
             VStack(spacing: 12) {
@@ -1002,7 +1027,23 @@ struct RootView: View {
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
         }
-        .transition(.move(edge: .trailing).combined(with: .opacity))
+    }
+
+    private var genericEmptyStateContent: some View {
+        taskList(id: "\(container.selectedView.rawValue)-empty") {
+            mainHeroListRow
+
+            VStack(spacing: 12) {
+                emptyTasksUnavailableView
+                unparseableFilesSummary
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 20)
+            .padding(.bottom, 40)
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+        }
     }
 
     private var emptyTasksUnavailableView: some View {
@@ -1031,7 +1072,7 @@ struct RootView: View {
     private func populatedRecordsMainContent(records: [TaskRecord]) -> some View {
         taskList(id: container.selectedView.rawValue) {
             if container.selectedView == .builtIn(.today) {
-                todayCalendarHeroListRow
+                mainHeroListRow
 
                 if isEditing {
                     if shouldRenderInlineTaskComposerInList {
@@ -1065,6 +1106,8 @@ struct RootView: View {
                     }
                 }
             } else {
+                mainHeroListRow
+
                 if container.selectedView == .builtIn(.inbox) {
                     InboxRemindersImportPanel()
                 }
@@ -1082,17 +1125,102 @@ struct RootView: View {
                 }
             }
         }
-        .transition(.move(edge: .trailing).combined(with: .opacity))
     }
 
-    private var todayCalendarHeroListRow: some View {
-        CalendarHeroHeader(kind: .today)
+    private var mainHeroListRow: some View {
+        Group {
+            if let configuration = currentMainHeroConfiguration {
+                MainHeroHeader(
+                    title: configuration.title,
+                    symbolName: configuration.symbolName,
+                    iconColor: configuration.iconColor
+                )
+            }
+        }
             .padding(.horizontal, 24)
             .padding(.top, 72)
-            .padding(.bottom, container.isCalendarConnected ? 4 : 12)
+            .padding(.bottom, mainHeroBottomPadding)
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
+    }
+
+    private var mainHeroBottomPadding: CGFloat {
+        if container.selectedView == .builtIn(.today), container.isCalendarConnected {
+            return 4
+        }
+        return 12
+    }
+
+    private var searchHeroListRow: some View {
+        MainHeroHeader(
+            title: "Search",
+            symbolName: "magnifyingglass",
+            iconColor: theme.accentColor
+        )
+        .padding(.horizontal, 24)
+        .padding(.top, 72)
+        .padding(.bottom, 12)
+        .listRowInsets(EdgeInsets())
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+    }
+
+    private var rootScreenTransition: AnyTransition {
+        .opacity
+    }
+
+    private var shouldShowRootSearchContent: Bool {
+        isAtActiveNavigationRoot && (isRootSearchPresented || !universalSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    private var currentMainHeroConfiguration: MainViewHeroConfiguration? {
+        switch container.selectedView {
+        case .builtIn(.inbox):
+            return MainViewHeroConfiguration(title: "Inbox", symbolName: "tray", iconColor: Color(red: 0.11, green: 0.60, blue: 0.98))
+        case .builtIn(.today):
+            return MainViewHeroConfiguration(title: "Today", symbolName: "star.fill", iconColor: Color(red: 0.89, green: 0.71, blue: 0.13))
+        case .builtIn(.upcoming):
+            return MainViewHeroConfiguration(title: "Upcoming", symbolName: "calendar", iconColor: Color(red: 1.0, green: 0.22, blue: 0.45))
+        case .builtIn(.myTasks):
+            return MainViewHeroConfiguration(title: "My Tasks", symbolName: "person", iconColor: theme.accentColor)
+        case .builtIn(.delegated):
+            return MainViewHeroConfiguration(title: "Delegated", symbolName: "person.2", iconColor: Color(red: 0.98, green: 0.61, blue: 0.22))
+        case .builtIn(.logbook):
+            return MainViewHeroConfiguration(title: "Logbook", symbolName: "checkmark.circle", iconColor: Color(red: 0.32, green: 0.79, blue: 0.53))
+        case .builtIn(.review):
+            return MainViewHeroConfiguration(title: "Review", symbolName: "checklist", iconColor: Color(red: 0.32, green: 0.77, blue: 0.83))
+        case .builtIn(.anytime):
+            return MainViewHeroConfiguration(title: "Anytime", symbolName: "list.bullet", iconColor: theme.accentColor)
+        case .builtIn(.someday):
+            return MainViewHeroConfiguration(title: "Someday", symbolName: "clock", iconColor: Color(red: 0.67, green: 0.57, blue: 0.98))
+        case .builtIn(.flagged):
+            return MainViewHeroConfiguration(title: "Flagged", symbolName: "flag.fill", iconColor: theme.flaggedColor)
+        case .builtIn(.pomodoro):
+            return MainViewHeroConfiguration(title: "Pomodoro", symbolName: "timer", iconColor: Color(red: 0.98, green: 0.42, blue: 0.31))
+        case .area(let area):
+            return MainViewHeroConfiguration(title: area, symbolName: "square.grid.2x2", iconColor: theme.accentColor)
+        case .project(let project):
+            return MainViewHeroConfiguration(
+                title: project,
+                symbolName: container.projectIconSymbol(for: project),
+                iconColor: color(forHex: container.projectColorHex(for: project)) ?? theme.accentColor
+            )
+        case .tag(let tag):
+            return MainViewHeroConfiguration(title: "#\(tag)", symbolName: "number", iconColor: theme.accentColor)
+        case .custom(let id):
+            if ViewIdentifier.custom(id).isBrowse {
+                return MainViewHeroConfiguration(title: "Browse", symbolName: "square.grid.2x2", iconColor: theme.accentColor)
+            }
+            if let perspective = container.perspectiveDefinition(for: .custom(id)) {
+                return MainViewHeroConfiguration(
+                    title: perspective.name,
+                    symbolName: perspective.icon,
+                    iconColor: color(forHex: perspective.color) ?? theme.accentColor
+                )
+            }
+            return MainViewHeroConfiguration(title: id, symbolName: "list.bullet", iconColor: theme.accentColor)
+        }
     }
 
     private var todayCalendarCardListRow: some View {
@@ -1776,9 +1904,11 @@ struct RootView: View {
 
     private var browseSectionScreen: some View {
         List {
+            mainHeroListRow
+
             Section {
                 Button {
-                    isBrowseSearchPresented = true
+                    isRootSearchPresented = true
                 } label: {
                     Label("Search", systemImage: "magnifyingglass")
                 }
@@ -1953,7 +2083,7 @@ struct RootView: View {
         let perspectives = container.perspectives.filter { matchesQuery($0.name, query: query) }
         let builtInViews: [(label: String, view: ViewIdentifier, icon: String)] = {
             var views: [(label: String, view: ViewIdentifier, icon: String)] = [
-                ("Areas", .browse, "square.grid.2x2"),
+                ("Browse", .browse, "square.grid.2x2"),
                 ("Inbox", .builtIn(.inbox), "tray"),
                 ("My Tasks", .builtIn(.myTasks), "person"),
                 ("Delegated", .builtIn(.delegated), "person.2"),
@@ -1972,13 +2102,30 @@ struct RootView: View {
         }()
 
         if tasks.isEmpty && tags.isEmpty && areas.isEmpty && projects.isEmpty && builtInViews.isEmpty && perspectives.isEmpty {
-            ContentUnavailableView(
-                "No Results",
-                systemImage: "magnifyingglass",
-                description: Text("No matches for \"\(query)\"")
-            )
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    if let configuration = currentMainHeroConfiguration {
+                        MainHeroHeader(
+                            title: configuration.title,
+                            symbolName: configuration.symbolName,
+                            iconColor: configuration.iconColor
+                        )
+                    }
+
+                    ContentUnavailableView(
+                        "No Results",
+                        systemImage: "magnifyingglass",
+                        description: Text("No matches for \"\(query)\"")
+                    )
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 72)
+                .padding(.bottom, 108)
+            }
         } else {
             List {
+                mainHeroListRow
+
                 if !builtInViews.isEmpty {
                     Section("Sections") {
                         ForEach(builtInViews, id: \.view.rawValue) { item in
@@ -2119,6 +2266,91 @@ struct RootView: View {
         }
     }
 
+    @ViewBuilder
+    private func rootSearchContent(query: String) -> some View {
+        let projects = query.isEmpty
+            ? container.allProjects()
+            : container.allProjects().filter { matchesQuery($0, query: query) }
+        let perspectives = query.isEmpty
+            ? container.perspectives
+            : container.perspectives.filter { matchesQuery($0.name, query: query) }
+        let tags = query.isEmpty
+            ? container.availableTags()
+            : container.availableTags().filter { matchesQuery($0, query: query) }
+
+        if projects.isEmpty && perspectives.isEmpty && tags.isEmpty {
+            List {
+                searchHeroListRow
+
+                ContentUnavailableView(
+                    query.isEmpty ? "Nothing To Search Yet" : "No Results",
+                    systemImage: "magnifyingglass",
+                    description: Text(
+                        query.isEmpty
+                        ? "Create a project, perspective, or tag to make it searchable."
+                        : "No project, perspective, or tag matches \"\(query)\"."
+                    )
+                )
+                .frame(maxWidth: .infinity)
+                .padding(.top, 20)
+                .padding(.bottom, 40)
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(theme.backgroundColor)
+        } else {
+            List {
+                searchHeroListRow
+
+                if !projects.isEmpty {
+                    Section("Projects") {
+                        ForEach(projects, id: \.self) { project in
+                            searchDestinationButton(
+                                view: .project(project),
+                                label: project,
+                                icon: container.projectIconSymbol(for: project),
+                                tintHex: container.projectColorHex(for: project),
+                                fallbackIcon: "folder"
+                            )
+                        }
+                    }
+                }
+
+                if !perspectives.isEmpty {
+                    Section("Perspectives") {
+                        ForEach(perspectives) { perspective in
+                            searchDestinationButton(
+                                view: container.perspectiveViewIdentifier(for: perspective.id),
+                                label: perspective.name,
+                                icon: perspective.icon,
+                                tintHex: perspective.color,
+                                fallbackIcon: "list.bullet"
+                            )
+                        }
+                    }
+                }
+
+                if !tags.isEmpty {
+                    Section("Tags") {
+                        ForEach(tags, id: \.self) { tag in
+                            searchDestinationButton(
+                                view: .tag(tag),
+                                label: "#\(tag)",
+                                icon: "number"
+                            )
+                        }
+                    }
+                }
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(theme.backgroundColor)
+        }
+    }
+
     private var projectSettingsSheet: some View {
         Form {
             Section("Name") {
@@ -2229,6 +2461,41 @@ struct RootView: View {
                     }
                 }
             }
+    }
+
+    private func searchDestinationButton(
+        view: ViewIdentifier,
+        label: String,
+        icon: String,
+        tintHex: String? = nil,
+        fallbackIcon: String? = nil
+    ) -> some View {
+        let tint = color(forHex: tintHex) ?? theme.accentColor
+        let resolvedFallback = fallbackIcon ?? (icon.isEmpty ? "questionmark.circle" : icon)
+        return Button {
+            openSearchResult(view)
+        } label: {
+            HStack(spacing: 10) {
+                AppIconGlyph(
+                    icon: icon,
+                    fallbackSymbol: resolvedFallback,
+                    pointSize: 17,
+                    weight: .semibold,
+                    tint: tint
+                )
+                .frame(width: 20, height: 20)
+
+                Text(label)
+                    .foregroundStyle(theme.textPrimaryColor)
+
+                Spacer()
+
+                Image(systemName: "arrow.up.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.textSecondaryColor)
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
@@ -2672,22 +2939,14 @@ struct RootView: View {
     }
 
     private func navigationTitle() -> String {
-        if container.selectedView.isBrowse {
-            return "Areas"
-        }
-        if usesCalendarHeroHeader {
+        if usesInContentHeroHeader {
             return ""
         }
         return titleForCurrentView()
     }
 
-    private var usesCalendarHeroHeader: Bool {
-        switch container.selectedView {
-        case .builtIn(.today), .builtIn(.upcoming):
-            return true
-        default:
-            return false
-        }
+    private var usesInContentHeroHeader: Bool {
+        true
     }
 
     private func matchesQuery(_ value: String, query: String) -> Bool {
@@ -2742,6 +3001,17 @@ struct RootView: View {
 #if canImport(UIKit)
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
 #endif
+    }
+
+    private func dismissRootSearch() {
+        universalSearchText = ""
+        isRootSearchPresented = false
+    }
+
+    private func openSearchResult(_ view: ViewIdentifier) {
+        dismissRootSearch()
+        guard container.selectedView != view else { return }
+        applyFilter(view)
     }
 
     private func toggleInboxTriageMode() {
@@ -3161,7 +3431,7 @@ struct RootView: View {
             return "#\(tag)"
         case .custom(let id):
             if ViewIdentifier.custom(id).isBrowse {
-                return "Areas"
+                return "Browse"
             }
             if let perspectiveName = container.perspectiveName(for: .custom(id)) {
                 return perspectiveName
@@ -3223,13 +3493,29 @@ extension RootView {
         let sections = container.weeklyReviewSections()
 
         if sections.isEmpty {
-            ContentUnavailableView(
-                "Review Is Clear",
-                systemImage: "checkmark.circle",
-                description: Text("Nothing is stale, overdue, deferred into someday, or missing a next action.")
-            )
+            List {
+                mainHeroListRow
+
+                ContentUnavailableView(
+                    "Review Is Clear",
+                    systemImage: "checkmark.circle",
+                    description: Text("Nothing is stale, overdue, deferred into someday, or missing a next action.")
+                )
+                .frame(maxWidth: .infinity)
+                .padding(.top, 20)
+                .padding(.bottom, 40)
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            }
+            .id(container.selectedView.rawValue)
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(theme.backgroundColor)
         } else {
             List {
+                mainHeroListRow
+
                 ForEach(sections) { section in
                     Section {
                         switch section.kind {
@@ -3251,7 +3537,6 @@ extension RootView {
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .background(theme.backgroundColor)
-            .transition(.move(edge: .trailing).combined(with: .opacity))
         }
     }
 

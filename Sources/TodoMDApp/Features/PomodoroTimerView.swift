@@ -58,6 +58,7 @@ private enum PomodoroPhase: String {
 }
 
 struct PomodoroTimerView: View {
+    let header: AnyView?
     @AppStorage("settings_pomodoro_mode") private var modeRawValue = PomodoroPreset.standard.rawValue
     @AppStorage("settings_pomodoro_auto_start_next") private var autoStartNext = false
     @AppStorage("settings_pomodoro_phase") private var phaseRawValue = PomodoroPhase.focus.rawValue
@@ -68,58 +69,71 @@ struct PomodoroTimerView: View {
     @State private var now = Date()
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
+    init(header: AnyView? = nil) {
+        self.header = header
+    }
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(currentPhase.title)
-                        .font(.title3.weight(.semibold))
-
-                    Text(formattedTime(displayedRemainingSeconds))
-                        .font(.system(size: 56, weight: .bold, design: .monospaced))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                    ProgressView(value: progressValue)
-                        .tint(currentPhase == .focus ? .blue : .green)
-
-                    Text(currentPhase == .focus ? "Stay on task." : "Take a short break.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 28) {
+                if let header {
+                    header
                 }
 
-                HStack(spacing: 10) {
-                    Button(isRunning ? "Pause" : "Start") {
-                        isRunning ? pauseTimer() : startTimer()
+                VStack(alignment: .leading, spacing: 20) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(currentPhase.title)
+                            .font(.title3.weight(.semibold))
+
+                        Text(formattedTime(displayedRemainingSeconds))
+                            .font(.system(size: 56, weight: .bold, design: .monospaced))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        ProgressView(value: progressValue)
+                            .tint(currentPhase == .focus ? .blue : .green)
+
+                        Text(currentPhase == .focus ? "Stay on task." : "Take a short break.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.borderedProminent)
 
-                    Button("Reset") {
-                        resetTimer()
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button("Skip Break") {
-                        skipBreak()
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(currentPhase != .breakTime)
-                }
-
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Session")
-                        .font(.headline)
-
-                    Picker("Session preset", selection: $modeRawValue) {
-                        ForEach(PomodoroPreset.allCases) { preset in
-                            Text(preset.title).tag(preset.rawValue)
+                    HStack(spacing: 10) {
+                        Button(isRunning ? "Pause" : "Start") {
+                            isRunning ? pauseTimer() : startTimer()
                         }
-                    }
-                    .pickerStyle(.segmented)
+                        .buttonStyle(.borderedProminent)
 
-                    Toggle("Auto-start next session", isOn: $autoStartNext)
+                        Button("Reset") {
+                            resetTimer()
+                        }
+                        .buttonStyle(.bordered)
+
+                        Button("Skip Break") {
+                            skipBreak()
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(currentPhase != .breakTime)
+                    }
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Session")
+                            .font(.headline)
+
+                        Picker("Session preset", selection: $modeRawValue) {
+                            ForEach(PomodoroPreset.allCases) { preset in
+                                Text(preset.title).tag(preset.rawValue)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+
+                        Toggle("Auto-start next session", isOn: $autoStartNext)
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding()
+            .padding(.horizontal, header == nil ? 16 : 24)
+            .padding(.top, header == nil ? 16 : 72)
+            .padding(.bottom, 108)
         }
         .onAppear {
             sanitizeState(referenceDate: Date())
