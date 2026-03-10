@@ -131,6 +131,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             } else {
                 _ = try repository.complete(path: path, at: now)
             }
+            Task { @MainActor in
+                UserNotificationScheduler().cancelNotifications(forTaskPath: path)
+            }
             refreshNotificationsBestEffort()
         } catch {
             return

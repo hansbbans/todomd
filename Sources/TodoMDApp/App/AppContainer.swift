@@ -2148,12 +2148,17 @@ final class AppContainer: ObservableObject {
         }
     }
 
+    @MainActor
     func complete(path: String) {
         do {
+            notificationScheduler.cancelNotifications(forTaskPath: path)
+
             let now = Date()
             let current = try repository.load(path: path)
             let recurrence = current.document.frontmatter.recurrence?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let shouldRepeat = !recurrence.isEmpty && current.document.frontmatter.status != .done && current.document.frontmatter.status != .cancelled
+            let shouldRepeat = !recurrence.isEmpty
+                && current.document.frontmatter.status != .done
+                && current.document.frontmatter.status != .cancelled
 
             if shouldRepeat {
                 let result = try repository.completeRepeating(path: path, at: now, completedBy: "user")
@@ -2174,6 +2179,7 @@ final class AppContainer: ObservableObject {
         }
     }
 
+    @MainActor
     func complete(record: TaskRecord) {
         complete(path: record.identity.path)
     }

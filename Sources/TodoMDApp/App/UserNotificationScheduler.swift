@@ -40,6 +40,55 @@ final class UserNotificationScheduler {
         self.center = center
     }
 
+    func cancelNotifications(forTaskPath path: String) {
+        let filename = URL(fileURLWithPath: path).lastPathComponent
+
+        let timedIdentifiers = Set(timedPlansByPath[path, default: []].map(\.identifier))
+        let locationIdentifiers = Set(locationPlansByPath[path, default: []].map(\.identifier))
+        let scheduledTimedIdentifiers = Set(
+            scheduledTimedPlansByIdentifier.values
+                .filter { $0.taskPath == path }
+                .map(\.identifier)
+        )
+        let scheduledLocationIdentifiers = Set(
+            scheduledLocationPlansByIdentifier.values
+                .filter { $0.taskPath == path }
+                .map(\.identifier)
+        )
+
+        let identifiers = timedIdentifiers
+            .union(locationIdentifiers)
+            .union(scheduledTimedIdentifiers)
+            .union(scheduledLocationIdentifiers)
+
+        timedPlansByPath.removeValue(forKey: path)
+        locationPlansByPath.removeValue(forKey: path)
+        scheduledTimedPlansByIdentifier = scheduledTimedPlansByIdentifier.filter {
+            $0.value.taskPath != path && !$0.key.hasPrefix("\(filename)#")
+        }
+        scheduledLocationPlansByIdentifier = scheduledLocationPlansByIdentifier.filter {
+            $0.value.taskPath != path && !$0.key.hasPrefix("\(filename)#")
+        }
+
+        if !identifiers.isEmpty {
+            center.removePendingNotificationRequests(withIdentifiers: Array(identifiers))
+        }
+
+        center.getPendingNotificationRequests { [center] requests in
+            let matchingIdentifiers = requests.compactMap { request -> String? in
+                let requestPath = request.content.userInfo["task_path"] as? String
+                guard requestPath == path || request.identifier.hasPrefix("\(filename)#") else {
+                    return nil
+                }
+                return request.identifier
+            }
+
+            if !matchingIdentifiers.isEmpty {
+                center.removePendingNotificationRequests(withIdentifiers: matchingIdentifiers)
+            }
+        }
+    }
+
     func synchronize(records: [TaskRecord], planner: NotificationPlanner) async {
         timedPlansByPath = Dictionary(uniqueKeysWithValues: records.map {
             ($0.identity.path, planner.planNotifications(for: $0, referenceDate: Date()))
@@ -347,6 +396,7 @@ final class UserNotificationScheduler {
 
     nonisolated private static func isManagedNotificationIdentifier(_ identifier: String) -> Bool {
         identifier.hasSuffix("#due")
+            || identifier.contains("#catchup-")
             || identifier.hasSuffix("#defer")
             || identifier.contains("#nag-")
             || identifier.hasSuffix("#loc-arrive")
