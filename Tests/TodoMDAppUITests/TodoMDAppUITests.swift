@@ -259,9 +259,11 @@ final class TodoMDAppUITests: XCTestCase {
 
         let searchField = app.searchFields.firstMatch
 
-        // On current simulator/XCUITest builds, navigation drawer search can be reported as
-        // hittable before the drawer is visually expanded. The reliable assertion here is that a
-        // pull-down reveals an interactive search affordance we can actually use.
+        XCTAssertFalse(
+            searchField.exists && searchField.isHittable,
+            "Search field should not be visibly pinned before pull-down"
+        )
+
         if app.collectionViews.firstMatch.exists {
             app.collectionViews.firstMatch.swipeDown()
         } else if app.tables.firstMatch.exists {
