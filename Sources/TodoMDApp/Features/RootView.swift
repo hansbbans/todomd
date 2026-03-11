@@ -176,6 +176,33 @@ private struct RootViewInsetGroupedListStyle: ViewModifier {
     }
 }
 
+#if os(iOS)
+private enum RootPullToSearchCoordinateSpace {
+    static let name = "rootPullToSearchScrollArea"
+}
+
+private struct RootPullToSearchTopOffsetPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat? = nil
+
+    static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) {
+        value = nextValue() ?? value
+    }
+}
+
+private struct RootPullToSearchTopMarker: ViewModifier {
+    func body(content: Content) -> some View {
+        content.background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: RootPullToSearchTopOffsetPreferenceKey.self,
+                    value: proxy.frame(in: .named(RootPullToSearchCoordinateSpace.name)).minY
+                )
+            }
+        }
+    }
+}
+#endif
+
 private struct RootPullToSearchIndicator: View {
     let progress: CGFloat
     let isVisible: Bool
@@ -243,20 +270,32 @@ private struct RootPullToSearchGestureModifier: ViewModifier {
 #if os(iOS)
     @State private var pullDistance: CGFloat = 0
     @State private var isArmed = false
+    @State private var isListAtTop = true
+    @State private var dragStartedAtTop = false
+    @State private var isTrackingDrag = false
 
     private let activationDistance: CGFloat = 48
-    private let activationZoneMaxY: CGFloat = 260
+    private let topOffsetTolerance: CGFloat = 12
     private let maxHorizontalDrift: CGFloat = 140
 #endif
 
     func body(content: Content) -> some View {
 #if os(iOS)
         content
+            .coordinateSpace(name: RootPullToSearchCoordinateSpace.name)
+            .onPreferenceChange(RootPullToSearchTopOffsetPreferenceKey.self) { minY in
+                guard let minY else { return }
+                isListAtTop = minY >= -topOffsetTolerance
+            }
             .simultaneousGesture(
                 DragGesture(minimumDistance: 14, coordinateSpace: .global)
                     .onChanged { value in
-                        guard isEnabled,
-                              value.startLocation.y < activationZoneMaxY else {
+                        if !isTrackingDrag {
+                            isTrackingDrag = true
+                            dragStartedAtTop = isListAtTop
+                        }
+
+                        guard isEnabled, dragStartedAtTop else {
                             resetIndicator(animated: true)
                             return
                         }
@@ -273,11 +312,11 @@ private struct RootPullToSearchGestureModifier: ViewModifier {
                     }
                     .onEnded { value in
                         let shouldTrigger = isEnabled &&
-                            value.startLocation.y < activationZoneMaxY &&
+                            dragStartedAtTop &&
                             value.translation.height >= activationDistance &&
                             abs(value.translation.width) < maxHorizontalDrift
 
-                        resetIndicator(animated: true)
+                        resetGestureState(animated: true)
 
                         guard shouldTrigger else { return }
                         onTrigger()
@@ -298,6 +337,12 @@ private struct RootPullToSearchGestureModifier: ViewModifier {
     }
 
 #if os(iOS)
+    private func resetGestureState(animated: Bool) {
+        dragStartedAtTop = false
+        isTrackingDrag = false
+        resetIndicator(animated: animated)
+    }
+
     private func resetIndicator(animated: Bool) {
         if animated {
             withAnimation(.interactiveSpring(response: 0.18, dampingFraction: 0.84, blendDuration: 0.08)) {
@@ -1269,6 +1314,9 @@ struct RootView: View {
             .padding(.horizontal, 24)
             .padding(.top, 72)
             .padding(.bottom, mainHeroBottomPadding)
+#if os(iOS)
+            .modifier(RootPullToSearchTopMarker())
+#endif
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
