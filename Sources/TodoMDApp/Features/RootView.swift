@@ -804,18 +804,6 @@ struct RootView: View {
         }
 
         ToolbarItem(placement: .appTrailingAction) {
-            if container.selectedView == .builtIn(.inbox), isAtActiveNavigationRoot {
-                Button {
-                    toggleInboxTriageMode()
-                } label: {
-                    Label(inboxTriageMode ? "List" : "Triage", systemImage: inboxTriageMode ? "list.bullet" : "rectangle.stack")
-                }
-                .keyboardShortcut("t", modifiers: [.command, .shift])
-                .accessibilityIdentifier("root.triageToggle")
-            }
-        }
-
-        ToolbarItem(placement: .appTrailingAction) {
             if horizontalSizeClass != .compact {
                 NavigationLink {
                     SettingsView()
@@ -2073,9 +2061,6 @@ struct RootView: View {
         }
         .modifier(RootViewInsetGroupedListStyle())
         .scrollContentBackground(.hidden)
-        .refreshable {
-            await handlePullToSearch()
-        }
         .modifier(
             RootPullToSearchGestureModifier(
                 isEnabled: shouldAllowPullToSearchGesture,
@@ -2780,9 +2765,6 @@ struct RootView: View {
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .background(theme.backgroundColor)
-            .refreshable {
-                await handlePullToSearch()
-            }
             .modifier(
                 RootPullToSearchGestureModifier(
                     isEnabled: shouldAllowPullToSearchGesture,
@@ -3143,20 +3125,6 @@ struct RootView: View {
         isRootSearchPresented = true
     }
 
-    private func handlePullToSearch() async {
-        guard isAtActiveNavigationRoot, !inboxTriageMode else {
-            container.refresh()
-            if container.selectedView == .builtIn(.inbox) {
-                await container.refreshReminderListsIfNeeded()
-            }
-            return
-        }
-
-        await MainActor.run {
-            presentRootSearch()
-        }
-    }
-
     private func dismissRootSearch() {
         universalSearchText = ""
 #if os(iOS)
@@ -3176,16 +3144,6 @@ struct RootView: View {
         DispatchQueue.main.async {
             openFullTaskEditor(path: path)
         }
-    }
-
-    private func toggleInboxTriageMode() {
-        if inboxTriageMode {
-            resetInboxTriageMode()
-            return
-        }
-        inboxTriageSkippedPaths.removeAll()
-        inboxTriagePinnedPath = container.filteredRecords().first?.identity.path
-        inboxTriageMode = true
     }
 
     private func resetInboxTriageMode() {
@@ -3676,9 +3634,6 @@ extension RootView {
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .background(theme.backgroundColor)
-            .refreshable {
-                await handlePullToSearch()
-            }
             .modifier(
                 RootPullToSearchGestureModifier(
                     isEnabled: shouldAllowPullToSearchGesture,
@@ -3714,9 +3669,6 @@ extension RootView {
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .background(theme.backgroundColor)
-            .refreshable {
-                await handlePullToSearch()
-            }
             .modifier(
                 RootPullToSearchGestureModifier(
                     isEnabled: shouldAllowPullToSearchGesture,
