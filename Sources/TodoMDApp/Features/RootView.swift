@@ -204,9 +204,14 @@ private struct RootNavigationTitleModifier: ViewModifier {
 
     func body(content: Content) -> some View {
 #if os(iOS)
-        content
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(useInlineDisplayMode ? .inline : .automatic)
+        if useInlineDisplayMode {
+            content
+                .navigationTitle(title)
+                .navigationBarTitleDisplayMode(.inline)
+        } else {
+            content
+                .navigationTitle(title)
+        }
 #else
         content
             .navigationTitle(title)
@@ -742,7 +747,12 @@ struct RootView: View {
                     isEnabled: isAtActiveNavigationRoot && !inboxTriageMode
                 )
             )
-            .modifier(RootNavigationTitleModifier(title: navigationTitle(), useInlineDisplayMode: usesInContentHeroHeader))
+            .modifier(
+                RootNavigationTitleModifier(
+                    title: navigationTitle(),
+                    useInlineDisplayMode: usesInContentHeroHeader && !(isAtActiveNavigationRoot && !inboxTriageMode)
+                )
+            )
             .toolbar {
                 detailToolbar
             }
