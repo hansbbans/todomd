@@ -176,26 +176,140 @@ private struct RootViewInsetGroupedListStyle: ViewModifier {
     }
 }
 
+private struct RootPullToSearchIndicator: View {
+    let progress: CGFloat
+    let isVisible: Bool
+    let isArmed: Bool
+
+    private var clampedProgress: CGFloat {
+        min(max(progress, 0), 1.2)
+    }
+
+    var body: some View {
+        let panelScale = 0.82 + (clampedProgress * 0.18)
+        let iconScale = 0.82 + (clampedProgress * 0.24)
+        let panelOpacity = isVisible ? min(1, clampedProgress * 1.5) : 0
+        let verticalOffset = max(-18, 18 - (clampedProgress * 24))
+
+        VStack(spacing: 7) {
+            ZStack {
+                Circle()
+                    .fill(.ultraThinMaterial)
+
+                Circle()
+                    .strokeBorder(Color.white.opacity(isArmed ? 0.28 : 0.14), lineWidth: 1)
+
+                Circle()
+                    .fill(Color.white.opacity(isArmed ? 0.12 : 0))
+                    .padding(4)
+
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(isArmed ? 1 : 0.86))
+                    .scaleEffect(iconScale)
+                    .rotationEffect(.degrees(isArmed ? 10 : Double((clampedProgress - 0.5) * 8)))
+            }
+            .frame(width: 44, height: 44)
+
+            Text(isArmed ? "Release to search" : "Pull to search")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Color.white.opacity(0.92))
+                .opacity(clampedProgress > 0.35 ? 1 : 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color.black.opacity(0.28))
+                .overlay(
+                    Capsule(style: .continuous)
+                        .strokeBorder(Color.white.opacity(isArmed ? 0.18 : 0.08), lineWidth: 1)
+                )
+        )
+        .shadow(color: Color.black.opacity(0.22), radius: 16, y: 10)
+        .scaleEffect(panelScale)
+        .offset(y: verticalOffset)
+        .opacity(panelOpacity)
+        .animation(.interactiveSpring(response: 0.18, dampingFraction: 0.84, blendDuration: 0.08), value: progress)
+        .animation(.spring(response: 0.22, dampingFraction: 0.72, blendDuration: 0.1), value: isArmed)
+        .accessibilityHidden(true)
+    }
+}
+
 private struct RootPullToSearchGestureModifier: ViewModifier {
     let isEnabled: Bool
     let onTrigger: () -> Void
 
+#if os(iOS)
+    @State private var pullDistance: CGFloat = 0
+    @State private var isArmed = false
+
+    private let activationDistance: CGFloat = 48
+    private let activationZoneMaxY: CGFloat = 260
+    private let maxHorizontalDrift: CGFloat = 140
+#endif
+
     func body(content: Content) -> some View {
 #if os(iOS)
-        content.simultaneousGesture(
-            DragGesture(minimumDistance: 28, coordinateSpace: .global)
-                .onEnded { value in
-                    guard isEnabled,
-                          value.startLocation.y < 220,
-                          value.translation.height > 90,
-                          abs(value.translation.width) < 120 else { return }
-                    onTrigger()
-                }
-        )
+        content
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 14, coordinateSpace: .global)
+                    .onChanged { value in
+                        guard isEnabled,
+                              value.startLocation.y < activationZoneMaxY else {
+                            resetIndicator(animated: true)
+                            return
+                        }
+
+                        let verticalPull = max(0, value.translation.height)
+                        guard verticalPull > 0,
+                              abs(value.translation.width) < maxHorizontalDrift else {
+                            resetIndicator(animated: true)
+                            return
+                        }
+
+                        pullDistance = verticalPull
+                        isArmed = verticalPull >= activationDistance
+                    }
+                    .onEnded { value in
+                        let shouldTrigger = isEnabled &&
+                            value.startLocation.y < activationZoneMaxY &&
+                            value.translation.height >= activationDistance &&
+                            abs(value.translation.width) < maxHorizontalDrift
+
+                        resetIndicator(animated: true)
+
+                        guard shouldTrigger else { return }
+                        onTrigger()
+                    }
+            )
+            .overlay(alignment: .top) {
+                RootPullToSearchIndicator(
+                    progress: pullDistance / activationDistance,
+                    isVisible: isEnabled && pullDistance > 0,
+                    isArmed: isArmed
+                )
+                .padding(.top, 8)
+                .allowsHitTesting(false)
+            }
 #else
         content
 #endif
     }
+
+#if os(iOS)
+    private func resetIndicator(animated: Bool) {
+        if animated {
+            withAnimation(.interactiveSpring(response: 0.18, dampingFraction: 0.84, blendDuration: 0.08)) {
+                pullDistance = 0
+                isArmed = false
+            }
+        } else {
+            pullDistance = 0
+            isArmed = false
+        }
+    }
+#endif
 }
 
 private struct RootNavigationTitleModifier: ViewModifier {
