@@ -170,31 +170,31 @@ private struct SectionHeaderView: View {
     }
 }
 
-private struct RootViewSearchableModifier: ViewModifier {
-    @Binding var text: String
-    let prompt: String
-    let isEnabled: Bool
-
-    func body(content: Content) -> some View {
-        if isEnabled {
-#if os(iOS)
-            content.searchable(
-                text: $text,
-                placement: .navigationBarDrawer(displayMode: .automatic),
-                prompt: prompt
-            )
-#else
-            content.searchable(text: $text, prompt: prompt)
-#endif
-        } else {
-            content
-        }
-    }
-}
-
 private struct RootViewInsetGroupedListStyle: ViewModifier {
     func body(content: Content) -> some View {
         content.listStyle(.plain)
+    }
+}
+
+private struct RootPullToSearchGestureModifier: ViewModifier {
+    let isEnabled: Bool
+    let onTrigger: () -> Void
+
+    func body(content: Content) -> some View {
+#if os(iOS)
+        content.simultaneousGesture(
+            DragGesture(minimumDistance: 28, coordinateSpace: .global)
+                .onEnded { value in
+                    guard isEnabled,
+                          value.startLocation.y < 220,
+                          value.translation.height > 90,
+                          abs(value.translation.width) < 120 else { return }
+                    onTrigger()
+                }
+        )
+#else
+        content
+#endif
     }
 }
 
@@ -257,6 +257,9 @@ struct RootView: View {
     @State private var compactSelectedTab: CompactRootTab = .inbox
     @State private var universalSearchText = ""
     @State private var isRootSearchPresented = false
+#if os(iOS)
+    @State private var rootSearchPresentationDetent: PresentationDetent = .fraction(0.58)
+#endif
     @State private var activeProjectSheetMode: ProjectSheetMode?
     @State private var newProjectName = ""
     @State private var newProjectColorHex = "1E88E5"
@@ -316,6 +319,14 @@ struct RootView: View {
         .background(theme.backgroundColor.ignoresSafeArea())
         .sheet(isPresented: $showingQuickEntry) {
             QuickEntrySheet()
+        }
+        .sheet(
+            isPresented: $isRootSearchPresented,
+            onDismiss: { universalSearchText = "" }
+        ) {
+            NavigationStack {
+                rootSearchSheet
+            }
         }
         .sheet(isPresented: $showingInlineVoiceRamble) {
             VoiceRambleSheet(
@@ -741,16 +752,9 @@ struct RootView: View {
                 TaskDetailView(path: path)
             }
             .modifier(
-                RootViewSearchableModifier(
-                    text: $universalSearchText,
-                    prompt: "Search tasks, areas, projects, tags",
-                    isEnabled: isAtActiveNavigationRoot && !inboxTriageMode
-                )
-            )
-            .modifier(
                 RootNavigationTitleModifier(
                     title: navigationTitle(),
-                    useInlineDisplayMode: usesInContentHeroHeader && !(isAtActiveNavigationRoot && !inboxTriageMode)
+                    useInlineDisplayMode: usesInContentHeroHeader
                 )
             )
             .toolbar {
@@ -779,12 +783,6 @@ struct RootView: View {
             .overlay {
                 if shouldShowCompactInlineTaskComposer {
                     compactInlineTaskComposerOverlay
-                }
-            }
-            .refreshable {
-                container.refresh()
-                if container.selectedView == .builtIn(.inbox) {
-                    await container.refreshReminderListsIfNeeded()
                 }
             }
             .animation(.spring(response: 0.34, dampingFraction: 0.9, blendDuration: 0.12), value: shouldShowExpandedTaskBottomBar)
@@ -924,17 +922,10 @@ struct RootView: View {
     }
 
     private var mainContent: AnyView {
-        let searchQuery = universalSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if shouldShowRootSearchContent {
-            return AnyView(
-                rootSearchContent(query: searchQuery)
-                    .transition(rootScreenTransition)
-            )
-        }
         if container.selectedView.isBrowse {
             return AnyView(
-                browseContent(query: searchQuery)
-                .transition(rootScreenTransition)
+                browseContent()
+                    .transition(rootScreenTransition)
             )
         }
         if container.selectedView == .builtIn(.upcoming) {
@@ -1188,26 +1179,8 @@ struct RootView: View {
         return 12
     }
 
-    private var searchHeroListRow: some View {
-        MainHeroHeader(
-            title: "Search",
-            symbolName: "magnifyingglass",
-            iconColor: theme.accentColor
-        )
-        .padding(.horizontal, 24)
-        .padding(.top, 72)
-        .padding(.bottom, 12)
-        .listRowInsets(EdgeInsets())
-        .listRowBackground(Color.clear)
-        .listRowSeparator(.hidden)
-    }
-
     private var rootScreenTransition: AnyTransition {
         .opacity
-    }
-
-    private var shouldShowRootSearchContent: Bool {
-        isAtActiveNavigationRoot && (isRootSearchPresented || !universalSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
     private var currentMainHeroConfiguration: MainViewHeroConfiguration? {
@@ -1944,7 +1917,7 @@ struct RootView: View {
 
             Section {
                 Button {
-                    isRootSearchPresented = true
+                    presentRootSearch()
                 } label: {
                     Label("Search", systemImage: "magnifyingglass")
                 }
@@ -2100,19 +2073,28 @@ struct RootView: View {
         }
         .modifier(RootViewInsetGroupedListStyle())
         .scrollContentBackground(.hidden)
-    }
-
-    @ViewBuilder
-    private func browseContent(query: String) -> some View {
-        if query.isEmpty {
-            browseSectionScreen
-        } else {
-            universalSearchContent(query: query)
+        .refreshable {
+            await handlePullToSearch()
         }
+        .modifier(
+            RootPullToSearchGestureModifier(
+                isEnabled: shouldAllowPullToSearchGesture,
+                onTrigger: {
+                    Task { @MainActor in
+                        presentRootSearch()
+                    }
+                }
+            )
+        )
     }
 
     @ViewBuilder
-    private func universalSearchContent(query: String) -> some View {
+    private func browseContent() -> some View {
+        browseSectionScreen
+    }
+
+    @ViewBuilder
+    private func rootSearchResultsContent(query: String) -> some View {
         let tasks = container.searchRecords(query: query)
         let tags = container.availableTags().filter { matchesQuery($0, query: query) }
         let areas = container.availableAreas().filter { matchesQuery($0, query: query) }
@@ -2139,96 +2121,89 @@ struct RootView: View {
         }()
 
         if tasks.isEmpty && tags.isEmpty && areas.isEmpty && projects.isEmpty && builtInViews.isEmpty && perspectives.isEmpty {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    if let configuration = currentMainHeroConfiguration {
-                        MainHeroHeader(
-                            title: configuration.title,
-                            symbolName: configuration.symbolName,
-                            iconColor: configuration.iconColor
+            ContentUnavailableView(
+                "No Results",
+                systemImage: "magnifyingglass",
+                description: Text("No matches for \"\(query)\"")
+            )
+            .frame(maxWidth: .infinity)
+            .padding(.top, 32)
+            .padding(.bottom, 48)
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+        } else {
+            if !builtInViews.isEmpty {
+                Section("Sections") {
+                    ForEach(builtInViews, id: \.view.rawValue) { item in
+                        searchDestinationButton(
+                            view: item.view,
+                            label: item.label,
+                            icon: item.icon
                         )
                     }
-
-                    ContentUnavailableView(
-                        "No Results",
-                        systemImage: "magnifyingglass",
-                        description: Text("No matches for \"\(query)\"")
-                    )
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 72)
-                .padding(.bottom, 108)
             }
-        } else {
-            List {
-                mainHeroListRow
 
-                if !builtInViews.isEmpty {
-                    Section("Sections") {
-                        ForEach(builtInViews, id: \.view.rawValue) { item in
-                            if case .builtIn(let builtInView) = item.view {
-                                builtInBrowseFilterButton(builtInView, label: item.label, icon: item.icon)
-                            } else {
-                                browseFilterButton(view: item.view, label: item.label, icon: item.icon)
-                            }
-                        }
-                    }
-                }
-
-                if !perspectives.isEmpty {
-                    Section("Perspectives") {
-                        ForEach(perspectives) { perspective in
-                            browseFilterButton(
-                                view: container.perspectiveViewIdentifier(for: perspective.id),
-                                label: perspective.name,
-                                icon: perspective.icon,
-                                tintHex: perspective.color,
-                                fallbackIcon: "list.bullet"
-                            )
-                        }
-                    }
-                }
-
-                if !tags.isEmpty {
-                    Section("Tags") {
-                        ForEach(tags, id: \.self) { tag in
-                            browseFilterButton(view: .tag(tag), label: "#\(tag)", icon: "number")
-                        }
-                    }
-                }
-
-                if !areas.isEmpty {
-                    Section("Workflows") {
-                        ForEach(areas, id: \.self) { area in
-                            browseFilterButton(view: .area(area), label: area, icon: "square.grid.2x2")
-                        }
-                    }
-                }
-
-                if !projects.isEmpty {
-                    Section("Projects") {
-                        ForEach(projects, id: \.self) { project in
-                            browseFilterButton(
-                                view: .project(project),
-                                label: project,
-                                icon: container.projectIconSymbol(for: project),
-                                tintHex: container.projectColorHex(for: project),
-                                fallbackIcon: "folder"
-                            )
-                        }
-                    }
-                }
-
-                if !tasks.isEmpty {
-                    Section("Tasks") {
-                        ForEach(tasks) { record in
-                            taskRowItem(record)
-                        }
+            if !perspectives.isEmpty {
+                Section("Perspectives") {
+                    ForEach(perspectives) { perspective in
+                        searchDestinationButton(
+                            view: container.perspectiveViewIdentifier(for: perspective.id),
+                            label: perspective.name,
+                            icon: perspective.icon,
+                            tintHex: perspective.color,
+                            fallbackIcon: "list.bullet"
+                        )
                     }
                 }
             }
-            .modifier(RootViewInsetGroupedListStyle())
-            .scrollContentBackground(.hidden)
+
+            if !tags.isEmpty {
+                Section("Tags") {
+                    ForEach(tags, id: \.self) { tag in
+                        searchDestinationButton(
+                            view: .tag(tag),
+                            label: "#\(tag)",
+                            icon: "number"
+                        )
+                    }
+                }
+            }
+
+            if !areas.isEmpty {
+                Section("Workflows") {
+                    ForEach(areas, id: \.self) { area in
+                        searchDestinationButton(
+                            view: .area(area),
+                            label: area,
+                            icon: "square.grid.2x2"
+                        )
+                    }
+                }
+            }
+
+            if !projects.isEmpty {
+                Section("Projects") {
+                    ForEach(projects, id: \.self) { project in
+                        searchDestinationButton(
+                            view: .project(project),
+                            label: project,
+                            icon: container.projectIconSymbol(for: project),
+                            tintHex: container.projectColorHex(for: project),
+                            fallbackIcon: "folder"
+                        )
+                    }
+                }
+            }
+
+            if !tasks.isEmpty {
+                Section("Tasks") {
+                    ForEach(tasks) { record in
+                        searchTaskResultButton(record)
+                    }
+                }
+            }
         }
     }
 
@@ -2347,91 +2322,6 @@ struct RootView: View {
                 }
                 .accessibilityIdentifier(projectSheetConfirmationAccessibilityIdentifier(for: mode))
             }
-        }
-    }
-
-    @ViewBuilder
-    private func rootSearchContent(query: String) -> some View {
-        let projects = query.isEmpty
-            ? container.allProjects()
-            : container.allProjects().filter { matchesQuery($0, query: query) }
-        let perspectives = query.isEmpty
-            ? container.perspectives
-            : container.perspectives.filter { matchesQuery($0.name, query: query) }
-        let tags = query.isEmpty
-            ? container.availableTags()
-            : container.availableTags().filter { matchesQuery($0, query: query) }
-
-        if projects.isEmpty && perspectives.isEmpty && tags.isEmpty {
-            List {
-                searchHeroListRow
-
-                ContentUnavailableView(
-                    query.isEmpty ? "Nothing To Search Yet" : "No Results",
-                    systemImage: "magnifyingglass",
-                    description: Text(
-                        query.isEmpty
-                        ? "Create a project, perspective, or tag to make it searchable."
-                        : "No project, perspective, or tag matches \"\(query)\"."
-                    )
-                )
-                .frame(maxWidth: .infinity)
-                .padding(.top, 20)
-                .padding(.bottom, 40)
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-            }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .background(theme.backgroundColor)
-        } else {
-            List {
-                searchHeroListRow
-
-                if !projects.isEmpty {
-                    Section("Projects") {
-                        ForEach(projects, id: \.self) { project in
-                            searchDestinationButton(
-                                view: .project(project),
-                                label: project,
-                                icon: container.projectIconSymbol(for: project),
-                                tintHex: container.projectColorHex(for: project),
-                                fallbackIcon: "folder"
-                            )
-                        }
-                    }
-                }
-
-                if !perspectives.isEmpty {
-                    Section("Perspectives") {
-                        ForEach(perspectives) { perspective in
-                            searchDestinationButton(
-                                view: container.perspectiveViewIdentifier(for: perspective.id),
-                                label: perspective.name,
-                                icon: perspective.icon,
-                                tintHex: perspective.color,
-                                fallbackIcon: "list.bullet"
-                            )
-                        }
-                    }
-                }
-
-                if !tags.isEmpty {
-                    Section("Tags") {
-                        ForEach(tags, id: \.self) { tag in
-                            searchDestinationButton(
-                                view: .tag(tag),
-                                label: "#\(tag)",
-                                icon: "number"
-                            )
-                        }
-                    }
-                }
-            }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .background(theme.backgroundColor)
         }
     }
 
@@ -2601,6 +2491,95 @@ struct RootView: View {
         .buttonStyle(.plain)
     }
 
+    private func searchTaskResultButton(_ record: TaskRecord) -> some View {
+        let frontmatter = record.document.frontmatter
+        let locationLabel = frontmatter.project ?? frontmatter.area ?? "Inbox"
+        let tint = frontmatter.flagged ? theme.flaggedColor : theme.accentColor
+
+        return Button {
+            openSearchTaskResult(path: record.identity.path)
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 10) {
+                    Image(systemName: frontmatter.status == .done ? "checkmark.circle.fill" : "circle")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(frontmatter.status == .done ? Color.green : tint)
+
+                    Text(frontmatter.title)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(theme.textPrimaryColor)
+                        .lineLimit(2)
+
+                    Spacer(minLength: 0)
+                }
+
+                HStack(spacing: 8) {
+                    Label(locationLabel, systemImage: frontmatter.project == nil ? "tray" : "folder")
+                    if let due = frontmatter.due, let dueDate = dateFromLocalDate(due) {
+                        Text(dueDate.formatted(date: .abbreviated, time: .omitted))
+                    }
+                    if let firstTag = frontmatter.tags.first {
+                        Text("#\(firstTag)")
+                    }
+                }
+                .font(.caption.weight(.medium))
+                .foregroundStyle(theme.textSecondaryColor)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("root.search.taskResult.\(frontmatter.title)")
+    }
+
+    private var rootSearchSheet: some View {
+        List {
+            if universalSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                ContentUnavailableView(
+                    "Search Everything",
+                    systemImage: "magnifyingglass",
+                    description: Text("Start typing to find tasks, sections, projects, workflows, tags, and perspectives.")
+                )
+                .frame(maxWidth: .infinity)
+                .padding(.top, 32)
+                .padding(.bottom, 48)
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            } else {
+                rootSearchResultsContent(
+                    query: universalSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(theme.backgroundColor)
+        .navigationTitle("Search")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Done") {
+                    dismissRootSearch()
+                }
+            }
+        }
+#if os(iOS)
+        .searchable(
+            text: $universalSearchText,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "Tasks, projects, tags, perspectives"
+        )
+        .presentationDetents(
+            [.fraction(0.58), .large],
+            selection: $rootSearchPresentationDetent
+        )
+        .presentationDragIndicator(.visible)
+#else
+        .searchable(text: $universalSearchText, prompt: "Tasks, projects, tags, perspectives")
+#endif
+    }
+
     @ViewBuilder
     private func detailContent(for compactTab: CompactRootTab?) -> some View {
         if let compactTab, compactRootTab(for: container.selectedView) != compactTab {
@@ -2691,6 +2670,10 @@ struct RootView: View {
 
     private var shouldShowExpandedTaskBottomBar: Bool {
         horizontalSizeClass == .compact && isAtActiveNavigationRoot && expandedTaskPath != nil
+    }
+
+    private var shouldAllowPullToSearchGesture: Bool {
+        isAtActiveNavigationRoot && !inboxTriageMode && !isRootSearchPresented
     }
 
     private var compactComposerOpenAnimation: Animation {
@@ -2797,6 +2780,19 @@ struct RootView: View {
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .background(theme.backgroundColor)
+            .refreshable {
+                await handlePullToSearch()
+            }
+            .modifier(
+                RootPullToSearchGestureModifier(
+                    isEnabled: shouldAllowPullToSearchGesture,
+                    onTrigger: {
+                        Task { @MainActor in
+                            presentRootSearch()
+                        }
+                    }
+                )
+            )
             .onChange(of: expandedTaskPath) { _, path in
                 guard let path else { return }
                 scheduleExpandedTaskScroll(to: path, proxy: proxy)
@@ -3130,13 +3126,42 @@ struct RootView: View {
             container.selectedView = view
         }
         universalSearchText = ""
+        isRootSearchPresented = false
 #if canImport(UIKit)
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
 #endif
     }
 
+    @MainActor
+    private func presentRootSearch(resetQuery: Bool = true) {
+        if resetQuery {
+            universalSearchText = ""
+        }
+#if os(iOS)
+        rootSearchPresentationDetent = .fraction(0.58)
+#endif
+        isRootSearchPresented = true
+    }
+
+    private func handlePullToSearch() async {
+        guard isAtActiveNavigationRoot, !inboxTriageMode else {
+            container.refresh()
+            if container.selectedView == .builtIn(.inbox) {
+                await container.refreshReminderListsIfNeeded()
+            }
+            return
+        }
+
+        await MainActor.run {
+            presentRootSearch()
+        }
+    }
+
     private func dismissRootSearch() {
         universalSearchText = ""
+#if os(iOS)
+        rootSearchPresentationDetent = .fraction(0.58)
+#endif
         isRootSearchPresented = false
     }
 
@@ -3144,6 +3169,13 @@ struct RootView: View {
         dismissRootSearch()
         guard container.selectedView != view else { return }
         applyFilter(view)
+    }
+
+    private func openSearchTaskResult(path: String) {
+        dismissRootSearch()
+        DispatchQueue.main.async {
+            openFullTaskEditor(path: path)
+        }
     }
 
     private func toggleInboxTriageMode() {
@@ -3644,6 +3676,19 @@ extension RootView {
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .background(theme.backgroundColor)
+            .refreshable {
+                await handlePullToSearch()
+            }
+            .modifier(
+                RootPullToSearchGestureModifier(
+                    isEnabled: shouldAllowPullToSearchGesture,
+                    onTrigger: {
+                        Task { @MainActor in
+                            presentRootSearch()
+                        }
+                    }
+                )
+            )
         } else {
             List {
                 mainHeroListRow
@@ -3669,6 +3714,19 @@ extension RootView {
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .background(theme.backgroundColor)
+            .refreshable {
+                await handlePullToSearch()
+            }
+            .modifier(
+                RootPullToSearchGestureModifier(
+                    isEnabled: shouldAllowPullToSearchGesture,
+                    onTrigger: {
+                        Task { @MainActor in
+                            presentRootSearch()
+                        }
+                    }
+                )
+            )
         }
     }
 

@@ -94,7 +94,7 @@ final class TodoMDAppUITests: XCTestCase {
     }
 
     func testOnboardingDefaultFolderAllowsColdRelaunch() {
-        let storageOverride = "Library/Caches/TodoMDUITests/\(UUID().uuidString)"
+        let storageOverride = makeStorageOverridePath()
 
         let app = XCUIApplication()
         app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
@@ -248,20 +248,22 @@ final class TodoMDAppUITests: XCTestCase {
         XCTAssertTrue(copiedTaskRow.waitForExistence(timeout: 10), "Duplicated project did not contain the copied task")
     }
 
-    func testSearchAppearsOnPullDownInsteadOfPersistingInHeader() {
+    func testPullDownPresentsSearchModalWithLiveResults() {
+        let storageOverride = makeStorageOverridePath()
+        XCTAssertNoThrow(try seedMarkdownTask(rootPath: storageOverride, title: "search smoke"))
+
         let app = XCUIApplication()
         app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
-        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = "Library/Caches/TodoMDUITests/\(UUID().uuidString)"
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
         app.launch()
 
         completeOnboarding(app: app)
-        createTask(app: app, title: "search smoke")
 
         let searchField = app.searchFields.firstMatch
 
         XCTAssertFalse(
             searchField.exists && searchField.isHittable,
-            "Search field should not be visibly pinned before pull-down"
+            "Search field should not be visibly pinned in the root list"
         )
 
         if app.collectionViews.firstMatch.exists {
@@ -272,10 +274,14 @@ final class TodoMDAppUITests: XCTestCase {
             app.swipeDown()
         }
 
-        XCTAssertTrue(searchField.waitForExistence(timeout: 5), "Pulling down should reveal the search field")
-        XCTAssertTrue(searchField.isHittable, "Search field should become visible and interactive after pull-down")
+        XCTAssertTrue(app.navigationBars["Search"].waitForExistence(timeout: 5), "Pulling down should present the search sheet")
+        XCTAssertTrue(searchField.waitForExistence(timeout: 5), "Search field should be visible in the search sheet")
+        XCTAssertTrue(searchField.isHittable, "Search field should be interactive after pull-down")
         searchField.tap()
         searchField.typeText("search smoke")
+
+        let taskResult = app.buttons["root.search.taskResult.search smoke"].firstMatch
+        XCTAssertTrue(taskResult.waitForExistence(timeout: 5), "Typing should show matching task results in the modal")
     }
 
     func testPomodoroCanBeEnabledAndOpenedFromAreas() {
@@ -430,6 +436,25 @@ final class TodoMDAppUITests: XCTestCase {
             .appendingPathComponent("TodoMDUITests", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
             .path
+    }
+
+    private func seedMarkdownTask(rootPath: String, title: String) throws {
+        let rootURL = URL(fileURLWithPath: rootPath, isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+
+        let taskURL = rootURL.appendingPathComponent("20260310-0000-search-smoke.md")
+        let content = """
+        ---
+        title: "\(title)"
+        status: todo
+        priority: none
+        flagged: false
+        created: "2026-03-10T00:00:00.000Z"
+        source: ui-test
+        ---
+
+        """
+        try content.write(to: taskURL, atomically: true, encoding: .utf8)
     }
 
     private func waitForFileContents(
