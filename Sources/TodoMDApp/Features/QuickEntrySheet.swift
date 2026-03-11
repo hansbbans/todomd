@@ -409,44 +409,28 @@ struct QuickEntrySheet: View {
 
     private var dueDateEditor: some View {
         NavigationStack {
-            Form {
-                Toggle("Set due date", isOn: $hasDueDate)
-
-                if hasDueDate {
-                    DatePicker(
-                        "Due date",
-                        selection: $dueDate,
-                        displayedComponents: .date
-                    )
-
-                    Toggle("Set time", isOn: $hasDueTime)
-
-                    if hasDueTime {
-                        DatePicker(
-                            "Time",
-                            selection: $dueTime,
-                            displayedComponents: .hourAndMinute
-                        )
-                    }
-
-                    Button("Clear Date", role: .destructive) {
-                        hasDueDate = false
-                        hasDueTime = false
-                    }
-                }
+            ScrollView {
+                DateChooserView(
+                    context: .due,
+                    timeMode: .optional,
+                    hasDate: $hasDueDate,
+                    date: $dueDate,
+                    hasTime: $hasDueTime,
+                    time: $dueTime
+                )
+                .padding(16)
             }
             .navigationTitle("Date")
+            .background(theme.backgroundColor.ignoresSafeArea())
+#if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+#endif
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
                         showingDueDateEditor = false
                     }
                 }
-            }
-        }
-        .onChange(of: hasDueDate) { _, isOn in
-            if !isOn {
-                hasDueTime = false
             }
         }
     }

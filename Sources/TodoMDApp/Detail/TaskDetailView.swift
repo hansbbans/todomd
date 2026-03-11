@@ -279,16 +279,14 @@ struct TaskDetailView: View {
                 isExpanded: expandedRow == .due,
                 onTap: { expandedRow = expandedRow == .due ? nil : .due }
             ) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Toggle("Set due date", isOn: binding(\.hasDue))
-                    if editState?.hasDue == true {
-                        DatePicker("Date", selection: binding(\.dueDate), displayedComponents: .date)
-                        Toggle("Include time", isOn: binding(\.hasDueTime))
-                        if editState?.hasDueTime == true {
-                            DatePicker("Time", selection: binding(\.dueTime), displayedComponents: .hourAndMinute)
-                        }
-                    }
-                }
+                DateChooserView(
+                    context: .due,
+                    timeMode: .optional,
+                    hasDate: binding(\.hasDue),
+                    date: binding(\.dueDate),
+                    hasTime: binding(\.hasDueTime),
+                    time: binding(\.dueTime)
+                )
             }
 
             // Scheduled
@@ -299,12 +297,14 @@ struct TaskDetailView: View {
                 isExpanded: expandedRow == .scheduled,
                 onTap: { expandedRow = expandedRow == .scheduled ? nil : .scheduled }
             ) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Toggle("Set scheduled date", isOn: binding(\.hasScheduled))
-                    if editState?.hasScheduled == true {
-                        DatePicker("Date", selection: binding(\.scheduledDate), displayedComponents: .date)
-                    }
-                }
+                DateChooserView(
+                    context: .scheduled,
+                    timeMode: .hidden,
+                    hasDate: binding(\.hasScheduled),
+                    date: binding(\.scheduledDate),
+                    hasTime: constantFalseBinding,
+                    time: constantDateBinding
+                )
             }
 
             // Repeat
@@ -939,6 +939,14 @@ struct TaskDetailView: View {
             return date.formatted(date: .abbreviated, time: .omitted)
         }
         return "\(date.formatted(date: .abbreviated, time: .omitted)) at \(time.formatted(date: .omitted, time: .shortened))"
+    }
+
+    private var constantFalseBinding: Binding<Bool> {
+        Binding(get: { false }, set: { _ in })
+    }
+
+    private var constantDateBinding: Binding<Date> {
+        Binding(get: { editState?.scheduledDate ?? Date() }, set: { _ in })
     }
 
     private func autoSave() {
