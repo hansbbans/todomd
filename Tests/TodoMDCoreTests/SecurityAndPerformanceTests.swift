@@ -114,7 +114,7 @@ final class SecurityAndPerformanceTests: XCTestCase {
     func testValidatedSnapshotHydrate5000FilesStaysWithinPerformanceBudget() throws {
         let root = try TestSupport.tempDirectory(prefix: "PerfSnapshotValidated")
         let repository = FileTaskRepository(rootURL: root)
-        let snapshotStore = TaskRecordSnapshotStore()
+        let snapshotStore = try makeSnapshotStore()
 
         _ = try createTasks(count: 5_000, repository: repository, nested: true)
 
@@ -129,7 +129,7 @@ final class SecurityAndPerformanceTests: XCTestCase {
     func testOptimisticSnapshotHydrate5000FilesStaysWithinPerformanceBudget() throws {
         let root = try TestSupport.tempDirectory(prefix: "PerfSnapshotWarm5000")
         let repository = FileTaskRepository(rootURL: root)
-        let snapshotStore = TaskRecordSnapshotStore()
+        let snapshotStore = try makeSnapshotStore()
 
         _ = try createTasks(count: 5_000, repository: repository, nested: true)
         _ = try snapshotStore.hydrate(rootURL: root, repository: repository, mode: .validated)
@@ -145,7 +145,7 @@ final class SecurityAndPerformanceTests: XCTestCase {
     func testOptimisticSnapshotHydrate10000FilesStaysWithinPerformanceBudget() throws {
         let root = try TestSupport.tempDirectory(prefix: "PerfSnapshotWarm10000")
         let repository = FileTaskRepository(rootURL: root)
-        let snapshotStore = TaskRecordSnapshotStore()
+        let snapshotStore = try makeSnapshotStore()
 
         _ = try createTasks(count: 10_000, repository: repository, nested: true)
         _ = try snapshotStore.hydrate(rootURL: root, repository: repository, mode: .validated)
@@ -179,5 +179,9 @@ final class SecurityAndPerformanceTests: XCTestCase {
         }
 
         return paths
+    }
+
+    private func makeSnapshotStore() throws -> TaskRecordSnapshotStore {
+        TaskRecordSnapshotStore(cacheBaseURL: try TestSupport.tempDirectory(prefix: "PerfSnapshotCache"))
     }
 }

@@ -56,8 +56,8 @@ struct TaskDetailView: View {
     @State private var expandedRow: ExpandedRow?
 
     @AppStorage("taskDetail.expandedDependencies") private var expandedDependencies = false
-    @AppStorage("taskDetail.expandedLocationReminder") private var expandedLocationReminder = false
     @AppStorage("taskDetail.expandedMetadata") private var expandedMetadata = false
+    @State private var expandedLocationReminder = false
     @State private var showingCustomRepeatEditor = false
 
     @State private var latitudeError: String?

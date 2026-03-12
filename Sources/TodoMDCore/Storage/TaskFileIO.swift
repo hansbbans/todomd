@@ -282,10 +282,16 @@ public struct TaskRecordSnapshotStore: @unchecked Sendable {
 
     public var fileIO: TaskFileIO
     public var fileManager: FileManager
+    public var cacheBaseURL: URL?
 
-    public init(fileIO: TaskFileIO = TaskFileIO(), fileManager: FileManager = .default) {
+    public init(
+        fileIO: TaskFileIO = TaskFileIO(),
+        fileManager: FileManager = .default,
+        cacheBaseURL: URL? = nil
+    ) {
         self.fileIO = fileIO
         self.fileManager = fileManager
+        self.cacheBaseURL = cacheBaseURL
     }
 
     public func hydrate(
@@ -483,7 +489,9 @@ public struct TaskRecordSnapshotStore: @unchecked Sendable {
 
     private func cacheDirectoryURL(rootURL: URL) -> URL {
         let baseDirectory: URL
-        if let sharedContainer = TaskFolderPreferences.sharedContainerURL(fileManager: fileManager) {
+        if let cacheBaseURL {
+            baseDirectory = cacheBaseURL.standardizedFileURL.resolvingSymlinksInPath()
+        } else if let sharedContainer = TaskFolderPreferences.sharedContainerURL(fileManager: fileManager) {
             baseDirectory = sharedContainer
                 .appendingPathComponent("Library", isDirectory: true)
                 .appendingPathComponent("Caches", isDirectory: true)

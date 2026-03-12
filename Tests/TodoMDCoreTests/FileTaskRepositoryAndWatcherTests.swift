@@ -221,7 +221,7 @@ final class FileTaskRepositoryAndWatcherTests: XCTestCase {
     func testSnapshotHydrationPrimesWatcherWithoutColdReparse() throws {
         let root = try TestSupport.tempDirectory(prefix: "SnapshotPrime")
         let repository = FileTaskRepository(rootURL: root)
-        let snapshotStore = TaskRecordSnapshotStore()
+        let snapshotStore = try makeSnapshotStore()
 
         _ = try repository.create(
             document: .init(frontmatter: TestSupport.sampleFrontmatter(title: "One"), body: "body-1"),
@@ -244,7 +244,7 @@ final class FileTaskRepositoryAndWatcherTests: XCTestCase {
     func testSnapshotHydrationReloadsChangedFiles() throws {
         let root = try TestSupport.tempDirectory(prefix: "SnapshotRefresh")
         let repository = FileTaskRepository(rootURL: root)
-        let snapshotStore = TaskRecordSnapshotStore()
+        let snapshotStore = try makeSnapshotStore()
 
         let created = try repository.create(
             document: .init(frontmatter: TestSupport.sampleFrontmatter(title: "Before"), body: "body"),
@@ -264,7 +264,7 @@ final class FileTaskRepositoryAndWatcherTests: XCTestCase {
     func testSnapshotDeltaPersistenceUpdatesAndDeletesWithoutFullRewrite() throws {
         let root = try TestSupport.tempDirectory(prefix: "SnapshotDelta")
         let repository = FileTaskRepository(rootURL: root)
-        let snapshotStore = TaskRecordSnapshotStore()
+        let snapshotStore = try makeSnapshotStore()
         let fileIO = TaskFileIO()
 
         let first = try repository.create(
@@ -297,7 +297,7 @@ final class FileTaskRepositoryAndWatcherTests: XCTestCase {
     func testOptimisticSnapshotHydrationRestoresPersistedMetadata() throws {
         let root = try TestSupport.tempDirectory(prefix: "SnapshotOptimistic")
         let repository = FileTaskRepository(rootURL: root)
-        let snapshotStore = TaskRecordSnapshotStore()
+        let snapshotStore = try makeSnapshotStore()
 
         _ = try repository.create(
             document: .init(frontmatter: TestSupport.sampleFrontmatter(title: "One", source: "agent"), body: "body-1"),
@@ -314,5 +314,9 @@ final class FileTaskRepositoryAndWatcherTests: XCTestCase {
         XCTAssertEqual(optimistic.records.count, 2)
         XCTAssertEqual(Set(optimistic.metadataEntries.map(\.title)), Set(["One", "Two"]))
         XCTAssertEqual(optimistic.fingerprints.count, 2)
+    }
+
+    private func makeSnapshotStore() throws -> TaskRecordSnapshotStore {
+        TaskRecordSnapshotStore(cacheBaseURL: try TestSupport.tempDirectory(prefix: "SnapshotCache"))
     }
 }

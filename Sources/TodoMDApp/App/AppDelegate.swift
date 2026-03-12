@@ -287,9 +287,7 @@ enum NotificationBackgroundRefreshCoordinator {
 
         let refreshTask = Task {
             let success = await runRefresh()
-            if !Task.isCancelled {
-                task.setTaskCompleted(success: success)
-            }
+            task.setTaskCompleted(success: !Task.isCancelled && success)
         }
 
         task.expirationHandler = {
