@@ -10,15 +10,15 @@ private enum RecurrenceFrequencyOption: String, CaseIterable {
     var rruleValue: String? {
         switch self {
         case .none:
-            return nil
+            nil
         case .daily:
-            return "DAILY"
+            "DAILY"
         case .weekly:
-            return "WEEKLY"
+            "WEEKLY"
         case .monthly:
-            return "MONTHLY"
+            "MONTHLY"
         case .yearly:
-            return "YEARLY"
+            "YEARLY"
         }
     }
 }
@@ -50,12 +50,16 @@ struct TaskDetailView: View {
     @State private var recurrenceFrequency: RecurrenceFrequencyOption = .none
     @State private var recurrenceInterval = 1
     @State private var recurrenceWeekdays: Set<String> = []
+    private enum ActiveSheet: Identifiable {
+        case due, scheduled, customRepeat, locationReminder
+        var id: Self { self }
+    }
+
     @State private var showingRepeatPresetMenu = false
-    @State private var showingCustomRepeatEditor = false
+    @State private var activeSheet: ActiveSheet?
     @State private var expandedRow: ExpandedRow?
 
     @AppStorage("taskDetail.expandedDependencies") private var expandedDependencies = false
-    @AppStorage("taskDetail.expandedLocationReminder") private var expandedLocationReminder = false
     @AppStorage("taskDetail.expandedMetadata") private var expandedMetadata = false
 
     @State private var latitudeError: String?
@@ -100,11 +104,17 @@ struct TaskDetailView: View {
         .modifier(TaskDetailNotesPresentation(isPresented: $showNotesEditor) {
             notesEditorView
         })
-        .sheet(isPresented: $expandedLocationReminder) {
-            locationEditorView
-        }
-        .sheet(isPresented: $showingCustomRepeatEditor) {
-            customRepeatView
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .due:
+                dueDateEditorSheet
+            case .scheduled:
+                scheduledDateEditorSheet
+            case .customRepeat:
+                customRepeatView
+            case .locationReminder:
+                locationEditorView
+            }
         }
         .alert(
             "Delete Task",
@@ -150,7 +160,7 @@ struct TaskDetailView: View {
             }
             Button("Custom") {
                 syncRecurrenceBuilderFromEditState()
-                showingCustomRepeatEditor = true
+                activeSheet = .customRepeat
             }
             if !(editState?.recurrence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) {
                 Button("Never", role: .destructive) {
@@ -240,7 +250,8 @@ struct TaskDetailView: View {
                     Text("Priority")
                         .foregroundStyle(.primary)
                     Spacer()
-                    Text(editState?.priority == TaskPriority.none ? "—" : (editState?.priority.rawValue.capitalized ?? "—"))
+                    Text(editState?.priority == TaskPriority
+                        .none ? "—" : (editState?.priority.rawValue.capitalized ?? "—"))
                         .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 20)
@@ -272,40 +283,49 @@ struct TaskDetailView: View {
             Divider().padding(.leading, 52)
 
             // Due
-            PropertyRow(
-                icon: "calendar",
-                label: "Due",
-                valueText: editState.map { dueDateText($0) } ?? "",
-                isExpanded: expandedRow == .due,
-                onTap: { expandedRow = expandedRow == .due ? nil : .due }
-            ) {
-                DateChooserView(
-                    context: .due,
-                    timeMode: .optional,
-                    hasDate: binding(\.hasDue),
-                    date: binding(\.dueDate),
-                    hasTime: binding(\.hasDueTime),
-                    time: binding(\.dueTime)
-                )
+            Button {
+                activeSheet = .due
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "calendar")
+                        .frame(width: 20)
+                        .foregroundStyle(.secondary)
+                    Text("Due")
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Text(editState.map { dueDateText($0) } ?? "")
+                        .foregroundStyle((editState.map { dueDateText($0) } ?? "").isEmpty ? .tertiary : .secondary)
+                        .lineLimit(1)
+                }
+                .contentShape(Rectangle())
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
             }
+            .buttonStyle(.plain)
+            .taskDetailAccessibilityIdentifier("taskDetail.row.due")
+            Divider().padding(.leading, 52)
 
             // Scheduled
-            PropertyRow(
-                icon: "calendar.badge.clock",
-                label: "Scheduled",
-                valueText: editState.map { scheduledDateText($0) } ?? "",
-                isExpanded: expandedRow == .scheduled,
-                onTap: { expandedRow = expandedRow == .scheduled ? nil : .scheduled }
-            ) {
-                DateChooserView(
-                    context: .scheduled,
-                    timeMode: .hidden,
-                    hasDate: binding(\.hasScheduled),
-                    date: binding(\.scheduledDate),
-                    hasTime: constantFalseBinding,
-                    time: constantDateBinding
-                )
+            Button {
+                activeSheet = .scheduled
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "calendar.badge.clock")
+                        .frame(width: 20)
+                        .foregroundStyle(.secondary)
+                    Text("Scheduled")
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Text(editState.map { scheduledDateText($0) } ?? "")
+                        .foregroundStyle((editState.map { scheduledDateText($0) } ?? "").isEmpty ? .tertiary : .secondary)
+                        .lineLimit(1)
+                }
+                .contentShape(Rectangle())
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
             }
+            .buttonStyle(.plain)
+            .taskDetailAccessibilityIdentifier("taskDetail.row.scheduled")
 
             // Repeat
             Divider().padding(.leading, 52)
@@ -338,7 +358,8 @@ struct TaskDetailView: View {
                 onTap: { expandedRow = expandedRow == .tags ? nil : .tags }
             ) {
                 VStack(alignment: .leading, spacing: 8) {
-                    let tags = (editState?.tagsText ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                    let tags = (editState?.tagsText ?? "").split(separator: ",")
+                        .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
                     if !tags.isEmpty {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 80))], spacing: 6) {
                             ForEach(tags, id: \.self) { tag in
@@ -416,16 +437,19 @@ struct TaskDetailView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Toggle("Set estimate", isOn: binding(\.hasEstimatedMinutes))
                         if editState?.hasEstimatedMinutes == true {
-                            Stepper("\(editState?.estimatedMinutes ?? 15) minutes",
-                                    value: binding(\.estimatedMinutes),
-                                    in: 5...480, step: 5)
+                            Stepper(
+                                "\(editState?.estimatedMinutes ?? 15) minutes",
+                                value: binding(\.estimatedMinutes),
+                                in: 5 ... 480,
+                                step: 5
+                            )
                         }
                     }
                 }
 
                 // Location
                 Button {
-                    expandedLocationReminder = true
+                    activeSheet = .locationReminder
                 } label: {
                     HStack(spacing: 12) {
                         Image(systemName: "location")
@@ -438,6 +462,7 @@ struct TaskDetailView: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
+                    .contentShape(Rectangle())
                     .padding(.horizontal, 20)
                     .padding(.vertical, 12)
                 }
@@ -501,6 +526,58 @@ struct TaskDetailView: View {
         .background(theme.backgroundColor.ignoresSafeArea())
     }
 
+    private var dueDateEditorSheet: some View {
+        NavigationStack {
+            ScrollView {
+                DateChooserView(
+                    context: .due,
+                    timeMode: .optional,
+                    hasDate: binding(\.hasDue),
+                    date: binding(\.dueDate),
+                    hasTime: binding(\.hasDueTime),
+                    time: binding(\.dueTime)
+                )
+                .padding(16)
+            }
+            .navigationTitle("Due")
+            .background(theme.backgroundColor.ignoresSafeArea())
+#if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+#endif
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { activeSheet = nil }
+                }
+            }
+        }
+    }
+
+    private var scheduledDateEditorSheet: some View {
+        NavigationStack {
+            ScrollView {
+                DateChooserView(
+                    context: .scheduled,
+                    timeMode: .hidden,
+                    hasDate: binding(\.hasScheduled),
+                    date: binding(\.scheduledDate),
+                    hasTime: constantFalseBinding,
+                    time: constantDateBinding
+                )
+                .padding(16)
+            }
+            .navigationTitle("Scheduled")
+            .background(theme.backgroundColor.ignoresSafeArea())
+#if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+#endif
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { activeSheet = nil }
+                }
+            }
+        }
+    }
+
     private var notesEditorView: some View {
         NavigationStack {
             TextEditor(text: binding(\.body))
@@ -529,7 +606,7 @@ struct TaskDetailView: View {
                         Stepper(
                             "Every \(recurrenceInterval) \(recurrenceUnitText())",
                             value: $recurrenceInterval,
-                            in: 1...365
+                            in: 1 ... 365
                         )
 
                         if recurrenceFrequency == .weekly {
@@ -560,7 +637,7 @@ struct TaskDetailView: View {
             .toolbar {
                 ToolbarItem(placement: .appLeadingAction) {
                     Button {
-                        showingCustomRepeatEditor = false
+                        activeSheet = nil
                     } label: {
                         Image(systemName: "chevron.left")
                     }
@@ -568,7 +645,7 @@ struct TaskDetailView: View {
                 ToolbarItem(placement: .appTrailingAction) {
                     Button("Save") {
                         applyRecurrenceBuilder()
-                        showingCustomRepeatEditor = false
+                        activeSheet = nil
                     }
                     .disabled(recurrenceFrequency == .weekly && recurrenceWeekdays.isEmpty)
                 }
@@ -597,7 +674,7 @@ struct TaskDetailView: View {
                         Stepper(
                             "Radius: \(editState?.locationRadiusMeters ?? 100) m",
                             value: binding(\.locationRadiusMeters),
-                            in: 50...1000,
+                            in: 50 ... 1000,
                             step: 50
                         )
                     }
@@ -625,7 +702,8 @@ struct TaskDetailView: View {
                         TextField("Preset name", text: $locationPresetName)
                         Button("Save Preset") { saveCurrentLocationAsPreset() }
                             .disabled(locationPresetName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-                                      (editState?.locationName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true))
+                                (editState?.locationName.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    .isEmpty ?? true))
                     }
                 }
             }
@@ -633,7 +711,7 @@ struct TaskDetailView: View {
             .modifier(TaskDetailInlineTitleDisplay())
             .toolbar {
                 ToolbarItem(placement: .appTrailingAction) {
-                    Button("Done") { expandedLocationReminder = false }
+                    Button("Done") { activeSheet = nil }
                 }
             }
         }
@@ -708,7 +786,7 @@ struct TaskDetailView: View {
         if recurrenceInterval > 1 {
             fields.append("INTERVAL=\(recurrenceInterval)")
         }
-        if recurrenceFrequency == .weekly && !recurrenceWeekdays.isEmpty {
+        if recurrenceFrequency == .weekly, !recurrenceWeekdays.isEmpty {
             let ordered = recurrenceWeekdayOptions.filter { recurrenceWeekdays.contains($0) }
             fields.append("BYDAY=\(ordered.joined(separator: ","))")
         }
@@ -728,7 +806,7 @@ struct TaskDetailView: View {
             }
             let dayMap: [String: String] = [
                 "MO": "Mon", "TU": "Tue", "WE": "Wed", "TH": "Thu",
-                "FR": "Fri", "SA": "Sat", "SU": "Sun"
+                "FR": "Fri", "SA": "Sat", "SU": "Sun",
             ]
             let orderedDays = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
             let dayNames = orderedDays
@@ -861,41 +939,40 @@ struct TaskDetailView: View {
 
     private func weekdayToken(for date: Date) -> String {
         switch Calendar.current.component(.weekday, from: date) {
-        case 1: return "SU"
-        case 2: return "MO"
-        case 3: return "TU"
-        case 4: return "WE"
-        case 5: return "TH"
-        case 6: return "FR"
-        case 7: return "SA"
-        default: return "MO"
+        case 1: "SU"
+        case 2: "MO"
+        case 3: "TU"
+        case 4: "WE"
+        case 5: "TH"
+        case 6: "FR"
+        case 7: "SA"
+        default: "MO"
         }
     }
 
     private func weekdayShortText(fromToken token: String) -> String? {
         switch token {
-        case "MO": return "Mon"
-        case "TU": return "Tue"
-        case "WE": return "Wed"
-        case "TH": return "Thu"
-        case "FR": return "Fri"
-        case "SA": return "Sat"
-        case "SU": return "Sun"
-        default: return nil
+        case "MO": "Mon"
+        case "TU": "Tue"
+        case "WE": "Wed"
+        case "TH": "Thu"
+        case "FR": "Fri"
+        case "SA": "Sat"
+        case "SU": "Sun"
+        default: nil
         }
     }
 
     private func ordinal(_ day: Int) -> String {
         let mod100 = day % 100
-        let suffix: String
-        if (11...13).contains(mod100) {
-            suffix = "th"
+        let suffix = if (11 ... 13).contains(mod100) {
+            "th"
         } else {
             switch day % 10 {
-            case 1: suffix = "st"
-            case 2: suffix = "nd"
-            case 3: suffix = "rd"
-            default: suffix = "th"
+            case 1: "st"
+            case 2: "nd"
+            case 3: "rd"
+            default: "th"
             }
         }
         return "\(day)\(suffix)"
@@ -978,13 +1055,13 @@ struct TaskDetailView: View {
         guard let latitude = Double(latitudeText), let longitude = Double(longitudeText) else {
             return "Location reminder requires numeric latitude and longitude."
         }
-        guard (-90.0...90.0).contains(latitude) else {
+        guard (-90.0 ... 90.0).contains(latitude) else {
             return "Latitude must be between -90 and 90."
         }
-        guard (-180.0...180.0).contains(longitude) else {
+        guard (-180.0 ... 180.0).contains(longitude) else {
             return "Longitude must be between -180 and 180."
         }
-        guard (50...1_000).contains(editState.locationRadiusMeters) else {
+        guard (50 ... 1000).contains(editState.locationRadiusMeters) else {
             return "Location radius must be between 50 and 1000 meters."
         }
 
@@ -1003,7 +1080,8 @@ struct TaskDetailView: View {
 
     private func syncSelectedLocationFavorite() {
         if let selectedLocationFavorite,
-           container.locationFavorites.contains(where: { $0.id == selectedLocationFavorite.id }) {
+           container.locationFavorites.contains(where: { $0.id == selectedLocationFavorite.id })
+        {
             return
         }
         selectedLocationFavoriteID = container.locationFavorites.first?.id ?? ""
@@ -1077,8 +1155,27 @@ private struct PropertyRow<Content: View>: View {
     let label: String
     let valueText: String
     let isExpanded: Bool
+    let accessibilityIdentifier: String?
     let onTap: () -> Void
     @ViewBuilder let expandedContent: () -> Content
+
+    init(
+        icon: String,
+        label: String,
+        valueText: String,
+        isExpanded: Bool,
+        accessibilityIdentifier: String? = nil,
+        onTap: @escaping () -> Void,
+        @ViewBuilder expandedContent: @escaping () -> Content
+    ) {
+        self.icon = icon
+        self.label = label
+        self.valueText = valueText
+        self.isExpanded = isExpanded
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.onTap = onTap
+        self.expandedContent = expandedContent
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1094,10 +1191,12 @@ private struct PropertyRow<Content: View>: View {
                         .foregroundStyle(valueText.isEmpty ? .tertiary : .secondary)
                         .lineLimit(1)
                 }
+                .contentShape(Rectangle())
                 .padding(.horizontal, 20)
                 .padding(.vertical, 12)
             }
             .buttonStyle(.plain)
+            .taskDetailAccessibilityIdentifier(accessibilityIdentifier)
 
             if isExpanded {
                 expandedContent()
@@ -1114,9 +1213,9 @@ private struct PropertyRow<Content: View>: View {
 private struct TaskDetailInlineTitleDisplay: ViewModifier {
     func body(content: Content) -> some View {
         #if os(iOS)
-        content.navigationBarTitleDisplayMode(.inline)
+            content.navigationBarTitleDisplayMode(.inline)
         #else
-        content
+            content
         #endif
     }
 }
@@ -1124,9 +1223,9 @@ private struct TaskDetailInlineTitleDisplay: ViewModifier {
 private struct TaskDetailDecimalKeyboard: ViewModifier {
     func body(content: Content) -> some View {
         #if os(iOS)
-        content.keyboardType(.decimalPad)
+            content.keyboardType(.decimalPad)
         #else
-        content
+            content
         #endif
     }
 }
@@ -1137,9 +1236,20 @@ private struct TaskDetailNotesPresentation<SheetContent: View>: ViewModifier {
 
     func body(content: Content) -> some View {
         #if os(iOS)
-        content.fullScreenCover(isPresented: $isPresented, content: presentedContent)
+            content.fullScreenCover(isPresented: $isPresented, content: presentedContent)
         #else
-        content.sheet(isPresented: $isPresented, content: presentedContent)
+            content.sheet(isPresented: $isPresented, content: presentedContent)
         #endif
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func taskDetailAccessibilityIdentifier(_ identifier: String?) -> some View {
+        if let identifier {
+            accessibilityIdentifier(identifier)
+        } else {
+            self
+        }
     }
 }

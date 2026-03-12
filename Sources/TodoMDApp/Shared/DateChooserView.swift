@@ -13,36 +13,36 @@ struct DateChooserView: View {
         var title: String {
             switch self {
             case .due:
-                return "Due"
+                "Due"
             case .scheduled:
-                return "Scheduled"
+                "Scheduled"
             }
         }
 
         var emptyTitle: String {
             switch self {
             case .due:
-                return "No due date"
+                "No due date"
             case .scheduled:
-                return "Not scheduled"
+                "Not scheduled"
             }
         }
 
         var emptyMessage: String {
             switch self {
             case .due:
-                return "Use a quick preset or pick a day from the calendar."
+                "Use a quick preset or pick a day from the calendar."
             case .scheduled:
-                return "Choose when this task should surface without adding a deadline."
+                "Choose when this task should surface without adding a deadline."
             }
         }
 
         var iconName: String {
             switch self {
             case .due:
-                return "calendar.badge.exclamationmark"
+                "calendar.badge.exclamationmark"
             case .scheduled:
-                return "calendar.badge.clock"
+                "calendar.badge.clock"
             }
         }
     }
@@ -53,7 +53,18 @@ struct DateChooserView: View {
         case nextWeek = "Next Week"
         case noDate = "No Date"
 
-        var id: String { rawValue }
+        var id: String {
+            switch self {
+            case .today:
+                "today"
+            case .tomorrow:
+                "tomorrow"
+            case .nextWeek:
+                "nextWeek"
+            case .noDate:
+                "noDate"
+            }
+        }
     }
 
     @EnvironmentObject private var theme: ThemeManager
@@ -93,8 +104,9 @@ struct DateChooserView: View {
                 let calendar = Calendar.current
                 let hour = calendar.component(.hour, from: time)
                 let minute = calendar.component(.minute, from: time)
-                if hour == 0 && minute == 0,
-                   let nineAM = calendar.date(bySettingHour: 9, minute: 0, second: 0, of: date) {
+                if hour == 0, minute == 0,
+                   let nineAM = calendar.date(bySettingHour: 9, minute: 0, second: 0, of: date)
+                {
                     time = nineAM
                 }
             }
@@ -116,6 +128,7 @@ struct DateChooserView: View {
                 Text(hasDate ? summaryTitle : context.emptyTitle)
                     .font(.system(.headline, design: .rounded).weight(.semibold))
                     .foregroundStyle(theme.textPrimaryColor)
+                    .accessibilityIdentifier("\(accessibilityIDPrefix).summaryTitle")
                 Text(hasDate ? summarySubtitle : context.emptyMessage)
                     .font(.system(.subheadline, design: .rounded))
                     .foregroundStyle(theme.textSecondaryColor)
@@ -128,6 +141,7 @@ struct DateChooserView: View {
                     hasDate = false
                 }
                 .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                .accessibilityIdentifier("\(accessibilityIDPrefix).clear")
             }
         }
     }
@@ -151,14 +165,20 @@ struct DateChooserView: View {
                     .padding(.vertical, 11)
                     .background(
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(presetIsSelected(preset) ? theme.accentColor.opacity(0.14) : theme.backgroundColor.opacity(0.72))
+                            .fill(presetIsSelected(preset) ? theme.accentColor.opacity(0.14) : theme.backgroundColor
+                                .opacity(0.72))
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .stroke(presetIsSelected(preset) ? theme.accentColor.opacity(0.38) : theme.textSecondaryColor.opacity(0.14), lineWidth: 1)
+                            .stroke(
+                                presetIsSelected(preset) ? theme.accentColor.opacity(0.38) : theme.textSecondaryColor
+                                    .opacity(0.14),
+                                lineWidth: 1
+                            )
                     )
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("\(accessibilityIDPrefix).preset.\(preset.id)")
             }
         }
     }
@@ -200,6 +220,7 @@ struct DateChooserView: View {
                     }
                 }
                 .toggleStyle(.switch)
+                .accessibilityIdentifier("\(accessibilityIDPrefix).toggleTime")
 
                 if hasTime {
                     timePicker
@@ -216,22 +237,22 @@ struct DateChooserView: View {
     private var timePicker: some View {
         Group {
             #if os(iOS)
-            DatePicker(
-                "Time",
-                selection: $time,
-                displayedComponents: .hourAndMinute
-            )
-            .datePickerStyle(.wheel)
-            .labelsHidden()
-            .frame(maxWidth: .infinity)
-            .clipped()
+                DatePicker(
+                    "Time",
+                    selection: $time,
+                    displayedComponents: .hourAndMinute
+                )
+                .datePickerStyle(.wheel)
+                .labelsHidden()
+                .frame(maxWidth: .infinity)
+                .clipped()
             #else
-            DatePicker(
-                "Time",
-                selection: $time,
-                displayedComponents: .hourAndMinute
-            )
-            .labelsHidden()
+                DatePicker(
+                    "Time",
+                    selection: $time,
+                    displayedComponents: .hourAndMinute
+                )
+                .labelsHidden()
             #endif
         }
     }
@@ -253,9 +274,9 @@ struct DateChooserView: View {
     private var summarySubtitle: String {
         switch context {
         case .due:
-            return hasTime ? "Deadline and reminder time are aligned." : "Day-only deadline."
+            hasTime ? "Deadline and reminder time are aligned." : "Day-only deadline."
         case .scheduled:
-            return "Shows when this task should appear in your flow."
+            "Shows when this task should appear in your flow."
         }
     }
 
@@ -281,7 +302,8 @@ struct DateChooserView: View {
             hasDate = true
             date = calendar.startOfDay(for: Date())
         case .tomorrow:
-            guard let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: Date())) else { return }
+            guard let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: Date()))
+            else { return }
             hasDate = true
             date = tomorrow
         case .nextWeek:
@@ -318,13 +340,22 @@ struct DateChooserView: View {
     private func iconName(for preset: Preset) -> String {
         switch preset {
         case .today:
-            return "sun.max"
+            "sun.max"
         case .tomorrow:
-            return "sunrise"
+            "sunrise"
         case .nextWeek:
-            return "forward"
+            "forward"
         case .noDate:
-            return "slash.circle"
+            "slash.circle"
+        }
+    }
+
+    private var accessibilityIDPrefix: String {
+        switch context {
+        case .due:
+            "dateChooser.due"
+        case .scheduled:
+            "dateChooser.scheduled"
         }
     }
 }
