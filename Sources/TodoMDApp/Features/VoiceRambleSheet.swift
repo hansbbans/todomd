@@ -20,12 +20,14 @@ final class VoiceRambleController: ObservableObject {
         permissionMessage = nil
 
         let speechStatus = await requestSpeechPermission()
+        guard !Task.isCancelled else { return }
         guard speechStatus == .authorized else {
             permissionMessage = permissionMessage(for: speechStatus)
             return
         }
 
         let microphoneGranted = await requestMicrophonePermission()
+        guard !Task.isCancelled else { return }
         guard microphoneGranted else {
             permissionMessage = "Microphone access is required for voice ramble."
             return
@@ -44,6 +46,7 @@ final class VoiceRambleController: ObservableObject {
             errorMessage = error.localizedDescription
             return
         }
+        guard !Task.isCancelled else { return }
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true

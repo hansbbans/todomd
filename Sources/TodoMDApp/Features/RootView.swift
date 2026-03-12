@@ -2703,7 +2703,9 @@ struct RootView: View {
         .scrollContentBackground(.hidden)
         .background(theme.backgroundColor)
         .navigationTitle("Search")
+#if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+#endif
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Done") {

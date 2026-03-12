@@ -17,6 +17,8 @@ import Foundation
         private let catchUpLedgerTTLSeconds: TimeInterval = 7 * 24 * 60 * 60
         private let catchUpLedgerLimit = 1024
         private let catchUpLedgerKey = "notifications_due_catchup_ledger_v1"
+        private var syncGeneration = 0
+        private var synchronizationTask: Task<Void, Never>?
         private var timedPlansByPath: [String: [PlannedNotification]] = [:]
         private var locationPlansByPath: [String: [PlannedLocationNotification]] = [:]
         private var scheduledTimedPlansByIdentifier: [String: PlannedNotification] = [:]
@@ -100,7 +102,7 @@ import Foundation
             locationPlansByPath = Dictionary(uniqueKeysWithValues: records.map {
                 ($0.identity.path, locationNotificationPlans(for: $0))
             })
-            await applyPendingNotifications(now: Date())
+            await scheduleSynchronization(now: Date())
         }
 
         func synchronize(upsertedRecords: [TaskRecord], deletedPaths: [String], planner: NotificationPlanner) async {
@@ -116,10 +118,29 @@ import Foundation
                 locationPlansByPath[record.identity.path] = locationNotificationPlans(for: record)
             }
 
-            await applyPendingNotifications(now: now)
+            await scheduleSynchronization(now: now)
         }
 
-        private func applyPendingNotifications(now: Date) async {
+        private func scheduleSynchronization(now: Date) async {
+            syncGeneration += 1
+            let generation = syncGeneration
+
+            synchronizationTask?.cancel()
+            let task = Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.applyPendingNotifications(now: now, generation: generation)
+            }
+            synchronizationTask = task
+            await task.value
+
+            if generation == syncGeneration {
+                synchronizationTask = nil
+            }
+        }
+
+        private func applyPendingNotifications(now: Date, generation: Int) async {
+            guard isSynchronizationCurrent(generation) else { return }
+
             let allPlans = timedPlansByPath.values
                 .flatMap(\.self)
                 .sorted { $0.fireDate < $1.fireDate }
@@ -134,6 +155,7 @@ import Foundation
             let selectedFuturePlans = Array(futurePlans.prefix(futureBudget))
             let selectedLocationPlans = Array(allLocationPlans.prefix(maxPendingLocationNotifications))
             let existingIDs = await pendingManagedNotificationIdentifiers()
+            guard isSynchronizationCurrent(generation) else { return }
             let existingIDSet = Set(existingIDs)
             let catchUpIdentifiers = Set(catchUpPlans.map(\.identifier))
             let desiredTimedPlansByIdentifier = Dictionary(
@@ -170,8 +192,10 @@ import Foundation
             if !identifiersToRemove.isEmpty {
                 center.removePendingNotificationRequests(withIdentifiers: Array(identifiersToRemove))
             }
+            guard isSynchronizationCurrent(generation) else { return }
 
             for plan in timedPlansToAdd.sorted(by: { $0.fireDate < $1.fireDate }) {
+                guard isSynchronizationCurrent(generation) else { return }
                 let content = notificationContent(
                     title: plan.title,
                     body: plan.body,
@@ -186,6 +210,7 @@ import Foundation
                 let request = UNNotificationRequest(identifier: plan.identifier, content: content, trigger: trigger)
                 do {
                     try await addNotificationRequest(request)
+                    guard isSynchronizationCurrent(generation) else { return }
                     if catchUpIdentifiers.contains(plan.identifier) {
                         recordCatchUpIdentifier(plan.identifier, now: now)
                     }
@@ -196,6 +221,7 @@ import Foundation
 
             #if canImport(CoreLocation) && !os(macOS)
                 for plan in locationPlansToAdd.sorted(by: { $0.identifier < $1.identifier }) {
+                    guard isSynchronizationCurrent(generation) else { return }
                     let content = notificationContent(
                         title: plan.title,
                         body: plan.body,
@@ -214,14 +240,20 @@ import Foundation
                     let request = UNNotificationRequest(identifier: plan.identifier, content: content, trigger: trigger)
                     do {
                         try await addNotificationRequest(request)
+                        guard isSynchronizationCurrent(generation) else { return }
                     } catch {
                         // Keep non-fatal: notification errors must not block task data flow.
                     }
                 }
             #endif
 
+            guard isSynchronizationCurrent(generation) else { return }
             scheduledTimedPlansByIdentifier = desiredTimedPlansByIdentifier
             scheduledLocationPlansByIdentifier = desiredLocationPlansByIdentifier
+        }
+
+        private func isSynchronizationCurrent(_ generation: Int) -> Bool {
+            generation == syncGeneration && !Task.isCancelled
         }
 
         func requestAuthorizationIfNeeded(requestLocation: Bool) async {
