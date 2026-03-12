@@ -50,17 +50,15 @@ struct TaskDetailView: View {
     @State private var recurrenceFrequency: RecurrenceFrequencyOption = .none
     @State private var recurrenceInterval = 1
     @State private var recurrenceWeekdays: Set<String> = []
-    private enum ActiveSheet: Identifiable {
-        case due, scheduled, customRepeat, locationReminder
-        var id: Self { self }
-    }
-
     @State private var showingRepeatPresetMenu = false
-    @State private var activeSheet: ActiveSheet?
+    @State private var showingDueDateEditor = false
+    @State private var showingScheduledDateEditor = false
     @State private var expandedRow: ExpandedRow?
 
     @AppStorage("taskDetail.expandedDependencies") private var expandedDependencies = false
+    @AppStorage("taskDetail.expandedLocationReminder") private var expandedLocationReminder = false
     @AppStorage("taskDetail.expandedMetadata") private var expandedMetadata = false
+    @State private var showingCustomRepeatEditor = false
 
     @State private var latitudeError: String?
     @State private var longitudeError: String?
@@ -104,17 +102,11 @@ struct TaskDetailView: View {
         .modifier(TaskDetailNotesPresentation(isPresented: $showNotesEditor) {
             notesEditorView
         })
-        .sheet(item: $activeSheet) { sheet in
-            switch sheet {
-            case .due:
-                dueDateEditorSheet
-            case .scheduled:
-                scheduledDateEditorSheet
-            case .customRepeat:
-                customRepeatView
-            case .locationReminder:
-                locationEditorView
-            }
+        .sheet(isPresented: $expandedLocationReminder) {
+            locationEditorView
+        }
+        .sheet(isPresented: $showingCustomRepeatEditor) {
+            customRepeatView
         }
         .alert(
             "Delete Task",
@@ -160,7 +152,7 @@ struct TaskDetailView: View {
             }
             Button("Custom") {
                 syncRecurrenceBuilderFromEditState()
-                activeSheet = .customRepeat
+                showingCustomRepeatEditor = true
             }
             if !(editState?.recurrence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) {
                 Button("Never", role: .destructive) {
@@ -284,7 +276,7 @@ struct TaskDetailView: View {
 
             // Due
             Button {
-                activeSheet = .due
+                showingDueDateEditor = true
             } label: {
                 HStack(spacing: 12) {
                     Image(systemName: "calendar")
@@ -303,11 +295,14 @@ struct TaskDetailView: View {
             }
             .buttonStyle(.plain)
             .taskDetailAccessibilityIdentifier("taskDetail.row.due")
+            .sheet(isPresented: $showingDueDateEditor) {
+                dueDateEditorSheet
+            }
             Divider().padding(.leading, 52)
 
             // Scheduled
             Button {
-                activeSheet = .scheduled
+                showingScheduledDateEditor = true
             } label: {
                 HStack(spacing: 12) {
                     Image(systemName: "calendar.badge.clock")
@@ -326,6 +321,9 @@ struct TaskDetailView: View {
             }
             .buttonStyle(.plain)
             .taskDetailAccessibilityIdentifier("taskDetail.row.scheduled")
+            .sheet(isPresented: $showingScheduledDateEditor) {
+                scheduledDateEditorSheet
+            }
 
             // Repeat
             Divider().padding(.leading, 52)
@@ -449,7 +447,7 @@ struct TaskDetailView: View {
 
                 // Location
                 Button {
-                    activeSheet = .locationReminder
+                    expandedLocationReminder = true
                 } label: {
                     HStack(spacing: 12) {
                         Image(systemName: "location")
@@ -546,7 +544,7 @@ struct TaskDetailView: View {
 #endif
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { activeSheet = nil }
+                    Button("Done") { showingDueDateEditor = false }
                 }
             }
         }
@@ -572,7 +570,7 @@ struct TaskDetailView: View {
 #endif
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { activeSheet = nil }
+                    Button("Done") { showingScheduledDateEditor = false }
                 }
             }
         }
@@ -637,7 +635,7 @@ struct TaskDetailView: View {
             .toolbar {
                 ToolbarItem(placement: .appLeadingAction) {
                     Button {
-                        activeSheet = nil
+                        showingCustomRepeatEditor = false
                     } label: {
                         Image(systemName: "chevron.left")
                     }
@@ -645,7 +643,7 @@ struct TaskDetailView: View {
                 ToolbarItem(placement: .appTrailingAction) {
                     Button("Save") {
                         applyRecurrenceBuilder()
-                        activeSheet = nil
+                        showingCustomRepeatEditor = false
                     }
                     .disabled(recurrenceFrequency == .weekly && recurrenceWeekdays.isEmpty)
                 }
@@ -711,7 +709,7 @@ struct TaskDetailView: View {
             .modifier(TaskDetailInlineTitleDisplay())
             .toolbar {
                 ToolbarItem(placement: .appTrailingAction) {
-                    Button("Done") { activeSheet = nil }
+                    Button("Done") { expandedLocationReminder = false }
                 }
             }
         }
