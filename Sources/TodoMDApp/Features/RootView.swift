@@ -3355,12 +3355,20 @@ struct RootView: View {
     }
 
     private func expandedTaskDateSheet(target: ExpandedTaskDateTarget) -> some View {
-        ExpandedTaskDateEditorSheet(initialDate: target.initialDate) { date in
+        let sheet = ExpandedTaskDateEditorSheet(initialDate: target.initialDate) { date in
             _ = container.setDue(path: target.path, date: date)
             expandedTaskDateTarget = nil
         } onCancel: {
             expandedTaskDateTarget = nil
         }
+
+#if os(iOS)
+        return sheet
+            .presentationDetents([.fraction(0.64), .large])
+            .presentationDragIndicator(.visible)
+#else
+        return sheet
+#endif
     }
 
     private func expandedTaskTagsSheet(target: ExpandedTaskTagsTarget) -> some View {
@@ -4133,7 +4141,7 @@ private struct ExpandedTaskRow: View {
                     systemImage: "calendar",
                     tint: dueActionTint(for: frontmatter),
                     accessibilityLabel: "Edit due date",
-                    action: onCalendar
+                    action: presentCalendarEditor
                 )
 
                 Spacer(minLength: 0)
@@ -4142,7 +4150,7 @@ private struct ExpandedTaskRow: View {
                     icon: "tag",
                     tint: frontmatter.tags.isEmpty ? theme.textSecondaryColor : theme.accentColor,
                     accessibilityLabel: "Edit tags",
-                    action: onTags
+                    action: presentTagsEditor
                 )
             } else {
                 Spacer(minLength: 0)
@@ -4151,14 +4159,14 @@ private struct ExpandedTaskRow: View {
                     icon: "calendar",
                     tint: theme.textSecondaryColor,
                     accessibilityLabel: "Choose due date",
-                    action: onCalendar
+                    action: presentCalendarEditor
                 )
 
                 ExpandedTaskInlineIconButton(
                     icon: "tag",
                     tint: frontmatter.tags.isEmpty ? theme.textSecondaryColor : theme.accentColor,
                     accessibilityLabel: "Edit tags",
-                    action: onTags
+                    action: presentTagsEditor
                 )
             }
         }
@@ -4173,7 +4181,7 @@ private struct ExpandedTaskRow: View {
                 title: "Move",
                 systemImage: "arrow.right",
                 tint: expandedFooterPrimaryTextColor,
-                action: onMove
+                action: presentMoveEditor
             )
 
             Rectangle()
@@ -4185,7 +4193,7 @@ private struct ExpandedTaskRow: View {
                 title: "Delete",
                 systemImage: "trash",
                 tint: expandedFooterPrimaryTextColor,
-                action: onDelete
+                action: handleDelete
             )
 
             Rectangle()
@@ -4197,7 +4205,7 @@ private struct ExpandedTaskRow: View {
                 title: "More",
                 systemImage: "ellipsis",
                 tint: expandedFooterPrimaryTextColor,
-                action: onMore
+                action: openMoreDetails
             )
         }
         .padding(4)
@@ -4274,6 +4282,38 @@ private struct ExpandedTaskRow: View {
                 .combined(with: .scale(scale: 0.98, anchor: .topTrailing)),
             removal: .opacity.combined(with: .scale(scale: 0.985, anchor: .topTrailing))
         )
+    }
+
+    private func performExpandedAction(_ action: @escaping () -> Void) {
+        guard focusedField != nil else {
+            action()
+            return
+        }
+
+        focusedField = nil
+        DispatchQueue.main.async {
+            action()
+        }
+    }
+
+    private func presentCalendarEditor() {
+        performExpandedAction(onCalendar)
+    }
+
+    private func presentTagsEditor() {
+        performExpandedAction(onTags)
+    }
+
+    private func presentMoveEditor() {
+        performExpandedAction(onMove)
+    }
+
+    private func openMoreDetails() {
+        performExpandedAction(onMore)
+    }
+
+    private func handleDelete() {
+        performExpandedAction(onDelete)
     }
 
     private var expandedNoteTextColor: Color {
@@ -4679,6 +4719,7 @@ private struct ExpandedTaskFooterButtonStyle: ButtonStyle {
 }
 
 private struct ExpandedTaskDateEditorSheet: View {
+    @EnvironmentObject private var theme: ThemeManager
     @State private var hasDate: Bool
     @State private var selectedDate: Date
 
@@ -4698,26 +4739,32 @@ private struct ExpandedTaskDateEditorSheet: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Toggle("Set due date", isOn: $hasDate)
-
-                if hasDate {
-                    DatePicker("Due date", selection: $selectedDate, displayedComponents: .date)
-
-                    Button("Clear Date", role: .destructive) {
-                        hasDate = false
-                    }
-                }
+            ScrollView {
+                DateChooserView(
+                    context: .due,
+                    timeMode: .hidden,
+                    hasDate: $hasDate,
+                    date: $selectedDate,
+                    hasTime: .constant(false),
+                    time: .constant(selectedDate)
+                )
+                .padding(16)
             }
-            .navigationTitle("Date")
+            .background(theme.backgroundColor.ignoresSafeArea())
+            .navigationTitle("Due")
+#if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+#endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", action: onCancel)
+                        .accessibilityIdentifier("expandedTaskDate.cancelButton")
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
+                    Button("Done") {
                         onSave(hasDate ? selectedDate : nil)
                     }
+                    .accessibilityIdentifier("expandedTaskDate.doneButton")
                 }
             }
         }
