@@ -131,6 +131,46 @@ final class TodoMDAppUITests: XCTestCase {
         XCTAssertEqual(summaryTitle.label, "Tomorrow", "Tomorrow preset should update the due-date summary immediately")
     }
 
+    func testExpandedTaskDueDateChooserUsesPresetFlow() {
+        let storageOverride = makeStorageOverridePath()
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        completeOnboarding(app: app)
+        createTask(app: app, title: "expanded due chooser")
+
+        let taskRow = app.descendants(matching: .any)["taskRow.expanded due chooser"].firstMatch
+        XCTAssertTrue(taskRow.waitForExistence(timeout: 10), "Created task row was not visible")
+        taskRow.tap()
+
+        let dueButton = app.buttons["Choose due date"].firstMatch
+        XCTAssertTrue(dueButton.waitForExistence(timeout: 10), "Expanded task due button was not visible")
+        dueButton.tap()
+
+        XCTAssertFalse(
+            app.switches["Set due date"].firstMatch.exists,
+            "Expanded task due chooser should not require a due-date toggle"
+        )
+
+        let todayPreset = app.descendants(matching: .any)["dateChooser.due.preset.today"].firstMatch
+        XCTAssertTrue(todayPreset.waitForExistence(timeout: 10), "Today preset was not visible")
+        todayPreset.tap()
+
+        let doneButton = app.buttons["expandedTaskDate.doneButton"].firstMatch
+        XCTAssertTrue(doneButton.waitForExistence(timeout: 10), "Done button was not visible in expanded task due chooser")
+        doneButton.tap()
+
+        XCTAssertTrue(
+            waitForMarkdownStorage(rootPath: storageOverride) { content in
+                content.contains("expanded due chooser") && content.contains("due:")
+            },
+            "Selected due date was not persisted after using the expanded task due chooser"
+        )
+    }
+
     func testOnboardingDefaultFolderAllowsColdRelaunch() {
         let storageOverride = makeStorageOverridePath()
 
