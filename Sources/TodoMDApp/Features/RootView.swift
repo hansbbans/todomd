@@ -456,7 +456,6 @@ struct RootView: View {
     @State private var showingInlineVoiceRamble = false
     @FocusState private var inlineTaskFocused: Bool
     @Namespace private var compactQuickAddNamespace
-    @AppStorage(ExpandedTaskSettings.actionsKey) private var expandedTaskActionsRawValue = ExpandedTaskSettings.defaultActionsRawValue
     @AppStorage(CompactTabSettings.leadingViewKey) private var compactPrimaryTabRawValue = CompactTabSettings.defaultLeadingView.rawValue
     @AppStorage(CompactTabSettings.trailingViewKey) private var compactSecondaryTabRawValue = CompactTabSettings.defaultTrailingView.rawValue
     @AppStorage("settings_pomodoro_enabled") private var pomodoroEnabled = false
@@ -2870,38 +2869,52 @@ struct RootView: View {
     private var expandedTaskBottomBar: some View {
         if let path = expandedTaskPath {
             HStack(spacing: 0) {
-                ExpandedTaskFooterButton(
+                ExpandedTaskBottomBarPrimaryButton(
                     title: "Move",
-                    systemImage: "folder",
-                    tint: Color.white.opacity(0.92),
+                    systemImage: "arrow.right",
+                    tint: Color.white.opacity(0.94),
                     action: {
                         showExpandedTaskMoveEditor(path: path)
                     }
                 )
 
                 Rectangle()
-                    .fill(Color.white.opacity(0.08))
-                    .frame(width: 1, height: 28)
-                    .padding(.vertical, 8)
+                    .fill(Color.white.opacity(0.12))
+                    .frame(width: 1, height: 30)
+                    .padding(.vertical, 10)
 
-                ExpandedTaskFooterButton(
-                    title: "Delete",
+                ExpandedTaskBottomBarIconButton(
                     systemImage: "trash",
-                    tint: theme.overdueColor.opacity(0.98),
+                    tint: Color.white.opacity(0.88),
                     action: {
                         expandedTaskPath = nil
                         pendingDeletePath = path
                     }
                 )
+
+                Rectangle()
+                    .fill(Color.white.opacity(0.12))
+                    .frame(width: 1, height: 30)
+                    .padding(.vertical, 10)
+
+                ExpandedTaskBottomBarIconButton(
+                    systemImage: "ellipsis",
+                    tint: Color.white.opacity(0.88),
+                    action: {
+                        openFullTaskEditor(path: path)
+                    }
+                )
             }
-            .padding(4)
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
             .background(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                Capsule(style: .continuous)
                     .fill(
                         LinearGradient(
                             colors: [
-                                Color.black.opacity(0.92),
-                                Color(red: 0.06, green: 0.07, blue: 0.09).opacity(0.98)
+                                Color(red: 0.31, green: 0.37, blue: 0.48).opacity(0.96),
+                                Color(red: 0.24, green: 0.29, blue: 0.39).opacity(0.98)
                             ],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
@@ -2909,10 +2922,10 @@ struct RootView: View {
                     )
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(Color.white.opacity(0.06), lineWidth: 1)
+                Capsule(style: .continuous)
+                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
             )
-            .shadow(color: Color.black.opacity(0.34), radius: 20, y: 8)
+            .shadow(color: Color.black.opacity(0.28), radius: 22, y: 10)
             .accessibilityIdentifier("expandedTask.bottomBar")
         }
     }
@@ -3437,10 +3450,6 @@ struct RootView: View {
         _ = pathsSlidingOut.remove(path)
     }
 
-    private var expandedTaskQuickActions: [ExpandedTaskQuickAction] {
-        ExpandedTaskSettings.decodeActions(expandedTaskActionsRawValue)
-    }
-
     private func toggleExpandedTask(path: String) {
         guard !isEditing else { return }
         cancelInlineTaskComposer()
@@ -3495,7 +3504,6 @@ struct RootView: View {
         return ExpandedTaskRow(
             record: record,
             isExpanded: expandedTaskPath == path,
-            visibleQuickActions: expandedTaskQuickActions,
             showsInlineFooter: horizontalSizeClass != .compact,
             isCompleting: isCompleting || isSlidingOut,
             onExpand: { toggleExpandedTask(path: path) },
@@ -3503,17 +3511,8 @@ struct RootView: View {
             onSaveTextEdits: { title, notes in
                 saveExpandedTaskTextEdits(path: path, title: title, notes: notes)
             },
-            onToday: {
-                _ = container.setDue(path: path, date: Date())
-            },
             onCalendar: {
                 showExpandedTaskDateEditor(for: record)
-            },
-            onToggleFlag: {
-                _ = container.toggleFlag(path: path)
-            },
-            onSetPriority: { priority in
-                _ = container.setPriority(path: path, priority: priority)
             },
             onTags: {
                 showExpandedTaskTagsEditor(for: record)
@@ -3920,16 +3919,12 @@ private struct ExpandedTaskRow: View {
 
     let record: TaskRecord
     let isExpanded: Bool
-    let visibleQuickActions: [ExpandedTaskQuickAction]
     let showsInlineFooter: Bool
     let isCompleting: Bool
     let onExpand: () -> Void
     let onComplete: () -> Void
     let onSaveTextEdits: (String, String) -> Void
-    let onToday: () -> Void
     let onCalendar: () -> Void
-    let onToggleFlag: () -> Void
-    let onSetPriority: (TaskPriority) -> Void
     let onTags: () -> Void
     let onMore: () -> Void
     let onMove: () -> Void
@@ -3943,16 +3938,12 @@ private struct ExpandedTaskRow: View {
     init(
         record: TaskRecord,
         isExpanded: Bool,
-        visibleQuickActions: [ExpandedTaskQuickAction],
         showsInlineFooter: Bool,
         isCompleting: Bool,
         onExpand: @escaping () -> Void,
         onComplete: @escaping () -> Void,
         onSaveTextEdits: @escaping (String, String) -> Void,
-        onToday: @escaping () -> Void,
         onCalendar: @escaping () -> Void,
-        onToggleFlag: @escaping () -> Void,
-        onSetPriority: @escaping (TaskPriority) -> Void,
         onTags: @escaping () -> Void,
         onMore: @escaping () -> Void,
         onMove: @escaping () -> Void,
@@ -3960,16 +3951,12 @@ private struct ExpandedTaskRow: View {
     ) {
         self.record = record
         self.isExpanded = isExpanded
-        self.visibleQuickActions = visibleQuickActions
         self.showsInlineFooter = showsInlineFooter
         self.isCompleting = isCompleting
         self.onExpand = onExpand
         self.onComplete = onComplete
         self.onSaveTextEdits = onSaveTextEdits
-        self.onToday = onToday
         self.onCalendar = onCalendar
-        self.onToggleFlag = onToggleFlag
-        self.onSetPriority = onSetPriority
         self.onTags = onTags
         self.onMore = onMore
         self.onMove = onMove
@@ -3998,7 +3985,7 @@ private struct ExpandedTaskRow: View {
 
                 VStack(alignment: .leading, spacing: isExpanded ? 8 : 3) {
                     if isExpanded {
-                        expandedTextContent(frontmatter: frontmatter)
+                        expandedTextContent()
                     } else {
                         collapsedTextContent(frontmatter: frontmatter)
                     }
@@ -4016,7 +4003,7 @@ private struct ExpandedTaskRow: View {
 
             if isExpanded {
                 VStack(alignment: .leading, spacing: 14) {
-                    expandedQuickActions(frontmatter: frontmatter)
+                    expandedActionRow(frontmatter: frontmatter)
                         .padding(.leading, 34)
 
                     if showsInlineFooter {
@@ -4098,7 +4085,7 @@ private struct ExpandedTaskRow: View {
         }
     }
 
-    private func expandedTextContent(frontmatter: TaskFrontmatterV1) -> some View {
+    private func expandedTextContent() -> some View {
         VStack(alignment: .leading, spacing: 8) {
             ZStack(alignment: .topLeading) {
                 if titleDraft.isEmpty {
@@ -4134,88 +4121,50 @@ private struct ExpandedTaskRow: View {
                     .focused($focusedField, equals: .notes)
                     .lineLimit(1...5)
             }
-            .frame(minHeight: 102, alignment: .topLeading)
-
-            if frontmatter.flagged || frontmatter.priority != .none {
-                HStack(spacing: 8) {
-                    if frontmatter.flagged {
-                        Label("Flagged", systemImage: "flag.fill")
-                            .foregroundStyle(theme.flaggedColor)
-                    }
-
-                    if frontmatter.priority != .none {
-                        Label(frontmatter.priority.rawValue.capitalized, systemImage: "exclamationmark")
-                            .foregroundStyle(theme.priorityColor(frontmatter.priority))
-                    }
-                }
-                .font(.caption2.weight(.semibold))
-            }
+            .frame(minHeight: 86, alignment: .topLeading)
         }
     }
 
-    private func expandedQuickActions(frontmatter: TaskFrontmatterV1) -> some View {
+    private func expandedActionRow(frontmatter: TaskFrontmatterV1) -> some View {
         HStack(spacing: 18) {
-            ForEach(visibleQuickActions) { action in
-                quickActionButton(action, frontmatter: frontmatter)
+            if let dueLabel = dueDisplayText(for: frontmatter) {
+                ExpandedTaskInlineChipButton(
+                    title: dueLabel,
+                    systemImage: "calendar",
+                    tint: dueActionTint(for: frontmatter),
+                    accessibilityLabel: "Edit due date",
+                    action: onCalendar
+                )
+
+                Spacer(minLength: 0)
+
+                ExpandedTaskInlineIconButton(
+                    icon: "tag",
+                    tint: frontmatter.tags.isEmpty ? theme.textSecondaryColor : theme.accentColor,
+                    accessibilityLabel: "Edit tags",
+                    action: onTags
+                )
+            } else {
+                Spacer(minLength: 0)
+
+                ExpandedTaskInlineIconButton(
+                    icon: "calendar",
+                    tint: theme.textSecondaryColor,
+                    accessibilityLabel: "Choose due date",
+                    action: onCalendar
+                )
+
+                ExpandedTaskInlineIconButton(
+                    icon: "tag",
+                    tint: frontmatter.tags.isEmpty ? theme.textSecondaryColor : theme.accentColor,
+                    accessibilityLabel: "Edit tags",
+                    action: onTags
+                )
             }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
-        .padding(.top, 16)
+        .padding(.top, 10)
         .padding(.trailing, 6)
-    }
-
-    @ViewBuilder
-    private func quickActionButton(_ action: ExpandedTaskQuickAction, frontmatter: TaskFrontmatterV1) -> some View {
-        switch action {
-        case .today:
-            ExpandedTaskQuickActionButton(
-                icon: action.systemImage,
-                tint: frontmatter.due != nil
-                    ? (isOverdue(frontmatter) ? theme.overdueColor : theme.accentColor)
-                    : theme.textSecondaryColor,
-                accessibilityLabel: "Set due date to today",
-                action: onToday
-            )
-        case .calendar:
-            ExpandedTaskQuickActionButton(
-                icon: action.systemImage,
-                tint: frontmatter.due == nil ? theme.textSecondaryColor : theme.accentColor,
-                accessibilityLabel: "Choose due date",
-                action: onCalendar
-            )
-        case .priority:
-            Menu {
-                Button(frontmatter.flagged ? "Remove Flag" : "Flag") {
-                    onToggleFlag()
-                }
-                Divider()
-                ForEach(TaskPriority.allCases, id: \.self) { priority in
-                    Button(priority.rawValue.capitalized) {
-                        onSetPriority(priority)
-                    }
-                }
-            } label: {
-                ExpandedTaskQuickActionGlyph(
-                    icon: frontmatter.flagged ? "flag.fill" : action.systemImage,
-                    tint: priorityTint(for: frontmatter)
-                )
-            }
-            .menuStyle(.button)
-        case .tags:
-            ExpandedTaskQuickActionButton(
-                icon: action.systemImage,
-                tint: frontmatter.tags.isEmpty ? theme.textSecondaryColor : theme.accentColor,
-                accessibilityLabel: "Edit tags",
-                action: onTags
-            )
-        case .more:
-            ExpandedTaskQuickActionButton(
-                icon: action.systemImage,
-                tint: theme.textSecondaryColor,
-                accessibilityLabel: "Open full task editor",
-                action: onMore
-            )
-        }
     }
 
     private var expandedFooter: some View {
@@ -4235,8 +4184,20 @@ private struct ExpandedTaskRow: View {
             ExpandedTaskFooterButton(
                 title: "Delete",
                 systemImage: "trash",
-                tint: theme.overdueColor,
+                tint: expandedFooterPrimaryTextColor,
                 action: onDelete
+            )
+
+            Rectangle()
+                .fill(expandedFooterDividerColor)
+                .frame(width: 1, height: 22)
+                .padding(.vertical, 6)
+
+            ExpandedTaskFooterButton(
+                title: "More",
+                systemImage: "ellipsis",
+                tint: expandedFooterPrimaryTextColor,
+                action: onMore
             )
         }
         .padding(4)
@@ -4367,13 +4328,6 @@ private struct ExpandedTaskRow: View {
         onSaveTextEdits(titleDraft, notesDraft)
     }
 
-    private func priorityTint(for frontmatter: TaskFrontmatterV1) -> Color {
-        if frontmatter.flagged {
-            return theme.flaggedColor
-        }
-        return frontmatter.priority == .none ? theme.textSecondaryColor : theme.priorityColor(frontmatter.priority)
-    }
-
     private func checkboxTint(for frontmatter: TaskFrontmatterV1) -> Color {
         if frontmatter.status == .cancelled {
             return theme.textSecondaryColor
@@ -4463,6 +4417,10 @@ private struct ExpandedTaskRow: View {
             return dueDate < Date()
         }
         return Calendar.current.startOfDay(for: dueDate) < Calendar.current.startOfDay(for: Date())
+    }
+
+    private func dueActionTint(for frontmatter: TaskFrontmatterV1) -> Color {
+        isOverdue(frontmatter) ? theme.overdueColor : theme.accentColor
     }
 
     private func completionDisplayText(for frontmatter: TaskFrontmatterV1) -> String? {
@@ -4586,20 +4544,7 @@ private struct ExpandedTaskRow: View {
     }
 }
 
-private struct ExpandedTaskQuickActionGlyph: View {
-    let icon: String
-    let tint: Color
-
-    var body: some View {
-        Image(systemName: icon)
-            .font(.system(size: 18, weight: .regular))
-            .foregroundStyle(tint)
-            .frame(width: 32, height: 32)
-            .contentShape(Rectangle())
-    }
-}
-
-private struct ExpandedTaskQuickActionButton: View {
+private struct ExpandedTaskInlineIconButton: View {
     let icon: String
     let tint: Color
     let accessibilityLabel: String
@@ -4607,7 +4552,34 @@ private struct ExpandedTaskQuickActionButton: View {
 
     var body: some View {
         Button(action: action) {
-            ExpandedTaskQuickActionGlyph(icon: icon, tint: tint)
+            Image(systemName: icon)
+                .font(.system(size: 19, weight: .regular))
+                .foregroundStyle(tint)
+                .frame(width: 34, height: 34)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
+    }
+}
+
+private struct ExpandedTaskInlineChipButton: View {
+    let title: String
+    let systemImage: String
+    let tint: Color
+    let accessibilityLabel: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 17, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(tint)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)
@@ -4633,6 +4605,55 @@ private struct ExpandedTaskFooterButton: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 11)
             .foregroundStyle(tint)
+        }
+        .buttonStyle(ExpandedTaskFooterButtonStyle(pressedFill: pressedFill))
+    }
+
+    private var pressedFill: Color {
+        colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05)
+    }
+}
+
+private struct ExpandedTaskBottomBarPrimaryButton: View {
+    let title: String
+    let systemImage: String
+    let tint: Color
+    let action: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 11) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 18, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 18, weight: .semibold))
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 24)
+            .frame(height: 58)
+            .foregroundStyle(tint)
+        }
+        .buttonStyle(ExpandedTaskFooterButtonStyle(pressedFill: pressedFill))
+    }
+
+    private var pressedFill: Color {
+        colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05)
+    }
+}
+
+private struct ExpandedTaskBottomBarIconButton: View {
+    let systemImage: String
+    let tint: Color
+    let action: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 20, weight: .semibold))
+                .frame(width: 60, height: 58)
+                .foregroundStyle(tint)
         }
         .buttonStyle(ExpandedTaskFooterButtonStyle(pressedFill: pressedFill))
     }
