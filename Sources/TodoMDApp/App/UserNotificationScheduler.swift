@@ -1,8 +1,8 @@
 import Foundation
 #if canImport(UserNotifications)
-import UserNotifications
+@preconcurrency import UserNotifications
 #if canImport(CoreLocation)
-import CoreLocation
+@preconcurrency import CoreLocation
 #endif
 
 @MainActor
@@ -38,6 +38,10 @@ final class UserNotificationScheduler {
 
     init(center: UNUserNotificationCenter = .current()) {
         self.center = center
+    }
+
+    private nonisolated func addNotificationRequest(_ request: UNNotificationRequest) async throws {
+        try await center.add(request)
     }
 
     func cancelNotifications(forTaskPath path: String) {
@@ -178,7 +182,7 @@ final class UserNotificationScheduler {
             let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
             let request = UNNotificationRequest(identifier: plan.identifier, content: content, trigger: trigger)
             do {
-                try await center.add(request)
+                try await addNotificationRequest(request)
                 if catchUpIdentifiers.contains(plan.identifier) {
                     recordCatchUpIdentifier(plan.identifier, now: now)
                 }
@@ -202,7 +206,7 @@ final class UserNotificationScheduler {
             let trigger = UNLocationNotificationTrigger(region: region, repeats: true)
             let request = UNNotificationRequest(identifier: plan.identifier, content: content, trigger: trigger)
             do {
-                try await self.center.add(request)
+                try await addNotificationRequest(request)
             } catch {
                 // Keep non-fatal: notification errors must not block task data flow.
             }
@@ -238,7 +242,7 @@ final class UserNotificationScheduler {
         let identifier = "auto-unblocked-\(abs(taskPath.hashValue))"
         let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
         do {
-            try await center.add(request)
+            try await addNotificationRequest(request)
         } catch {
             // Keep non-fatal.
         }
