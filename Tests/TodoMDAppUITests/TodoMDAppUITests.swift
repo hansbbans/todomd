@@ -66,8 +66,14 @@ final class TodoMDAppUITests: XCTestCase {
         submitInlineTask(from: app)
 
         let createdTaskRow = app.descendants(matching: .any)["taskRow.buy cookies"]
-        XCTAssertTrue(createdTaskRow.waitForExistence(timeout: 10), "Inline add did not strip the natural-language due phrase")
-        XCTAssertTrue(app.staticTexts["Tomorrow"].waitForExistence(timeout: 10), "Created task did not show the parsed due date")
+        XCTAssertTrue(
+            createdTaskRow.waitForExistence(timeout: 10),
+            "Inline add did not strip the natural-language due phrase"
+        )
+        XCTAssertTrue(
+            app.staticTexts["Tomorrow"].waitForExistence(timeout: 10),
+            "Created task did not show the parsed due date"
+        )
     }
 
     func testMarkingTaskDoneRemovesItFromInboxImmediately() {
@@ -93,6 +99,38 @@ final class TodoMDAppUITests: XCTestCase {
         waitForExpectations(timeout: 5)
     }
 
+    func testTaskDetailDueDateChooserTomorrowPresetUpdatesSummary() {
+        let storageOverride = makeStorageOverridePath()
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        completeOnboarding(app: app)
+        createTask(app: app, title: "detail date chooser")
+
+        let taskRow = app.descendants(matching: .any)["taskRow.detail date chooser"].firstMatch
+        XCTAssertTrue(taskRow.waitForExistence(timeout: 10), "Created task row was not visible")
+        taskRow.tap()
+
+        let moreButton = app.buttons["Open full task editor"].firstMatch
+        XCTAssertTrue(moreButton.waitForExistence(timeout: 10), "Expanded task actions did not appear")
+        moreButton.tap()
+
+        let dueRow = app.buttons["taskDetail.row.due"].firstMatch
+        XCTAssertTrue(dueRow.waitForExistence(timeout: 10), "Due row was not visible in task detail")
+        dueRow.tap()
+
+        let tomorrowPreset = app.descendants(matching: .any)["dateChooser.due.preset.tomorrow"].firstMatch
+        XCTAssertTrue(tomorrowPreset.waitForExistence(timeout: 10), "Tomorrow preset was not visible")
+        tomorrowPreset.tap()
+
+        let summaryTitle = app.staticTexts["dateChooser.due.summaryTitle"].firstMatch
+        XCTAssertTrue(summaryTitle.waitForExistence(timeout: 10), "Date chooser summary did not appear")
+        XCTAssertEqual(summaryTitle.label, "Tomorrow", "Tomorrow preset should update the due-date summary immediately")
+    }
+
     func testOnboardingDefaultFolderAllowsColdRelaunch() {
         let storageOverride = makeStorageOverridePath()
 
@@ -111,7 +149,10 @@ final class TodoMDAppUITests: XCTestCase {
         relaunchedApp.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
         relaunchedApp.launch()
 
-        XCTAssertTrue(rootViewReached(app: relaunchedApp, timeout: 10), "App did not relaunch into the root view after onboarding")
+        XCTAssertTrue(
+            rootViewReached(app: relaunchedApp, timeout: 10),
+            "App did not relaunch into the root view after onboarding"
+        )
     }
 
     func testRemindersImportEndToEndWithFakeSource() {
@@ -131,7 +172,10 @@ final class TodoMDAppUITests: XCTestCase {
         XCTAssertTrue(importAllButton.isHittable)
         importAllButton.tap()
 
-        XCTAssertFalse(importRow.waitForExistence(timeout: 5), "Imported reminder should no longer be listed as pending")
+        XCTAssertFalse(
+            importRow.waitForExistence(timeout: 5),
+            "Imported reminder should no longer be listed as pending"
+        )
 
         let importedTaskRow = app.descendants(matching: .any)["taskRow.from reminders e2e"].firstMatch
         XCTAssertTrue(
@@ -139,7 +183,8 @@ final class TodoMDAppUITests: XCTestCase {
             "Imported reminder task should appear in Inbox immediately without force-closing the app"
         )
 
-        let importSummary = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Imported 1 reminder")).firstMatch
+        let importSummary = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Imported 1 reminder"))
+            .firstMatch
         XCTAssertTrue(importSummary.waitForExistence(timeout: 10), "Import summary did not appear in Inbox")
     }
 
@@ -238,7 +283,10 @@ final class TodoMDAppUITests: XCTestCase {
         verificationBrowseTab.tap()
 
         let copiedProjectEditButton = verificationApp.buttons["project.edit.Weekly Template Copy"].firstMatch
-        XCTAssertTrue(copiedProjectEditButton.waitForExistence(timeout: 10), "Duplicated project was not listed in Browse")
+        XCTAssertTrue(
+            copiedProjectEditButton.waitForExistence(timeout: 10),
+            "Duplicated project was not listed in Browse"
+        )
 
         let copiedProjectButton = verificationApp.buttons["Weekly Template Copy"].firstMatch
         XCTAssertTrue(copiedProjectButton.waitForExistence(timeout: 10), "Duplicated project button was not visible")
@@ -304,7 +352,7 @@ final class TodoMDAppUITests: XCTestCase {
             pomodoroToggle.tap()
         }
 
-        for _ in 0..<2 {
+        for _ in 0 ..< 2 {
             let backButton = app.navigationBars.buttons.firstMatch
             XCTAssertTrue(backButton.waitForExistence(timeout: 10))
             backButton.tap()
@@ -434,10 +482,13 @@ final class TodoMDAppUITests: XCTestCase {
         containing needle: String,
         timeout: TimeInterval = 10,
         pollInterval: TimeInterval = 0.2
-    ) -> Bool {
+    )
+        -> Bool
+    {
         waitForCondition(timeout: timeout, pollInterval: pollInterval) {
             guard let data = try? Data(contentsOf: url),
-                  let content = String(data: data, encoding: .utf8) else {
+                  let content = String(data: data, encoding: .utf8)
+            else {
                 return false
             }
             return content.contains(needle)
@@ -449,7 +500,9 @@ final class TodoMDAppUITests: XCTestCase {
         timeout: TimeInterval = 10,
         pollInterval: TimeInterval = 0.2,
         predicate: (String) -> Bool
-    ) -> Bool {
+    )
+        -> Bool
+    {
         let rootURL = URL(fileURLWithPath: rootPath, isDirectory: true)
 
         return waitForCondition(timeout: timeout, pollInterval: pollInterval) {
@@ -463,7 +516,8 @@ final class TodoMDAppUITests: XCTestCase {
 
             for url in urls where url.pathExtension == "md" {
                 guard let data = try? Data(contentsOf: url),
-                      let content = String(data: data, encoding: .utf8) else {
+                      let content = String(data: data, encoding: .utf8)
+                else {
                     continue
                 }
                 if predicate(content) {
@@ -479,7 +533,9 @@ final class TodoMDAppUITests: XCTestCase {
         timeout: TimeInterval,
         pollInterval: TimeInterval,
         predicate: () -> Bool
-    ) -> Bool {
+    )
+        -> Bool
+    {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if predicate() {

@@ -1,7 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 #if canImport(UserNotifications)
-import UserNotifications
+    @preconcurrency import UserNotifications
 #endif
 
 private enum SettingsSection: String, CaseIterable, Identifiable {
@@ -13,43 +13,45 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
     case storage
     case maintenance
 
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
 
     var title: String {
         switch self {
         case .integrations:
-            return "Integrations"
+            "Integrations"
         case .calendar:
-            return "Calendar"
+            "Calendar"
         case .appearance:
-            return "Appearance"
+            "Appearance"
         case .notifications:
-            return "Notifications"
+            "Notifications"
         case .taskBehavior:
-            return "Task Behavior"
+            "Task Behavior"
         case .storage:
-            return "Storage"
+            "Storage"
         case .maintenance:
-            return "Maintenance"
+            "Maintenance"
         }
     }
 
     var systemImage: String {
         switch self {
         case .integrations:
-            return "square.3.layers.3d"
+            "square.3.layers.3d"
         case .calendar:
-            return "calendar"
+            "calendar"
         case .appearance:
-            return "paintpalette"
+            "paintpalette"
         case .notifications:
-            return "bell.badge"
+            "bell.badge"
         case .taskBehavior:
-            return "checkmark.circle"
+            "checkmark.circle"
         case .storage:
-            return "externaldrive"
+            "externaldrive"
         case .maintenance:
-            return "wrench.and.screwdriver"
+            "wrench.and.screwdriver"
         }
     }
 }
@@ -68,15 +70,24 @@ struct SettingsView: View {
     @AppStorage("settings_archive_completed") private var archiveCompleted = false
     @AppStorage("settings_completed_retention") private var completedRetention = "forever"
     @AppStorage("settings_default_priority") private var defaultPriority = TaskPriority.none.rawValue
-    @AppStorage(CompactTabSettings.leadingViewKey) private var compactPrimaryTabRawValue = CompactTabSettings.defaultLeadingView.rawValue
-    @AppStorage(CompactTabSettings.trailingViewKey) private var compactSecondaryTabRawValue = CompactTabSettings.defaultTrailingView.rawValue
+    @AppStorage(CompactTabSettings.leadingViewKey) private var compactPrimaryTabRawValue = CompactTabSettings
+        .defaultLeadingView.rawValue
+    @AppStorage(CompactTabSettings.trailingViewKey) private var compactSecondaryTabRawValue = CompactTabSettings
+        .defaultTrailingView.rawValue
     @AppStorage("settings_quick_entry_default_view") private var quickEntryDefaultView = BuiltInView.inbox.rawValue
-    @AppStorage(QuickEntrySettings.fieldsKey) private var quickEntryFieldsRawValue = QuickEntrySettings.defaultFieldsRawValue
-    @AppStorage(QuickEntrySettings.defaultDateModeKey) private var quickEntryDefaultDateModeRawValue = QuickEntryDefaultDateMode.none.rawValue
-    @AppStorage(ExpandedTaskSettings.actionsKey) private var expandedTaskActionsRawValue = ExpandedTaskSettings.defaultActionsRawValue
+    @AppStorage(QuickEntrySettings.fieldsKey) private var quickEntryFieldsRawValue = QuickEntrySettings
+        .defaultFieldsRawValue
+    @AppStorage(QuickEntrySettings.defaultDateModeKey) private var quickEntryDefaultDateModeRawValue =
+        QuickEntryDefaultDateMode.none.rawValue
+    @AppStorage(ExpandedTaskSettings.actionsKey) private var expandedTaskActionsRawValue = ExpandedTaskSettings
+        .defaultActionsRawValue
     @AppStorage("settings_pomodoro_enabled") private var pomodoroEnabled = false
-    @AppStorage(TaskFolderPreferences.legacyFolderNameKey, store: TaskFolderPreferences.shared) private var iCloudFolderName = "todo.md"
-    @State private var selectedFolderPath = TaskFolderPreferences.shared.string(forKey: TaskFolderPreferences.selectedFolderPathKey)
+    @AppStorage(
+        TaskFolderPreferences.legacyFolderNameKey,
+        store: TaskFolderPreferences.shared
+    ) private var iCloudFolderName = "todo.md"
+    @State private var selectedFolderPath = TaskFolderPreferences.shared
+        .string(forKey: TaskFolderPreferences.selectedFolderPathKey)
     @State private var showingFolderPicker = false
     @State private var folderSelectionErrorMessage: String?
     @State private var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
@@ -251,15 +262,18 @@ struct SettingsView: View {
                     }
 
                     if let calendarStatusMessage = container.calendarStatusMessage,
-                       !calendarStatusMessage.isEmpty {
+                       !calendarStatusMessage.isEmpty
+                    {
                         Text(calendarStatusMessage)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 } else {
-                    Text("Enable Calendar in Integrations to configure calendars and show events in Today and Upcoming.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Text(
+                        "Enable Calendar in Integrations to configure calendars and show events in Today and Upcoming."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
             }
         }
@@ -293,9 +307,11 @@ struct SettingsView: View {
                 }
                 .accessibilityIdentifier("settings.appearance.compactSecondaryTabPicker")
 
-                Text("Inbox, Today, and Areas stay pinned in slots 1-3. Choose which two extra lists appear in slots 4 and 5 on the iPhone tab bar.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text(
+                    "Inbox, Today, and Areas stay pinned in slots 1-3. Choose which two extra lists appear in slots 4 and 5 on the iPhone tab bar."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
         }
         .navigationTitle(SettingsSection.appearance.title)
@@ -303,42 +319,46 @@ struct SettingsView: View {
 
     private var notificationsSettingsView: some View {
         Form {
-#if canImport(UserNotifications)
-            if notificationAuthorizationStatus == .denied {
-                Section {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label("Notifications are disabled", systemImage: "bell.slash.fill")
-                            .font(.headline)
-                            .foregroundStyle(.red)
-                        Text("You won't receive any reminders until you enable notifications for todo.md in iOS Settings.")
+            #if canImport(UserNotifications)
+                if notificationAuthorizationStatus == .denied {
+                    Section {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label("Notifications are disabled", systemImage: "bell.slash.fill")
+                                .font(.headline)
+                                .foregroundStyle(.red)
+                            Text(
+                                "You won't receive any reminders until you enable notifications for todo.md in iOS Settings."
+                            )
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                        #if canImport(UIKit)
-                        Button("Open iOS Settings") {
-                            if let url = URL(string: UIApplication.openSettingsURLString) {
-                                UIApplication.shared.open(url)
-                            }
+                            #if canImport(UIKit)
+                                Button("Open iOS Settings") {
+                                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                                        UIApplication.shared.open(url)
+                                    }
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .padding(.top, 4)
+                            #endif
                         }
-                        .buttonStyle(.borderedProminent)
-                        .padding(.top, 4)
-                        #endif
+                        .padding(.vertical, 4)
                     }
-                    .padding(.vertical, 4)
-                }
-            } else if notificationAuthorizationStatus == .notDetermined {
-                Section {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label("Permission not yet granted", systemImage: "bell.badge.slash")
-                            .font(.headline)
-                            .foregroundStyle(.orange)
-                        Text("Open the app and add a task with a due date to trigger the notification permission prompt.")
+                } else if notificationAuthorizationStatus == .notDetermined {
+                    Section {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label("Permission not yet granted", systemImage: "bell.badge.slash")
+                                .font(.headline)
+                                .foregroundStyle(.orange)
+                            Text(
+                                "Open the app and add a task with a due date to trigger the notification permission prompt."
+                            )
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 4)
                     }
-                    .padding(.vertical, 4)
                 }
-            }
-#endif
+            #endif
             Section {
                 DatePicker(
                     "Default time",
@@ -362,8 +382,10 @@ struct SettingsView: View {
                 Toggle("Notify when blocked tasks are unblocked", isOn: $notifyAutoUnblocked)
 
                 if persistentRemindersEnabled {
-                    Stepper(value: $persistentReminderIntervalMinutes, in: 1...240, step: 1) {
-                        Text("Reminder interval: \(persistentReminderIntervalMinutes) minute\(persistentReminderIntervalMinutes == 1 ? "" : "s")")
+                    Stepper(value: $persistentReminderIntervalMinutes, in: 1 ... 240, step: 1) {
+                        Text(
+                            "Reminder interval: \(persistentReminderIntervalMinutes) minute\(persistentReminderIntervalMinutes == 1 ? "" : "s")"
+                        )
                     }
 
                     Text("Persistent reminders follow system Focus mode behavior.")
@@ -373,21 +395,27 @@ struct SettingsView: View {
             }
         }
         .navigationTitle(SettingsSection.notifications.title)
-#if canImport(UserNotifications)
-        .task {
+        #if canImport(UserNotifications)
+            .task {
+                await refreshNotificationAuthorizationStatus()
+            }
+            #if canImport(UIKit)
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+                Task {
+                    await refreshNotificationAuthorizationStatus()
+                }
+            }
+            #endif
+        #endif
+    }
+
+    #if canImport(UserNotifications)
+        @MainActor
+        private func refreshNotificationAuthorizationStatus() async {
             let settings = await UNUserNotificationCenter.current().notificationSettings()
             notificationAuthorizationStatus = settings.authorizationStatus
         }
-        #if canImport(UIKit)
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
-            Task {
-                let settings = await UNUserNotificationCenter.current().notificationSettings()
-                notificationAuthorizationStatus = settings.authorizationStatus
-            }
-        }
-        #endif
-#endif
-    }
+    #endif
 
     private var taskBehaviorSettingsView: some View {
         Form {
@@ -472,9 +500,9 @@ struct SettingsView: View {
         .navigationTitle(SettingsSection.taskBehavior.title)
         .toolbar {
             #if os(iOS)
-            ToolbarItem(placement: .appTrailingAction) {
-                EditButton()
-            }
+                ToolbarItem(placement: .appTrailingAction) {
+                    EditButton()
+                }
             #endif
         }
     }
@@ -549,7 +577,7 @@ struct SettingsView: View {
 
     private func handleFolderSelection(result: Result<[URL], any Error>) {
         switch result {
-        case .success(let urls):
+        case let .success(urls):
             guard let selectedURL = urls.first else { return }
             do {
                 try TaskFolderPreferences.saveSelectedFolder(selectedURL)
@@ -558,7 +586,7 @@ struct SettingsView: View {
             } catch {
                 folderSelectionErrorMessage = error.localizedDescription
             }
-        case .failure(let error):
+        case let .failure(error):
             folderSelectionErrorMessage = error.localizedDescription
         }
     }
@@ -681,9 +709,9 @@ struct SettingsView: View {
 private struct SettingsNoAutocapitalization: ViewModifier {
     func body(content: Content) -> some View {
         #if os(iOS)
-        content.textInputAutocapitalization(.never)
+            content.textInputAutocapitalization(.never)
         #else
-        content
+            content
         #endif
     }
 }
