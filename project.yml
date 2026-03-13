@@ -7,6 +7,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: 6.0
+    OTHER_SWIFT_FLAGS: "$(inherited) -enable-experimental-feature IsolatedDeinit"
     PRODUCT_BUNDLE_IDENTIFIER: com.hans.todomd
     INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
     INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
