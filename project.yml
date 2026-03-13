@@ -132,6 +132,16 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
+  TodoMDAppTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - Tests/TodoMDAppTests
+    dependencies:
+      - target: TodoMDApp
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
   TodoMDAppUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -150,6 +160,7 @@ schemes:
         TodoMDApp: all
     test:
       targets:
+        - name: TodoMDAppTests
         - name: TodoMDAppUITests
   TodoMDShareExtension:
     build:

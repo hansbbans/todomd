@@ -16,51 +16,72 @@ struct OnboardingView: View {
     @State private var selectedFolderChoice: OnboardingFolderChoice?
     @State private var showingFolderPicker = false
     @State private var folderError: String?
+    @State private var activeIntegrationPrimer: OnboardingIntegrationPrimer?
+    @State private var isRequestingIntegrationAccess = false
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                TabView(selection: $page) {
-                    pageWelcome
-                        .tag(0)
-                    pageWorkflow
-                        .tag(1)
-                    pageICloud
-                        .tag(2)
-                }
-                .modifier(OnboardingTabViewStyle())
-
-                HStack {
-                    if page > 0 {
-                        Button("Back") {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                page = max(0, page - 1)
-                            }
-                        }
-                        .accessibilityIdentifier("onboarding.backButton")
+            ZStack {
+                VStack(spacing: 0) {
+                    TabView(selection: $page) {
+                        pageWelcome
+                            .tag(0)
+                        pageWorkflow
+                            .tag(1)
+                        pageICloud
+                            .tag(2)
                     }
+                    .modifier(OnboardingTabViewStyle())
 
-                    Spacer()
-
-                    if page < 2 {
-                        Button("Next") {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                page = min(2, page + 1)
+                    HStack {
+                        if page > 0 {
+                            Button("Back") {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    page = max(0, page - 1)
+                                }
                             }
+                            .accessibilityIdentifier("onboarding.backButton")
                         }
-                        .buttonStyle(.borderedProminent)
-                        .accessibilityIdentifier("onboarding.nextButton")
-                    } else {
-                        Button("Get Started") {
-                            onDone()
+
+                        Spacer()
+
+                        if page < 2 {
+                            Button("Next") {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    page = min(2, page + 1)
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .accessibilityIdentifier("onboarding.nextButton")
+                        } else {
+                            Button("Get Started") {
+                                beginCompletionFlow()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(selectedFolderChoice == nil || isRequestingIntegrationAccess)
+                            .accessibilityIdentifier("onboarding.getStartedButton")
                         }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(selectedFolderChoice == nil)
-                        .accessibilityIdentifier("onboarding.getStartedButton")
                     }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 16)
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 16)
+                .allowsHitTesting(activeIntegrationPrimer == nil)
+
+                if let activeIntegrationPrimer {
+                    Color.black.opacity(0.45)
+                        .ignoresSafeArea()
+
+                    OnboardingIntegrationPrimerCard(
+                        primer: activeIntegrationPrimer,
+                        isBusy: isRequestingIntegrationAccess,
+                        onSkip: {
+                            skipIntegrationPrimer(activeIntegrationPrimer)
+                        },
+                        onContinue: {
+                            continueIntegrationPrimer(activeIntegrationPrimer)
+                        }
+                    )
+                }
             }
             .navigationTitle("Welcome")
             .navigationBarBackButtonHidden(true)
@@ -245,6 +266,63 @@ struct OnboardingView: View {
         let values = try? url.resourceValues(forKeys: [.isUbiquitousItemKey])
         return values?.isUbiquitousItem == true
     }
+
+    private func beginCompletionFlow() {
+        guard !isRequestingIntegrationAccess else { return }
+
+        if let primer = onboardingPrimerCoordinator.initialPrimer() {
+            activeIntegrationPrimer = primer
+        } else {
+            onDone()
+        }
+    }
+
+    private func skipIntegrationPrimer(_ primer: OnboardingIntegrationPrimer) {
+        persistIntegrationEnabled(false, for: primer)
+        activeIntegrationPrimer = nil
+        proceedAfterHandlingIntegrationPrimer(primer)
+    }
+
+    private func continueIntegrationPrimer(_ primer: OnboardingIntegrationPrimer) {
+        guard !isRequestingIntegrationAccess else { return }
+
+        activeIntegrationPrimer = nil
+        isRequestingIntegrationAccess = true
+        persistIntegrationEnabled(true, for: primer)
+
+        Task { @MainActor in
+            switch primer {
+            case .reminders:
+                _ = await container.requestRemindersAccess()
+                persistIntegrationEnabled(container.isRemindersAccessGranted, for: primer)
+            case .calendar:
+                await container.connectCalendar()
+                persistIntegrationEnabled(container.isCalendarConnected, for: primer)
+            }
+
+            isRequestingIntegrationAccess = false
+            proceedAfterHandlingIntegrationPrimer(primer)
+        }
+    }
+
+    private func proceedAfterHandlingIntegrationPrimer(_ primer: OnboardingIntegrationPrimer) {
+        if let nextPrimer = onboardingPrimerCoordinator.nextPrimer(after: primer) {
+            activeIntegrationPrimer = nextPrimer
+        } else {
+            onDone()
+        }
+    }
+
+    private func persistIntegrationEnabled(_ isEnabled: Bool, for primer: OnboardingIntegrationPrimer) {
+        UserDefaults.standard.set(isEnabled, forKey: primer.settingsKey)
+    }
+
+    private var onboardingPrimerCoordinator: OnboardingIntegrationPrimerCoordinator {
+        OnboardingIntegrationPrimerCoordinator(
+            remindersNeedsExplanation: container.remindersAccessNeedsExplanationBeforeRequest,
+            calendarNeedsExplanation: container.calendarAccessNeedsExplanationBeforeRequest
+        )
+    }
 }
 
 private struct OnboardingTabViewStyle: ViewModifier {
@@ -254,5 +332,55 @@ private struct OnboardingTabViewStyle: ViewModifier {
         #else
         content
         #endif
+    }
+}
+
+private struct OnboardingIntegrationPrimerCard: View {
+    let primer: OnboardingIntegrationPrimer
+    let isBusy: Bool
+    let onSkip: () -> Void
+    let onContinue: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text(primer.title)
+                .font(.system(.title3, design: .rounded).weight(.semibold))
+                .accessibilityIdentifier("onboarding.accessPrimer.title")
+
+            Text(primer.message)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("onboarding.accessPrimer.message")
+
+            HStack(spacing: 12) {
+                Button("Not Now", role: .cancel) {
+                    onSkip()
+                }
+                .buttonStyle(.bordered)
+                .disabled(isBusy)
+                .accessibilityIdentifier("onboarding.accessPrimer.skipButton")
+
+                Spacer(minLength: 0)
+
+                Button("Continue") {
+                    onContinue()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isBusy)
+                .accessibilityIdentifier("onboarding.accessPrimer.continueButton")
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: 360, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(.ultraThinMaterial)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+        )
+        .padding(24)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("onboarding.accessPrimer.modal")
     }
 }

@@ -6,7 +6,6 @@ import UniformTypeIdentifiers
 
 private enum SettingsSection: String, CaseIterable, Identifiable {
     case integrations
-    case calendar
     case appearance
     case notifications
     case taskBehavior
@@ -21,8 +20,6 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .integrations:
             "Integrations"
-        case .calendar:
-            "Calendar"
         case .appearance:
             "Appearance"
         case .notifications:
@@ -40,8 +37,6 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .integrations:
             "square.3.layers.3d"
-        case .calendar:
-            "calendar"
         case .appearance:
             "paintpalette"
         case .notifications:
@@ -56,6 +51,37 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
     }
 }
 
+private enum IntegrationAccessPrimer: String, Identifiable {
+    case reminders
+    case calendar
+
+    var id: String {
+        rawValue
+    }
+
+    var title: String {
+        switch self {
+        case .reminders:
+            "Allow Reminders Access"
+        case .calendar:
+            "Allow Calendar Access"
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .reminders:
+            "Allow Reminders access to import tasks from Reminders."
+        case .calendar:
+            "Allow Calendar access to show calendar events alongside your tasks."
+        }
+    }
+
+    var continueTitle: String {
+        "Continue"
+    }
+}
+
 struct SettingsView: View {
     @EnvironmentObject private var container: AppContainer
 
@@ -64,8 +90,8 @@ struct SettingsView: View {
     @AppStorage("settings_notify_auto_unblocked") private var notifyAutoUnblocked = true
     @AppStorage("settings_persistent_reminders_enabled") private var persistentRemindersEnabled = false
     @AppStorage("settings_persistent_reminder_interval_minutes") private var persistentReminderIntervalMinutes = 1
-    @AppStorage("settings_reminders_import_enabled") private var remindersImportEnabled = true
-    @AppStorage("settings_google_calendar_enabled") private var calendarEnabled = true
+    @AppStorage("settings_reminders_import_enabled") private var remindersImportEnabled = false
+    @AppStorage("settings_google_calendar_enabled") private var calendarEnabled = false
     @AppStorage("settings_appearance_mode") private var appearanceMode = "system"
     @AppStorage("settings_archive_completed") private var archiveCompleted = false
     @AppStorage("settings_completed_retention") private var completedRetention = "forever"
@@ -91,6 +117,7 @@ struct SettingsView: View {
     @State private var showingFolderPicker = false
     @State private var folderSelectionErrorMessage: String?
     @State private var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
+    @State private var pendingAccessPrimer: IntegrationAccessPrimer?
 
     var body: some View {
         List {
@@ -100,13 +127,6 @@ struct SettingsView: View {
                 Label(SettingsSection.integrations.title, systemImage: SettingsSection.integrations.systemImage)
             }
             .accessibilityIdentifier("settings.section.\(SettingsSection.integrations.rawValue)")
-
-            NavigationLink {
-                calendarSettingsView
-            } label: {
-                Label(SettingsSection.calendar.title, systemImage: SettingsSection.calendar.systemImage)
-            }
-            .accessibilityIdentifier("settings.section.\(SettingsSection.calendar.rawValue)")
 
             NavigationLink {
                 appearanceSettingsView
@@ -181,55 +201,67 @@ struct SettingsView: View {
 
     private var integrationsSettingsView: some View {
         Form {
-            Section {
-                Toggle("Reminders", isOn: $remindersImportEnabled)
+            Section("Reminders") {
+                Toggle("Reminders", isOn: remindersToggleBinding)
                     .accessibilityIdentifier("settings.integrations.remindersToggle")
 
-                Toggle("Calendar", isOn: $calendarEnabled)
-                    .accessibilityIdentifier("settings.integrations.calendarToggle")
-            }
-
-            Section {
-                Text("Turn Apple Reminders and Apple Calendar features on or off for todo.md.")
+                Text("Allow access to Apple Reminders so todo.md can import your reminder tasks.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            }
-        }
-        .navigationTitle(SettingsSection.integrations.title)
-        .onChange(of: remindersImportEnabled) { _, _ in
-            Task {
-                await container.refreshReminderLists()
-            }
-        }
-        .onChange(of: calendarEnabled) { _, _ in
-            Task {
-                await container.refreshCalendar(force: true)
-            }
-        }
-    }
 
-    private var calendarSettingsView: some View {
-        Form {
-            Section {
+                if container.isRemindersAccessGranted {
+                    Label("Reminders Access Granted", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                } else if container.remindersAccessRequiresSettingsRedirect {
+                    Label("Reminders access is disabled", systemImage: "checkmark.circle.badge.xmark")
+                        .foregroundStyle(.orange)
+
+#if canImport(UIKit)
+                    Button("Open iOS Settings") {
+                        openIOSSettings()
+                    }
+                    .buttonStyle(.borderedProminent)
+#endif
+                } else if container.remindersAccessNeedsExplanationBeforeRequest {
+                    Button("Allow Reminders Access") {
+                        pendingAccessPrimer = .reminders
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(container.isRemindersImportBusy)
+                    .accessibilityIdentifier("settings.integrations.allowRemindersAccessButton")
+                }
+            }
+
+            Section("Calendar") {
+                Toggle("Calendar", isOn: calendarToggleBinding)
+                    .accessibilityIdentifier("settings.integrations.calendarToggle")
+
+                Text("Allow access to Apple Calendar to show calendar events alongside your tasks.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if container.isCalendarConnected {
+                    Label("Calendar Access Granted", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                } else if container.calendarAccessRequiresSettingsRedirect {
+                    Label("Calendar access is disabled", systemImage: "calendar.badge.exclamationmark")
+                        .foregroundStyle(.orange)
+
+#if canImport(UIKit)
+                    Button("Open iOS Settings") {
+                        openIOSSettings()
+                    }
+                    .buttonStyle(.borderedProminent)
+#endif
+                } else if container.calendarAccessNeedsExplanationBeforeRequest {
+                    Button("Allow Calendar Access") {
+                        pendingAccessPrimer = .calendar
+                    }
+                    .accessibilityIdentifier("settings.integrations.allowCalendarAccessButton")
+                    .disabled(container.isCalendarSyncing)
+                }
+
                 if calendarEnabled {
-                    Text("Allow access to Apple Calendar to view events in Today and Upcoming.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    if container.isCalendarConnected {
-                        Label("Calendar Access Granted", systemImage: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                    }
-
-                    if !container.isCalendarConnected {
-                        Button("Allow Calendar Access") {
-                            Task {
-                                await container.connectCalendar()
-                            }
-                        }
-                        .disabled(container.isCalendarSyncing)
-                    }
-
                     Button("Refresh Calendar") {
                         Task {
                             await container.refreshCalendar(force: true)
@@ -268,16 +300,76 @@ struct SettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                } else {
-                    Text(
-                        "Enable Calendar in Integrations to configure calendars and show events in Today and Upcoming."
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
                 }
             }
+
+            Section {
+                Text("Turn Apple Reminders and Apple Calendar features on or off for todo.md.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
-        .navigationTitle(SettingsSection.calendar.title)
+        .navigationTitle(SettingsSection.integrations.title)
+        .onChange(of: remindersImportEnabled) { _, _ in
+            Task {
+                await container.handleRemindersIntegrationChange()
+            }
+        }
+        .onChange(of: calendarEnabled) { _, _ in
+            Task {
+                await container.refreshCalendar(force: true)
+            }
+        }
+        .alert(item: $pendingAccessPrimer) { primer in
+            Alert(
+                title: Text(primer.title),
+                message: Text(primer.message),
+                primaryButton: .default(Text(primer.continueTitle)) {
+                    handlePermissionPrimerConfirmation(primer)
+                },
+                secondaryButton: .cancel()
+            )
+        }
+    }
+
+    private var remindersToggleBinding: Binding<Bool> {
+        Binding(
+            get: { remindersImportEnabled },
+            set: { isOn in
+                guard isOn != remindersImportEnabled else { return }
+
+                if isOn {
+                    guard container.isRemindersAccessGranted else {
+                        if container.remindersAccessNeedsExplanationBeforeRequest {
+                            pendingAccessPrimer = .reminders
+                        }
+                        return
+                    }
+                }
+
+                remindersImportEnabled = isOn
+            }
+        )
+    }
+
+    private var calendarToggleBinding: Binding<Bool> {
+        Binding(
+            get: { calendarEnabled },
+            set: { isOn in
+                guard isOn != calendarEnabled else { return }
+
+                if isOn {
+                    guard container.isCalendarConnected else {
+                        if container.calendarAccessNeedsExplanationBeforeRequest {
+                            pendingAccessPrimer = .calendar
+                        }
+                        return
+                    }
+                }
+
+                calendarEnabled = isOn
+            }
+        )
     }
 
     private var appearanceSettingsView: some View {
@@ -292,17 +384,17 @@ struct SettingsView: View {
 
             Section("Compact Tab Bar") {
                 Picker("Fourth tab", selection: compactPrimaryTabBinding) {
-                    ForEach(compactPrimaryTabChoices, id: \.rawValue) { view in
-                        Label(view.displayTitle, systemImage: view.displaySystemImage)
-                            .tag(view.rawValue)
+                    ForEach(compactPrimaryTabChoices) { choice in
+                        CompactTabChoiceLabel(choice: choice)
+                            .tag(choice.view.rawValue)
                     }
                 }
                 .accessibilityIdentifier("settings.appearance.compactPrimaryTabPicker")
 
                 Picker("Fifth tab", selection: compactSecondaryTabBinding) {
-                    ForEach(compactSecondaryTabChoices, id: \.rawValue) { view in
-                        Label(view.displayTitle, systemImage: view.displaySystemImage)
-                            .tag(view.rawValue)
+                    ForEach(compactSecondaryTabChoices) { choice in
+                        CompactTabChoiceLabel(choice: choice)
+                            .tag(choice.view.rawValue)
                     }
                 }
                 .accessibilityIdentifier("settings.appearance.compactSecondaryTabPicker")
@@ -591,24 +683,37 @@ struct SettingsView: View {
         }
     }
 
-    private var compactCustomTabSelection: (primary: BuiltInView, secondary: BuiltInView) {
+    private var compactPerspectiveViews: [ViewIdentifier] {
+        container.perspectives.map { container.perspectiveViewIdentifier(for: $0.id) }
+    }
+
+    private var compactAvailableTabChoices: [CompactTabChoice] {
+        CompactTabChoiceCatalog.availableViews(
+            pomodoroEnabled: pomodoroEnabled,
+            perspectives: container.perspectives
+        )
+        .map { CompactTabChoiceCatalog.choice(for: $0, perspectives: container.perspectives) }
+    }
+
+    private var compactCustomTabSelection: (primary: ViewIdentifier, secondary: ViewIdentifier) {
         CompactTabSettings.normalizedCustomViews(
             leadingRawValue: compactPrimaryTabRawValue,
             trailingRawValue: compactSecondaryTabRawValue,
-            pomodoroEnabled: pomodoroEnabled
+            pomodoroEnabled: pomodoroEnabled,
+            additionalViews: compactPerspectiveViews
         )
     }
 
-    private var compactPrimaryTabChoices: [BuiltInView] {
+    private var compactPrimaryTabChoices: [CompactTabChoice] {
         let selection = compactCustomTabSelection
-        return CompactTabSettings.availableCustomViews(pomodoroEnabled: pomodoroEnabled)
-            .filter { $0 == selection.primary || $0 != selection.secondary }
+        return compactAvailableTabChoices
+            .filter { $0.view == selection.primary || $0.view != selection.secondary }
     }
 
-    private var compactSecondaryTabChoices: [BuiltInView] {
+    private var compactSecondaryTabChoices: [CompactTabChoice] {
         let selection = compactCustomTabSelection
-        return CompactTabSettings.availableCustomViews(pomodoroEnabled: pomodoroEnabled)
-            .filter { $0 == selection.secondary || $0 != selection.primary }
+        return compactAvailableTabChoices
+            .filter { $0.view == selection.secondary || $0.view != selection.primary }
     }
 
     private var compactPrimaryTabBinding: Binding<String> {
@@ -620,7 +725,8 @@ struct SettingsView: View {
                 let normalized = CompactTabSettings.normalizedCustomViews(
                     leadingRawValue: newValue,
                     trailingRawValue: compactSecondaryTabRawValue,
-                    pomodoroEnabled: pomodoroEnabled
+                    pomodoroEnabled: pomodoroEnabled,
+                    additionalViews: compactPerspectiveViews
                 )
                 compactPrimaryTabRawValue = normalized.primary.rawValue
                 compactSecondaryTabRawValue = normalized.secondary.rawValue
@@ -637,7 +743,8 @@ struct SettingsView: View {
                 let normalized = CompactTabSettings.normalizedCustomViews(
                     leadingRawValue: compactPrimaryTabRawValue,
                     trailingRawValue: newValue,
-                    pomodoroEnabled: pomodoroEnabled
+                    pomodoroEnabled: pomodoroEnabled,
+                    additionalViews: compactPerspectiveViews
                 )
                 compactPrimaryTabRawValue = normalized.primary.rawValue
                 compactSecondaryTabRawValue = normalized.secondary.rawValue
@@ -704,6 +811,46 @@ struct SettingsView: View {
         actions.move(fromOffsets: source, toOffset: destination)
         expandedTaskActionsRawValue = ExpandedTaskSettings.encodeActions(actions + [.more])
     }
+}
+
+private extension SettingsView {
+    func handlePermissionPrimerConfirmation(_ primer: IntegrationAccessPrimer) {
+        switch primer {
+        case .reminders:
+            Task {
+                await MainActor.run {
+                    remindersImportEnabled = true
+                }
+                let outcome = await container.requestRemindersAccess()
+                await MainActor.run {
+                    remindersImportEnabled = container.isRemindersAccessGranted
+                    guard outcome == .needsCalendarAccessPrimer,
+                          calendarEnabled,
+                          container.calendarAccessNeedsExplanationBeforeRequest else {
+                        return
+                    }
+                    pendingAccessPrimer = .calendar
+                }
+            }
+        case .calendar:
+            Task {
+                await MainActor.run {
+                    calendarEnabled = true
+                }
+                await container.connectCalendar()
+                await MainActor.run {
+                    calendarEnabled = container.isCalendarConnected
+                }
+            }
+        }
+    }
+
+#if canImport(UIKit)
+    func openIOSSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+    }
+#endif
 }
 
 private struct SettingsNoAutocapitalization: ViewModifier {

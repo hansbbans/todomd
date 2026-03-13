@@ -68,6 +68,134 @@ private struct MainViewHeroConfiguration {
     let iconColor: Color
 }
 
+#if canImport(UIKit)
+private struct CompactTabBarImageConfigurator: UIViewRepresentable {
+    let choices: [CompactTabChoice]
+
+    final class ProbeView: UIView {
+        var choices: [CompactTabChoice] = []
+        private var pendingApplyWorkItem: DispatchWorkItem?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            scheduleApply()
+        }
+
+        override func didMoveToSuperview() {
+            super.didMoveToSuperview()
+            scheduleApply()
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            scheduleApply()
+        }
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            isUserInteractionEnabled = false
+            backgroundColor = .clear
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        func scheduleApply() {
+            pendingApplyWorkItem?.cancel()
+            let workItem = DispatchWorkItem { [weak self] in
+                self?.applyTabBarItemsIfPossible()
+            }
+            pendingApplyWorkItem = workItem
+            DispatchQueue.main.async(execute: workItem)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                self?.applyTabBarItemsIfPossible()
+            }
+        }
+
+        func applyTabBarItemsIfPossible() {
+            guard let tabBar = findTabBar(in: window),
+                  let items = tabBar.items,
+                  items.count >= choices.count else {
+                return
+            }
+
+            for (index, choice) in choices.enumerated() {
+                let item = items[index]
+                item.title = choice.title
+                item.accessibilityIdentifier = choice.accessibilityIdentifier
+
+                guard !choice.iconToken.isEmoji,
+                      let image = CompactTabBarImageConfigurator.symbolImage(for: choice) else {
+                    continue
+                }
+
+                let templatedImage = image.withRenderingMode(.alwaysTemplate)
+                item.image = templatedImage
+                item.selectedImage = templatedImage
+            }
+
+            tabBar.setNeedsLayout()
+            tabBar.layoutIfNeeded()
+        }
+
+        private func findTabBar(in rootView: UIView?) -> UITabBar? {
+            guard let rootView else { return nil }
+            if let tabBar = rootView as? UITabBar {
+                return tabBar
+            }
+
+            for subview in rootView.subviews {
+                if let tabBar = findTabBar(in: subview) {
+                    return tabBar
+                }
+            }
+
+            return nil
+        }
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        ProbeView(frame: .zero)
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        guard let probeView = uiView as? ProbeView else {
+            return
+        }
+        probeView.choices = choices
+        probeView.scheduleApply()
+    }
+
+    private static func symbolImage(for choice: CompactTabChoice) -> UIImage? {
+        let preferredNames: [String]
+        if choice.view.isBrowse {
+            preferredNames = [
+                CompactTabChoiceCatalog.compactTabBarSymbolName(for: choice),
+                "square.grid.2x2.fill",
+                "square.grid.3x3.fill",
+                "square.grid.2x2",
+                "square.grid.3x3",
+                "list.bullet"
+            ]
+        } else {
+            preferredNames = [
+                CompactTabChoiceCatalog.compactTabBarSymbolName(for: choice),
+                choice.iconToken.symbolName
+            ]
+        }
+
+        for name in preferredNames {
+            if let image = UIImage(systemName: name) {
+                return image
+            }
+        }
+        return nil
+    }
+}
+#endif
+
 private enum InlineTaskPanel: Equatable {
     case date
     case destination
@@ -445,6 +573,8 @@ struct RootView: View {
     @State private var expandedTaskDateTarget: ExpandedTaskDateTarget?
     @State private var expandedTaskTagsTarget: ExpandedTaskTagsTarget?
     @State private var expandedTaskMoveTarget: ExpandedTaskMoveTarget?
+    @State private var pendingExpandedTaskPath: String?
+    @State private var expandedTaskScrollTask: Task<Void, Never>?
     @State private var swipeAddProjectPath: String?
     @State private var editingPerspective: PerspectiveDefinition?
     @State private var builtInRulesTarget: BuiltInRulesTarget?
@@ -460,7 +590,7 @@ struct RootView: View {
     @AppStorage(CompactTabSettings.trailingViewKey) private var compactSecondaryTabRawValue = CompactTabSettings.defaultTrailingView.rawValue
     @AppStorage("settings_pomodoro_enabled") private var pomodoroEnabled = false
 
-    var body: some View {
+    private var rootScaffold: some View {
         Group {
             if horizontalSizeClass == .compact {
                 compactRootPane
@@ -474,290 +604,317 @@ struct RootView: View {
                 }
             }
         }
-        .background(theme.backgroundColor.ignoresSafeArea())
-        .sheet(isPresented: $showingQuickEntry) {
-            QuickEntrySheet()
-        }
-        .sheet(
-            isPresented: $isRootSearchPresented,
-            onDismiss: { universalSearchText = "" }
-        ) {
-            NavigationStack {
-                rootSearchSheet
-            }
-        }
-        .sheet(isPresented: $showingInlineVoiceRamble) {
-            VoiceRambleSheet(
-                fallbackDue: inlineTaskDraft.dueDate.map(localDate(from:)),
-                fallbackDueTime: nil,
-                fallbackPriority: nil,
-                fallbackFlagged: inlineTaskDraft.flagged,
-                fallbackTags: inlineTaskDraft.normalizedTags,
-                fallbackArea: inlineTaskDraft.area,
-                fallbackProject: inlineTaskDraft.project,
-                defaultView: currentBuiltInView,
-                onTasksCreated: {
-                    showingInlineVoiceRamble = false
-                    cancelInlineTaskComposer()
-                }
-            )
-        }
-        .sheet(item: $activeProjectSheetMode) { mode in
-            NavigationStack {
-                createProjectSheet(mode: mode)
-            }
-        }
-        .sheet(isPresented: $showingProjectSettingsSheet) {
-            NavigationStack {
-                projectSettingsSheet
-            }
-        }
-        .sheet(item: $deferDateTarget) { target in
-            deferDateSheet(target: target)
-        }
-        .sheet(item: $expandedTaskDateTarget) { target in
-            expandedTaskDateSheet(target: target)
-        }
-        .sheet(item: $expandedTaskTagsTarget) { target in
-            expandedTaskTagsSheet(target: target)
-        }
-        .sheet(item: $expandedTaskMoveTarget) { target in
-            expandedTaskMoveSheet(target: target)
-        }
-        .sheet(item: $editingPerspective) { perspective in
-            NavigationStack {
-                PerspectiveEditorSheet(initialPerspective: perspective) { saved in
-                    container.savePerspective(saved)
-                    editingPerspective = nil
+    }
+
+    var body: some View {
+        rootLifecycleView
+    }
+
+    private var rootPresentedView: some View {
+        rootScaffold
+            .background(theme.backgroundColor.ignoresSafeArea())
+            .overlay {
+                if usesFloatingExpandedTaskDateModal, let target = expandedTaskDateTarget {
+                    expandedTaskDateModalOverlay(target: target)
                 }
             }
-        }
-        .sheet(item: $builtInRulesTarget) { target in
-            NavigationStack {
-                BuiltInPerspectiveRulesView(
-                    perspective: container.builtInPerspectiveDefinition(for: target.view),
-                    onDuplicate: {
-                        let duplicate = container.duplicateBuiltInPerspective(target.view)
-                        editingPerspective = duplicate
+            .sheet(isPresented: $showingQuickEntry) {
+                QuickEntrySheet()
+            }
+            .sheet(
+                isPresented: $isRootSearchPresented,
+                onDismiss: { universalSearchText = "" }
+            ) {
+                NavigationStack {
+                    rootSearchSheet
+                }
+            }
+            .sheet(isPresented: $showingInlineVoiceRamble) {
+                VoiceRambleSheet(
+                    fallbackDue: inlineTaskDraft.dueDate.map(localDate(from:)),
+                    fallbackDueTime: nil,
+                    fallbackPriority: nil,
+                    fallbackFlagged: inlineTaskDraft.flagged,
+                    fallbackTags: inlineTaskDraft.normalizedTags,
+                    fallbackArea: inlineTaskDraft.area,
+                    fallbackProject: inlineTaskDraft.project,
+                    defaultView: currentBuiltInView,
+                    onTasksCreated: {
+                        showingInlineVoiceRamble = false
+                        cancelInlineTaskComposer()
                     }
                 )
             }
-        }
-        .alert(
-            "High Ingestion Volume",
-            isPresented: Binding(
-                get: { container.rateLimitAlertMessage != nil },
-                set: { isPresented in
-                    if !isPresented { container.rateLimitAlertMessage = nil }
+            .sheet(item: $activeProjectSheetMode) { mode in
+                NavigationStack {
+                    createProjectSheet(mode: mode)
                 }
-            ),
-            actions: {
-                Button("OK", role: .cancel) { container.rateLimitAlertMessage = nil }
-            },
-            message: {
-                Text(container.rateLimitAlertMessage ?? "")
             }
-        )
-        .alert(
-            "Delete Task",
-            isPresented: Binding(
-                get: { pendingDeletePath != nil },
-                set: { isPresented in
-                    if !isPresented { pendingDeletePath = nil }
+            .sheet(isPresented: $showingProjectSettingsSheet) {
+                NavigationStack {
+                    projectSettingsSheet
                 }
-            ),
-            actions: {
-                Button("Delete", role: .destructive) {
-                    if let pendingDeletePath {
-                        if expandedTaskPath == pendingDeletePath {
-                            expandedTaskPath = nil
+            }
+            .sheet(item: $deferDateTarget) { target in
+                deferDateSheet(target: target)
+            }
+            .sheet(item: regularExpandedTaskDateTarget) { target in
+                expandedTaskDateSheet(target: target)
+            }
+            .sheet(item: $expandedTaskTagsTarget) { target in
+                expandedTaskTagsSheet(target: target)
+            }
+            .sheet(item: $expandedTaskMoveTarget) { target in
+                expandedTaskMoveSheet(target: target)
+            }
+            .sheet(item: $editingPerspective) { perspective in
+                NavigationStack {
+                    PerspectiveEditorSheet(initialPerspective: perspective) { saved in
+                        container.savePerspective(saved)
+                        editingPerspective = nil
+                    }
+                }
+            }
+            .sheet(item: $builtInRulesTarget) { target in
+                NavigationStack {
+                    BuiltInPerspectiveRulesView(
+                        perspective: container.builtInPerspectiveDefinition(for: target.view),
+                        onDuplicate: {
+                            let duplicate = container.duplicateBuiltInPerspective(target.view)
+                            editingPerspective = duplicate
                         }
-                        _ = container.deleteTask(path: pendingDeletePath)
-                        self.pendingDeletePath = nil
-                    }
-                }
-                Button("Cancel", role: .cancel) {
-                    pendingDeletePath = nil
-                }
-            },
-            message: {
-                Text("This removes the task markdown file.")
-            }
-        )
-        .alert(
-            "Delete Perspective",
-            isPresented: Binding(
-                get: { pendingDeletePerspective != nil },
-                set: { isPresented in
-                    if !isPresented { pendingDeletePerspective = nil }
-                }
-            ),
-            actions: {
-                Button("Delete", role: .destructive) {
-                    if let pendingDeletePerspective {
-                        container.deletePerspective(id: pendingDeletePerspective.id)
-                        self.pendingDeletePerspective = nil
-                    }
-                }
-                Button("Cancel", role: .cancel) {
-                    pendingDeletePerspective = nil
-                }
-            },
-            message: {
-                Text("Delete '\(pendingDeletePerspective?.name ?? "")'? This cannot be undone.")
-            }
-        )
-        .alert(
-            "Link Error",
-            isPresented: Binding(
-                get: { container.urlRoutingErrorMessage != nil },
-                set: { isPresented in
-                    if !isPresented { container.urlRoutingErrorMessage = nil }
-                }
-            ),
-            actions: {
-                Button("OK", role: .cancel) {
-                    container.urlRoutingErrorMessage = nil
-                }
-            },
-            message: {
-                Text(container.urlRoutingErrorMessage ?? "")
-            }
-        )
-        .alert(
-            "Perspectives Warning",
-            isPresented: Binding(
-                get: { container.perspectivesWarningMessage != nil },
-                set: { isPresented in
-                    if !isPresented { container.perspectivesWarningMessage = nil }
-                }
-            ),
-            actions: {
-                Button("OK", role: .cancel) {
-                    container.perspectivesWarningMessage = nil
-                }
-            },
-            message: {
-                Text(container.perspectivesWarningMessage ?? "")
-            }
-        )
-        .confirmationDialog(
-            "Add to Project",
-            isPresented: Binding(
-                get: { swipeAddProjectPath != nil },
-                set: { isPresented in
-                    if !isPresented { swipeAddProjectPath = nil }
-                }
-            ),
-            titleVisibility: .visible
-        ) {
-            let projects = container.allProjects()
-            if projects.isEmpty {
-                Button("No Projects") {}
-                    .disabled(true)
-            } else {
-                ForEach(projects, id: \.self) { project in
-                    Button(project) {
-                        guard let path = swipeAddProjectPath else { return }
-                        _ = container.addToProject(path: path, project: project)
-                        swipeAddProjectPath = nil
-                    }
+                    )
                 }
             }
+    }
 
-            Button("Cancel", role: .cancel) {
-                swipeAddProjectPath = nil
+    private var rootAlertedView: some View {
+        rootPresentedView
+            .alert(
+                "High Ingestion Volume",
+                isPresented: Binding(
+                    get: { container.rateLimitAlertMessage != nil },
+                    set: { isPresented in
+                        if !isPresented { container.rateLimitAlertMessage = nil }
+                    }
+                ),
+                actions: {
+                    Button("OK", role: .cancel) { container.rateLimitAlertMessage = nil }
+                },
+                message: {
+                    Text(container.rateLimitAlertMessage ?? "")
+                }
+            )
+            .alert(
+                "Delete Task",
+                isPresented: Binding(
+                    get: { pendingDeletePath != nil },
+                    set: { isPresented in
+                        if !isPresented { pendingDeletePath = nil }
+                    }
+                ),
+                actions: {
+                    Button("Delete", role: .destructive) {
+                        if let pendingDeletePath {
+                            if expandedTaskPath == pendingDeletePath {
+                                expandedTaskPath = nil
+                            }
+                            _ = container.deleteTask(path: pendingDeletePath)
+                            self.pendingDeletePath = nil
+                        }
+                    }
+                    Button("Cancel", role: .cancel) {
+                        pendingDeletePath = nil
+                    }
+                },
+                message: {
+                    Text("This removes the task markdown file.")
+                }
+            )
+            .alert(
+                "Delete Perspective",
+                isPresented: Binding(
+                    get: { pendingDeletePerspective != nil },
+                    set: { isPresented in
+                        if !isPresented { pendingDeletePerspective = nil }
+                    }
+                ),
+                actions: {
+                    Button("Delete", role: .destructive) {
+                        if let pendingDeletePerspective {
+                            container.deletePerspective(id: pendingDeletePerspective.id)
+                            self.pendingDeletePerspective = nil
+                        }
+                    }
+                    Button("Cancel", role: .cancel) {
+                        pendingDeletePerspective = nil
+                    }
+                },
+                message: {
+                    Text("Delete '\(pendingDeletePerspective?.name ?? "")'? This cannot be undone.")
+                }
+            )
+            .alert(
+                "Link Error",
+                isPresented: Binding(
+                    get: { container.urlRoutingErrorMessage != nil },
+                    set: { isPresented in
+                        if !isPresented { container.urlRoutingErrorMessage = nil }
+                    }
+                ),
+                actions: {
+                    Button("OK", role: .cancel) {
+                        container.urlRoutingErrorMessage = nil
+                    }
+                },
+                message: {
+                    Text(container.urlRoutingErrorMessage ?? "")
+                }
+            )
+            .alert(
+                "Perspectives Warning",
+                isPresented: Binding(
+                    get: { container.perspectivesWarningMessage != nil },
+                    set: { isPresented in
+                        if !isPresented { container.perspectivesWarningMessage = nil }
+                    }
+                ),
+                actions: {
+                    Button("OK", role: .cancel) {
+                        container.perspectivesWarningMessage = nil
+                    }
+                },
+                message: {
+                    Text(container.perspectivesWarningMessage ?? "")
+                }
+            )
+            .confirmationDialog(
+                "Add to Project",
+                isPresented: Binding(
+                    get: { swipeAddProjectPath != nil },
+                    set: { isPresented in
+                        if !isPresented { swipeAddProjectPath = nil }
+                    }
+                ),
+                titleVisibility: .visible
+            ) {
+                let projects = container.allProjects()
+                if projects.isEmpty {
+                    Button("No Projects") {}
+                        .disabled(true)
+                } else {
+                    ForEach(projects, id: \.self) { project in
+                        Button(project) {
+                            guard let path = swipeAddProjectPath else { return }
+                            _ = container.addToProject(path: path, project: project)
+                            swipeAddProjectPath = nil
+                        }
+                    }
+                }
+
+                Button("Cancel", role: .cancel) {
+                    swipeAddProjectPath = nil
+                }
             }
-        }
-        .onChange(of: container.navigationTaskPath) { _, newPath in
-            guard let newPath else { return }
-            cancelInlineTaskComposer()
-            expandedTaskPath = nil
-            appendToActiveNavigationPath(newPath)
-            container.clearPendingNavigationPath()
-        }
-        .onChange(of: container.shouldPresentQuickEntry) { _, shouldPresent in
-            guard shouldPresent else { return }
-            presentQuickEntryFromCurrentContext()
-            container.clearQuickEntryRequest()
-        }
-        .onAppear {
-            normalizeCompactTabSettingsIfNeeded()
-            if horizontalSizeClass == .compact {
-                syncCompactSelectedTab()
-            }
-            refreshInboxRemindersIfVisible()
-            if let pending = container.navigationTaskPath {
-                appendToActiveNavigationPath(pending)
+    }
+
+    private var rootLifecycleView: some View {
+        rootAlertedView
+            .onChange(of: container.navigationTaskPath) { _, newPath in
+                guard let newPath else { return }
+                cancelInlineTaskComposer()
+                expandedTaskPath = nil
+                appendToActiveNavigationPath(newPath)
                 container.clearPendingNavigationPath()
             }
-            if container.shouldPresentQuickEntry {
+            .onChange(of: container.shouldPresentQuickEntry) { _, shouldPresent in
+                guard shouldPresent else { return }
                 presentQuickEntryFromCurrentContext()
                 container.clearQuickEntryRequest()
             }
-        }
-        .onDisappear {
-            cancelInlineTaskComposer()
-            expandedTaskPath = nil
-            inlineComposerTransitionTask?.cancel()
-            inlineComposerTransitionTask = nil
-            completionAnimationTasks.values.forEach { $0.cancel() }
-            completionAnimationTasks.removeAll()
-        }
-        .onChange(of: showingProjectSettingsSheet) { _, isPresented in
-            guard !isPresented, let sourceProject = pendingProjectDuplicationSourceName else { return }
-            pendingProjectDuplicationSourceName = nil
-            prepareProjectSheetForDuplication(from: sourceProject)
-        }
-        .onChange(of: pomodoroEnabled) { _, isEnabled in
-            normalizeCompactTabSettingsIfNeeded()
-            guard !isEnabled, container.selectedView == .builtIn(.pomodoro) else { return }
-            withAnimation(.easeInOut(duration: 0.2)) {
-                container.selectedView = horizontalSizeClass == .compact ? .browse : .builtIn(.inbox)
-            }
-        }
-        .onChange(of: compactPrimaryTabRawValue) { _, _ in
-            normalizeCompactTabSettingsIfNeeded()
-            if horizontalSizeClass == .compact {
-                syncCompactSelectedTab()
-            }
-        }
-        .onChange(of: compactSecondaryTabRawValue) { _, _ in
-            normalizeCompactTabSettingsIfNeeded()
-            if horizontalSizeClass == .compact {
-                syncCompactSelectedTab()
-            }
-        }
-        .onChange(of: container.selectedView) { _, selectedView in
-            dismissRootSearch()
-            if selectedView != .builtIn(.inbox) {
-                resetInboxTriageMode()
-            } else {
+            .onAppear {
+                normalizeCompactTabSettingsIfNeeded()
+                if horizontalSizeClass == .compact {
+                    syncCompactSelectedTab()
+                }
                 refreshInboxRemindersIfVisible()
+                if let pending = container.navigationTaskPath {
+                    appendToActiveNavigationPath(pending)
+                    container.clearPendingNavigationPath()
+                }
+                if container.shouldPresentQuickEntry {
+                    presentQuickEntryFromCurrentContext()
+                    container.clearQuickEntryRequest()
+                }
             }
-            if horizontalSizeClass == .compact {
-                syncCompactSelectedTab()
+            .onDisappear {
+                cancelInlineTaskComposer()
+                expandedTaskPath = nil
+                inlineComposerTransitionTask?.cancel()
+                inlineComposerTransitionTask = nil
+                completionAnimationTasks.values.forEach { $0.cancel() }
+                completionAnimationTasks.removeAll()
             }
-            expandedTaskPath = nil
-            cancelInlineTaskComposer()
-        }
-#if canImport(UIKit)
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
-            refreshInboxRemindersIfVisible()
-        }
-#endif
-        .onChange(of: compactSelectedTab) { _, newTab in
-            guard horizontalSizeClass == .compact else { return }
-            guard compactRootTab(for: container.selectedView) != newTab else { return }
-            selectCompactTab(newTab)
-        }
-        .onChange(of: activeNavigationDepth) { _, count in
-            if count > 0 {
+            .onChange(of: showingProjectSettingsSheet) { _, isPresented in
+                guard !isPresented, let sourceProject = pendingProjectDuplicationSourceName else { return }
+                pendingProjectDuplicationSourceName = nil
+                prepareProjectSheetForDuplication(from: sourceProject)
+            }
+            .onChange(of: pomodoroEnabled) { _, isEnabled in
+                normalizeCompactTabSettingsIfNeeded()
+                guard !isEnabled, container.selectedView == .builtIn(.pomodoro) else { return }
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    container.selectedView = horizontalSizeClass == .compact ? .browse : .builtIn(.inbox)
+                }
+            }
+            .onChange(of: container.perspectives) { _, _ in
+                normalizeCompactTabSettingsIfNeeded()
+                if horizontalSizeClass == .compact {
+                    syncCompactSelectedTab()
+                }
+            }
+            .onChange(of: compactPrimaryTabRawValue) { _, _ in
+                normalizeCompactTabSettingsIfNeeded()
+                if horizontalSizeClass == .compact {
+                    syncCompactSelectedTab()
+                }
+            }
+            .onChange(of: compactSecondaryTabRawValue) { _, _ in
+                normalizeCompactTabSettingsIfNeeded()
+                if horizontalSizeClass == .compact {
+                    syncCompactSelectedTab()
+                }
+            }
+            .onChange(of: container.selectedView) { _, selectedView in
+                dismissRootSearch()
+                if selectedView != .builtIn(.inbox) {
+                    resetInboxTriageMode()
+                } else {
+                    refreshInboxRemindersIfVisible()
+                }
+                if horizontalSizeClass == .compact {
+                    syncCompactSelectedTab()
+                }
                 expandedTaskPath = nil
                 cancelInlineTaskComposer()
-                dismissRootSearch()
             }
-        }
+#if canImport(UIKit)
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+                refreshInboxRemindersIfVisible()
+            }
+#endif
+            .onChange(of: compactSelectedTab) { _, newTab in
+                guard horizontalSizeClass == .compact else { return }
+                guard compactRootTab(for: container.selectedView) != newTab else { return }
+                selectCompactTab(newTab)
+            }
+            .onChange(of: activeNavigationDepth) { _, count in
+                if count > 0 {
+                    expandedTaskPath = nil
+                    cancelInlineTaskComposer()
+                    dismissRootSearch()
+                }
+            }
     }
 
     private var isEditing: Bool {
@@ -773,85 +930,131 @@ struct RootView: View {
     }
 
     private var compactTabView: some View {
+        Group {
+            if #available(iOS 18.0, macOS 15.0, *) {
+                compactTabViewNative
+            } else {
+                compactTabViewLegacy
+            }
+        }
+#if canImport(UIKit)
+        .background(
+            CompactTabBarImageConfigurator(
+                choices: CompactRootTab.allCases.map(compactTabChoice(for:))
+            )
+        )
+#endif
+        .tint(theme.accentColor)
+    }
+
+    private var compactTabViewLegacy: some View {
         TabView(selection: $compactSelectedTab) {
             ForEach(CompactRootTab.allCases) { tab in
                 compactTabScene(tab)
             }
         }
-        .tint(theme.accentColor)
     }
 
-    private var compactCustomViews: (primary: BuiltInView, secondary: BuiltInView) {
+    @available(iOS 18.0, macOS 15.0, *)
+    private var compactTabViewNative: some View {
+        TabView(selection: $compactSelectedTab) {
+            compactTabItemsNative
+        }
+    }
+
+    @available(iOS 18.0, macOS 15.0, *)
+    @TabContentBuilder<CompactRootTab>
+    private var compactTabItemsNative: some TabContent<CompactRootTab> {
+        ForEach(CompactRootTab.allCases) { tab in
+            let choice = compactTabChoice(for: tab)
+
+            if choice.iconToken.isEmoji {
+                Tab(value: tab) {
+                    compactTabContent(for: tab)
+                        .accessibilityIdentifier(choice.accessibilityIdentifier)
+                } label: {
+                    compactTabItemLabel(choice: choice)
+                }
+            } else {
+                Tab(
+                    choice.title,
+                    systemImage: CompactTabChoiceCatalog.compactTabBarSymbolName(for: choice),
+                    value: tab
+                ) {
+                    compactTabContent(for: tab)
+                        .accessibilityIdentifier(choice.accessibilityIdentifier)
+                }
+            }
+        }
+    }
+
+    private var compactPerspectiveViews: [ViewIdentifier] {
+        container.perspectives.map { container.perspectiveViewIdentifier(for: $0.id) }
+    }
+
+    private var compactCustomViews: (primary: ViewIdentifier, secondary: ViewIdentifier) {
         CompactTabSettings.normalizedCustomViews(
             leadingRawValue: compactPrimaryTabRawValue,
             trailingRawValue: compactSecondaryTabRawValue,
-            pomodoroEnabled: pomodoroEnabled
+            pomodoroEnabled: pomodoroEnabled,
+            additionalViews: compactPerspectiveViews
         )
     }
 
-    private var compactPrimaryBuiltInView: BuiltInView {
+    private var compactPrimaryView: ViewIdentifier {
         compactCustomViews.primary
     }
 
-    private var compactSecondaryBuiltInView: BuiltInView {
+    private var compactSecondaryView: ViewIdentifier {
         compactCustomViews.secondary
     }
 
+    private func compactTabChoice(for tab: CompactRootTab) -> CompactTabChoice {
+        let view: ViewIdentifier = switch tab {
+        case .inbox:
+            .builtIn(.inbox)
+        case .today:
+            .builtIn(.today)
+        case .customPrimary:
+            compactPrimaryView
+        case .areas:
+            .browse
+        case .customSecondary:
+            compactSecondaryView
+        }
+
+        return CompactTabChoiceCatalog.choice(for: view, perspectives: container.perspectives)
+    }
+
     private func compactTabScene(_ tab: CompactRootTab) -> AnyView {
-        AnyView(
-            detailPane(path: navigationPathBinding(for: tab)) {
-                detailContent(for: tab)
-            }
+        let choice = compactTabChoice(for: tab)
+        return AnyView(
+            compactTabContent(for: tab)
             .tabItem {
-                Label(compactTabTitle(for: tab), systemImage: compactTabSystemImage(for: tab))
+                compactTabItemLabel(choice: choice)
             }
             .tag(tab)
-            .accessibilityIdentifier(compactTabAccessibilityIdentifier(for: tab))
+            .accessibilityIdentifier(choice.accessibilityIdentifier)
         )
     }
 
-    private func compactTabTitle(for tab: CompactRootTab) -> String {
-        switch tab {
-        case .inbox:
-            return BuiltInView.inbox.displayTitle
-        case .today:
-            return BuiltInView.today.displayTitle
-        case .customPrimary:
-            return compactPrimaryBuiltInView.displayTitle
-        case .areas:
-            return "Browse"
-        case .customSecondary:
-            return compactSecondaryBuiltInView.displayTitle
+    private func compactTabContent(for tab: CompactRootTab) -> some View {
+        detailPane(path: navigationPathBinding(for: tab)) {
+            detailContent(for: tab)
         }
     }
 
-    private func compactTabSystemImage(for tab: CompactRootTab) -> String {
-        switch tab {
-        case .inbox:
-            return BuiltInView.inbox.displaySystemImage
-        case .today:
-            return BuiltInView.today.displaySystemImage
-        case .customPrimary:
-            return compactPrimaryBuiltInView.displaySystemImage
-        case .areas:
-            return "square.grid.2x2"
-        case .customSecondary:
-            return compactSecondaryBuiltInView.displaySystemImage
-        }
-    }
-
-    private func compactTabAccessibilityIdentifier(for tab: CompactRootTab) -> String {
-        switch tab {
-        case .inbox:
-            return "root.tab.\(BuiltInView.inbox.rawValue)"
-        case .today:
-            return "root.tab.\(BuiltInView.today.rawValue)"
-        case .customPrimary:
-            return "root.tab.\(compactPrimaryBuiltInView.rawValue)"
-        case .areas:
-            return "root.tab.areas"
-        case .customSecondary:
-            return "root.tab.\(compactSecondaryBuiltInView.rawValue)"
+    @ViewBuilder
+    private func compactTabItemLabel(choice: CompactTabChoice) -> some View {
+        if choice.iconToken.isEmoji {
+            Label {
+                Text(choice.title)
+            } icon: {
+                Text(choice.iconToken.storageValue)
+            }
+            .accessibilityLabel(choice.title)
+        } else {
+            Label(choice.title, systemImage: CompactTabChoiceCatalog.compactTabBarSymbolName(for: choice))
         }
     }
 
@@ -980,7 +1183,12 @@ struct RootView: View {
             }
 
             Section("Views") {
-                builtInNavButton(.inbox, label: "Inbox", icon: "tray")
+                builtInNavButton(
+                    .inbox,
+                    label: "Inbox",
+                    icon: "tray",
+                    isActive: container.selectedView == .builtIn(.inbox) && !inboxTriageMode
+                )
                     .keyboardShortcut("1", modifiers: .command)
                 builtInNavButton(.myTasks, label: "My Tasks", icon: "person")
                     .keyboardShortcut("2", modifiers: .command)
@@ -991,12 +1199,34 @@ struct RootView: View {
                 builtInNavButton(.upcoming, label: "Upcoming", icon: "calendar")
                     .keyboardShortcut("5", modifiers: .command)
                 builtInNavButton(.logbook, label: "Logbook", icon: "checkmark.circle")
-                builtInNavButton(.review, label: "Review", icon: "checklist")
                 builtInNavButton(.anytime, label: "Anytime", icon: "list.bullet")
                 builtInNavButton(.someday, label: "Someday", icon: "clock")
                 builtInNavButton(.flagged, label: "Flagged", icon: "flag")
                 if pomodoroEnabled {
                     builtInNavButton(.pomodoro, label: "Pomodoro", icon: "timer")
+                }
+            }
+
+            Section("Workflows") {
+                ForEach(RootWorkflowEntry.allCases) { workflow in
+                    switch workflow {
+                    case .inboxTriage:
+                        workflowNavButton(
+                            label: workflow.label,
+                            icon: workflow.icon,
+                            isActive: isInboxTriageActive,
+                            accessibilityIdentifier: workflow.accessibilityIdentifier
+                        ) {
+                            toggleInboxTriageMode()
+                        }
+                    case .review:
+                        builtInNavButton(
+                            .review,
+                            label: workflow.label,
+                            icon: workflow.icon,
+                            accessibilityIdentifier: workflow.accessibilityIdentifier
+                        )
+                    }
                 }
             }
 
@@ -2134,75 +2364,12 @@ struct RootView: View {
                 }
             }
 
-            Section("Workflows") {
-                if areas.isEmpty {
-                    Text("No workflows yet")
-                        .foregroundStyle(theme.textSecondaryColor)
-                } else {
-                    ForEach(areas, id: \.self) { area in
-                        browseFilterButton(view: .area(area), label: area, icon: "square.grid.2x2")
-                    }
-                }
-            }
-
-            Section {
-                builtInBrowseFilterButton(.myTasks, label: "My Tasks", icon: "person")
-                builtInBrowseFilterButton(.delegated, label: "Delegated", icon: "person.2")
-                builtInBrowseFilterButton(.anytime, label: "Anytime", icon: "list.bullet")
-                builtInBrowseFilterButton(.someday, label: "Someday", icon: "clock")
-                builtInBrowseFilterButton(.flagged, label: "Flagged", icon: "flag")
-                builtInBrowseFilterButton(.review, label: "Review", icon: "checklist")
-                if pomodoroEnabled {
-                    builtInBrowseFilterButton(.pomodoro, label: "Pomodoro", icon: "timer")
-                }
-
-                if !perspectives.isEmpty {
-                    ForEach(perspectives) { perspective in
-                        HStack(spacing: 8) {
-                            browseFilterButton(
-                                view: container.perspectiveViewIdentifier(for: perspective.id),
-                                label: perspective.name,
-                                icon: perspective.icon,
-                                tintHex: perspective.color,
-                                fallbackIcon: "list.bullet"
-                            )
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contextMenu {
-                                Button("Edit") {
-                                    editingPerspective = perspective
-                                }
-                                Button("Duplicate") {
-                                    editingPerspective = container.duplicatePerspective(id: perspective.id)
-                                }
-                                Button("Delete", role: .destructive) {
-                                    pendingDeletePerspective = perspective
-                                }
-                            }
-
-                            Button {
-                                editingPerspective = perspective
-                            } label: {
-                                Image(systemName: "gearshape")
-                                    .foregroundStyle(theme.textSecondaryColor)
-                                    .frame(width: 24, height: 24)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Edit \(perspective.name)")
-                        }
-                    }
-                }
-            } header: {
-                HStack {
-                    Text("Perspectives")
-                    Spacer()
-                    Button {
-                        editingPerspective = PerspectiveDefinition()
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.caption.weight(.bold))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Create Perspective")
+            ForEach(RootNavigationCatalog.browseDiscoverySectionOrder) { section in
+                switch section {
+                case .perspectives:
+                    browsePerspectivesSection(perspectives: perspectives)
+                case .workflows:
+                    browseWorkflowsSection(areas: areas)
                 }
             }
 
@@ -2240,33 +2407,120 @@ struct RootView: View {
     }
 
     @ViewBuilder
+    private func browsePerspectivesSection(perspectives: [PerspectiveDefinition]) -> some View {
+        Section {
+            ForEach(RootNavigationCatalog.browseBuiltInEntries(pomodoroEnabled: pomodoroEnabled)) { entry in
+                if case .builtIn(let builtInView) = entry.view {
+                    builtInBrowseFilterButton(
+                        builtInView,
+                        label: entry.label,
+                        icon: entry.icon
+                    )
+                }
+            }
+
+            if !perspectives.isEmpty {
+                ForEach(perspectives) { perspective in
+                    HStack(spacing: 8) {
+                        browseFilterButton(
+                            view: container.perspectiveViewIdentifier(for: perspective.id),
+                            label: perspective.name,
+                            icon: perspective.icon,
+                            tintHex: perspective.color,
+                            fallbackIcon: "list.bullet"
+                        )
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contextMenu {
+                            Button("Edit") {
+                                editingPerspective = perspective
+                            }
+                            Button("Duplicate") {
+                                editingPerspective = container.duplicatePerspective(id: perspective.id)
+                            }
+                            Button("Delete", role: .destructive) {
+                                pendingDeletePerspective = perspective
+                            }
+                        }
+
+                        Button {
+                            editingPerspective = perspective
+                        } label: {
+                            Image(systemName: "gearshape")
+                                .foregroundStyle(theme.textSecondaryColor)
+                                .frame(width: 24, height: 24)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Edit \(perspective.name)")
+                    }
+                }
+            }
+        } header: {
+            HStack {
+                Text("Perspectives")
+                Spacer()
+                Button {
+                    editingPerspective = PerspectiveDefinition()
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.caption.weight(.bold))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Create Perspective")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func browseWorkflowsSection(areas: [String]) -> some View {
+        Section("Workflows") {
+            ForEach(RootWorkflowEntry.allCases) { workflow in
+                switch workflow {
+                case .inboxTriage:
+                    workflowBrowseButton(
+                        label: workflow.label,
+                        icon: workflow.icon,
+                        isActive: isInboxTriageActive,
+                        accessibilityIdentifier: workflow.accessibilityIdentifier
+                    ) {
+                        toggleInboxTriageMode()
+                    }
+                case .review:
+                    builtInBrowseFilterButton(
+                        .review,
+                        label: workflow.label,
+                        icon: workflow.icon,
+                        accessibilityIdentifier: workflow.accessibilityIdentifier
+                    )
+                }
+            }
+            if !areas.isEmpty {
+                ForEach(areas, id: \.self) { area in
+                    browseFilterButton(view: .area(area), label: area, icon: "square.grid.2x2")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
     private func rootSearchResultsContent(query: String) -> some View {
         let tasks = container.searchRecords(query: query)
         let tags = container.availableTags().filter { matchesQuery($0, query: query) }
         let areas = container.availableAreas().filter { matchesQuery($0, query: query) }
         let projects = container.allProjects().filter { matchesQuery($0, query: query) }
         let perspectives = container.perspectives.filter { matchesQuery($0.name, query: query) }
-        let builtInViews: [(label: String, view: ViewIdentifier, icon: String)] = {
-            var views: [(label: String, view: ViewIdentifier, icon: String)] = [
-                ("Browse", .browse, "square.grid.2x2"),
-                ("Inbox", .builtIn(.inbox), "tray"),
-                ("My Tasks", .builtIn(.myTasks), "person"),
-                ("Delegated", .builtIn(.delegated), "person.2"),
-                ("Today", .builtIn(.today), "star"),
-                ("Upcoming", .builtIn(.upcoming), "calendar"),
-                ("Logbook", .builtIn(.logbook), "checkmark.circle"),
-                ("Review", .builtIn(.review), "checklist"),
-                ("Anytime", .builtIn(.anytime), "list.bullet"),
-                ("Someday", .builtIn(.someday), "clock"),
-                ("Flagged", .builtIn(.flagged), "flag")
-            ]
-            if pomodoroEnabled {
-                views.append(("Pomodoro", .builtIn(.pomodoro), "timer"))
-            }
-            return views.filter { matchesQuery($0.label, query: query) }
-        }()
+        let builtInViews = RootNavigationCatalog
+            .searchableBuiltInEntries(pomodoroEnabled: pomodoroEnabled)
+            .filter { matchesQuery($0.label, query: query) }
+        let matchingWorkflows = RootWorkflowEntry.allCases.filter { matchesQuery($0.label, query: query) }
 
-        if tasks.isEmpty && tags.isEmpty && areas.isEmpty && projects.isEmpty && builtInViews.isEmpty && perspectives.isEmpty {
+        if tasks.isEmpty
+            && tags.isEmpty
+            && areas.isEmpty
+            && projects.isEmpty
+            && builtInViews.isEmpty
+            && perspectives.isEmpty
+            && matchingWorkflows.isEmpty
+        {
             ContentUnavailableView(
                 "No Results",
                 systemImage: "magnifyingglass",
@@ -2317,8 +2571,28 @@ struct RootView: View {
                 }
             }
 
-            if !areas.isEmpty {
+            if !areas.isEmpty || !matchingWorkflows.isEmpty {
                 Section("Workflows") {
+                    ForEach(matchingWorkflows) { workflow in
+                        switch workflow {
+                        case .inboxTriage:
+                            searchActionButton(
+                                label: workflow.label,
+                                icon: workflow.icon,
+                                accessibilityIdentifier: workflow.searchAccessibilityIdentifier
+                            ) {
+                                toggleInboxTriageMode()
+                            }
+                        case .review:
+                            if let view = workflow.destinationView {
+                                searchDestinationButton(
+                                    view: view,
+                                    label: workflow.label,
+                                    icon: workflow.icon
+                                )
+                            }
+                        }
+                    }
                     ForEach(areas, id: \.self) { area in
                         searchDestinationButton(
                             view: .area(area),
@@ -2563,10 +2837,13 @@ struct RootView: View {
         label: String,
         icon: String,
         tintHex: String? = nil,
-        fallbackIcon: String? = nil
+        fallbackIcon: String? = nil,
+        isActive: Bool? = nil,
+        accessibilityIdentifier: String? = nil
     ) -> some View {
         let tint = color(forHex: tintHex)
         let resolvedFallback = fallbackIcon ?? (icon.isEmpty ? "questionmark.circle" : icon)
+        let isSelected = isActive ?? (container.selectedView == view)
         return Button {
             applyFilter(view)
         } label: {
@@ -2576,12 +2853,12 @@ struct RootView: View {
                     fallbackSymbol: resolvedFallback,
                     pointSize: 17,
                     weight: .semibold,
-                    tint: container.selectedView == view ? (tint ?? theme.accentColor) : (tint ?? theme.textSecondaryColor)
+                    tint: isSelected ? (tint ?? theme.accentColor) : (tint ?? theme.textSecondaryColor)
                 )
                 .frame(width: 20, height: 20)
                 Text(label)
                 Spacer()
-                if container.selectedView == view {
+                if isSelected {
                     Image(systemName: "checkmark")
                         .font(.caption.weight(.bold))
                         .foregroundStyle(theme.accentColor)
@@ -2589,10 +2866,23 @@ struct RootView: View {
             }
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier(accessibilityIdentifier ?? "root.browse.\(view.rawValue)")
     }
 
-    private func builtInBrowseFilterButton(_ builtInView: BuiltInView, label: String, icon: String) -> some View {
-        browseFilterButton(view: .builtIn(builtInView), label: label, icon: icon)
+    private func builtInBrowseFilterButton(
+        _ builtInView: BuiltInView,
+        label: String,
+        icon: String,
+        isActive: Bool? = nil,
+        accessibilityIdentifier: String? = nil
+    ) -> some View {
+        browseFilterButton(
+            view: .builtIn(builtInView),
+            label: label,
+            icon: icon,
+            isActive: isActive,
+            accessibilityIdentifier: accessibilityIdentifier
+        )
             .contextMenu {
                 if builtInView != .review {
                     Button("View Rules") {
@@ -2600,6 +2890,36 @@ struct RootView: View {
                     }
                 }
             }
+    }
+
+    private func workflowBrowseButton(
+        label: String,
+        icon: String,
+        isActive: Bool,
+        accessibilityIdentifier: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                AppIconGlyph(
+                    icon: icon,
+                    fallbackSymbol: icon,
+                    pointSize: 17,
+                    weight: .semibold,
+                    tint: isActive ? theme.accentColor : theme.textSecondaryColor
+                )
+                .frame(width: 20, height: 20)
+                Text(label)
+                Spacer()
+                if isActive {
+                    Image(systemName: "checkmark")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(theme.accentColor)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(accessibilityIdentifier)
     }
 
     private func searchDestinationButton(
@@ -2635,6 +2955,37 @@ struct RootView: View {
             }
         }
         .buttonStyle(.plain)
+    }
+
+    private func searchActionButton(
+        label: String,
+        icon: String,
+        accessibilityIdentifier: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                AppIconGlyph(
+                    icon: icon,
+                    fallbackSymbol: icon,
+                    pointSize: 17,
+                    weight: .semibold,
+                    tint: theme.accentColor
+                )
+                .frame(width: 20, height: 20)
+
+                Text(label)
+                    .foregroundStyle(theme.textPrimaryColor)
+
+                Spacer()
+
+                Image(systemName: "arrow.up.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.textSecondaryColor)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(accessibilityIdentifier)
     }
 
     private func searchTaskResultButton(_ record: TaskRecord) -> some View {
@@ -2743,9 +3094,9 @@ struct RootView: View {
             return .inbox
         case .builtIn(.today):
             return .today
-        case .builtIn(let builtInView) where builtInView == compactPrimaryBuiltInView:
+        case let candidate where candidate == compactPrimaryView:
             return .customPrimary
-        case .builtIn(let builtInView) where builtInView == compactSecondaryBuiltInView:
+        case let candidate where candidate == compactSecondaryView:
             return .customSecondary
         default:
             return .areas
@@ -2760,11 +3111,11 @@ struct RootView: View {
         case .today:
             return .builtIn(.today)
         case .customPrimary:
-            return .builtIn(compactPrimaryBuiltInView)
+            return compactPrimaryView
         case .areas:
             return compactRootTab(for: currentView) == .areas ? currentView : .browse
         case .customSecondary:
-            return .builtIn(compactSecondaryBuiltInView)
+            return compactSecondaryView
         }
     }
 
@@ -2953,6 +3304,7 @@ struct RootView: View {
                 )
             )
             .onChange(of: expandedTaskPath) { _, path in
+                expandedTaskScrollTask?.cancel()
                 guard let path else { return }
                 scheduleExpandedTaskScroll(to: path, proxy: proxy)
             }
@@ -2960,13 +3312,32 @@ struct RootView: View {
     }
 
     private func scheduleExpandedTaskScroll(to path: String, proxy: ScrollViewProxy) {
-        let delays: [TimeInterval] = [0.0, 0.14, 0.34, 0.52]
-        for delay in delays {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                guard expandedTaskPath == path else { return }
-                withAnimation(.spring(response: 0.34, dampingFraction: 0.88, blendDuration: 0.12)) {
-                    proxy.scrollTo(path, anchor: horizontalSizeClass == .compact ? .center : .top)
-                }
+        expandedTaskScrollTask?.cancel()
+
+        let anchor: UnitPoint = horizontalSizeClass == .compact ? .center : .top
+        expandedTaskScrollTask = Task { @MainActor in
+            do {
+                try await Task.sleep(nanoseconds: horizontalSizeClass == .compact ? 90_000_000 : 60_000_000)
+            } catch {
+                return
+            }
+
+            guard !Task.isCancelled, expandedTaskPath == path else { return }
+            withAnimation(.smooth(duration: 0.24)) {
+                proxy.scrollTo(path, anchor: anchor)
+            }
+
+            do {
+                try await Task.sleep(nanoseconds: 180_000_000)
+            } catch {
+                return
+            }
+
+            guard !Task.isCancelled, expandedTaskPath == path else { return }
+            var transaction = Transaction()
+            transaction.animation = nil
+            withTransaction(transaction) {
+                proxy.scrollTo(path, anchor: anchor)
             }
         }
     }
@@ -3323,10 +3694,100 @@ struct RootView: View {
         }
     }
 
+    private var isInboxTriageActive: Bool {
+        container.selectedView == .builtIn(.inbox) && inboxTriageMode
+    }
+
+    private func toggleInboxTriageMode() {
+        dismissRootSearch()
+        expandedTaskPath = nil
+        pendingExpandedTaskPath = nil
+        cancelInlineTaskComposer()
+
+        if isInboxTriageActive {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                resetInboxTriageMode()
+            }
+            return
+        }
+
+        if container.selectedView != .builtIn(.inbox) {
+            applyFilter(.builtIn(.inbox))
+        }
+
+        inboxTriageSkippedPaths.removeAll()
+        inboxTriagePinnedPath = container.filteredRecords().first?.identity.path
+        withAnimation(.easeInOut(duration: 0.18)) {
+            inboxTriageMode = true
+        }
+    }
+
     private func resetInboxTriageMode() {
         inboxTriageMode = false
         inboxTriageSkippedPaths.removeAll()
         inboxTriagePinnedPath = nil
+    }
+
+    private var usesFloatingExpandedTaskDateModal: Bool {
+#if os(iOS)
+        horizontalSizeClass == .compact
+#else
+        false
+#endif
+    }
+
+    private var regularExpandedTaskDateTarget: Binding<ExpandedTaskDateTarget?> {
+        Binding(
+            get: { usesFloatingExpandedTaskDateModal ? nil : expandedTaskDateTarget },
+            set: { expandedTaskDateTarget = $0 }
+        )
+    }
+
+    @ViewBuilder
+    private func expandedTaskDateModalOverlay(target: ExpandedTaskDateTarget) -> some View {
+        GeometryReader { proxy in
+            ZStack {
+                Color.black.opacity(0.42)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .accessibilityIdentifier("expandedTaskDate.backdrop")
+                    .onTapGesture {
+                        dismissExpandedTaskDateEditor(animated: true)
+                    }
+
+                expandedTaskDateContent(target: target)
+                    .frame(
+                        width: min(proxy.size.width - 28, 430),
+                        height: min(proxy.size.height - 48, 560)
+                    )
+                    .background(
+                        RoundedRectangle(cornerRadius: 30, style: .continuous)
+                            .fill(theme.backgroundColor)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 30, style: .continuous)
+                            .stroke(theme.textSecondaryColor.opacity(0.16), lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+                    .shadow(color: Color.black.opacity(0.32), radius: 30, y: 18)
+                    .padding(.horizontal, 14)
+                    .accessibilityAddTraits(.isModal)
+                    .accessibilityIdentifier("expandedTaskDate.modal")
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .transition(.opacity.combined(with: .scale(scale: 0.97)))
+        .animation(.smooth(duration: 0.22), value: expandedTaskDateTarget != nil)
+    }
+
+    private func dismissExpandedTaskDateEditor(animated: Bool) {
+        if animated && usesFloatingExpandedTaskDateModal {
+            withAnimation(.smooth(duration: 0.18)) {
+                expandedTaskDateTarget = nil
+            }
+        } else {
+            expandedTaskDateTarget = nil
+        }
     }
 
     private func deferDateSheet(target: DeferDateTarget) -> some View {
@@ -3354,13 +3815,16 @@ struct RootView: View {
         }
     }
 
-    private func expandedTaskDateSheet(target: ExpandedTaskDateTarget) -> some View {
-        let sheet = ExpandedTaskDateEditorSheet(initialDate: target.initialDate) { date in
+    private func expandedTaskDateContent(target: ExpandedTaskDateTarget) -> some View {
+        ExpandedTaskDateEditorSheet(initialDate: target.initialDate) { date in
             _ = container.setDue(path: target.path, date: date)
-            expandedTaskDateTarget = nil
-        } onCancel: {
-            expandedTaskDateTarget = nil
+        } onDismiss: {
+            dismissExpandedTaskDateEditor(animated: true)
         }
+    }
+
+    private func expandedTaskDateSheet(target: ExpandedTaskDateTarget) -> some View {
+        let sheet = expandedTaskDateContent(target: target)
 
 #if os(iOS)
         return sheet
@@ -3458,19 +3922,58 @@ struct RootView: View {
         _ = pathsSlidingOut.remove(path)
     }
 
+    private var expandedTaskOpenAnimation: Animation {
+        .smooth(duration: 0.26)
+    }
+
+    private var expandedTaskCloseAnimation: Animation {
+        .smooth(duration: 0.18)
+    }
+
     private func toggleExpandedTask(path: String) {
         guard !isEditing else { return }
         cancelInlineTaskComposer()
-        withAnimation(.spring(response: 0.36, dampingFraction: 0.88, blendDuration: 0.14)) {
-            expandedTaskPath = expandedTaskPath == path ? nil : path
+
+        if expandedTaskPath == path {
+            pendingExpandedTaskPath = nil
+            withAnimation(expandedTaskCloseAnimation) {
+                expandedTaskPath = nil
+            }
+            return
+        }
+
+        guard expandedTaskPath != nil else {
+            pendingExpandedTaskPath = path
+            withAnimation(expandedTaskOpenAnimation) {
+                expandedTaskPath = path
+            }
+            return
+        }
+
+        pendingExpandedTaskPath = path
+        withAnimation(expandedTaskCloseAnimation) {
+            expandedTaskPath = nil
+        } completion: {
+            guard pendingExpandedTaskPath == path else { return }
+            withAnimation(expandedTaskOpenAnimation) {
+                expandedTaskPath = path
+            }
         }
     }
 
     private func showExpandedTaskDateEditor(for record: TaskRecord) {
-        expandedTaskDateTarget = ExpandedTaskDateTarget(
+        let target = ExpandedTaskDateTarget(
             path: record.identity.path,
             initialDate: dateValue(for: record.document.frontmatter.due)
         )
+
+        if usesFloatingExpandedTaskDateModal {
+            withAnimation(.smooth(duration: 0.22)) {
+                expandedTaskDateTarget = target
+            }
+        } else {
+            expandedTaskDateTarget = target
+        }
     }
 
     private func showExpandedTaskTagsEditor(for record: TaskRecord) {
@@ -3485,6 +3988,7 @@ struct RootView: View {
     }
 
     private func openFullTaskEditor(path: String) {
+        pendingExpandedTaskPath = nil
         expandedTaskPath = nil
         appendToActiveNavigationPath(path)
     }
@@ -3532,12 +4036,14 @@ struct RootView: View {
                 showExpandedTaskMoveEditor(path: path)
             },
             onDelete: {
+                pendingExpandedTaskPath = nil
                 expandedTaskPath = nil
                 pendingDeletePath = path
             }
         )
         .id(path)
         .accessibilityIdentifier("taskRow.\(record.document.frontmatter.title)")
+        .accessibilityValue(expandedTaskPath == path ? "expanded" : "collapsed")
         .accessibilityHint("Tap to expand. Swipe right for quick actions. Swipe left to complete. Long press for more options.")
         .contextMenu {
             Menu("Quick Settings") {
@@ -3662,10 +4168,13 @@ struct RootView: View {
         icon: String,
         isIndented: Bool = false,
         tintHex: String? = nil,
-        fallbackIcon: String? = nil
+        fallbackIcon: String? = nil,
+        isActive: Bool? = nil,
+        accessibilityIdentifier: String? = nil
     ) -> some View {
         let tint = color(forHex: tintHex)
         let resolvedFallback = fallbackIcon ?? (icon.isEmpty ? "questionmark.circle" : icon)
+        let isSelected = isActive ?? (container.selectedView == view)
         return Button {
             applyFilter(view)
         } label: {
@@ -3675,12 +4184,12 @@ struct RootView: View {
                     fallbackSymbol: resolvedFallback,
                     pointSize: 17,
                     weight: .semibold,
-                    tint: container.selectedView == view ? (tint ?? theme.accentColor) : (tint ?? theme.textSecondaryColor)
+                    tint: isSelected ? (tint ?? theme.accentColor) : (tint ?? theme.textSecondaryColor)
                 )
                 .frame(width: 20, height: 20)
                 Text(label)
                 Spacer()
-                if container.selectedView == view {
+                if isSelected {
                     Image(systemName: "checkmark")
                         .font(.caption.weight(.bold))
                         .foregroundStyle(theme.accentColor)
@@ -3689,10 +4198,23 @@ struct RootView: View {
             .padding(.leading, isIndented ? 20 : 0)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier(accessibilityIdentifier ?? "root.sidebar.\(view.rawValue)")
     }
 
-    private func builtInNavButton(_ builtInView: BuiltInView, label: String, icon: String) -> some View {
-        navButton(view: .builtIn(builtInView), label: label, icon: icon)
+    private func builtInNavButton(
+        _ builtInView: BuiltInView,
+        label: String,
+        icon: String,
+        isActive: Bool? = nil,
+        accessibilityIdentifier: String? = nil
+    ) -> some View {
+        navButton(
+            view: .builtIn(builtInView),
+            label: label,
+            icon: icon,
+            isActive: isActive,
+            accessibilityIdentifier: accessibilityIdentifier
+        )
             .contextMenu {
                 if builtInView != .review {
                     Button("View Rules") {
@@ -3700,6 +4222,36 @@ struct RootView: View {
                     }
                 }
             }
+    }
+
+    private func workflowNavButton(
+        label: String,
+        icon: String,
+        isActive: Bool,
+        accessibilityIdentifier: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                AppIconGlyph(
+                    icon: icon,
+                    fallbackSymbol: icon,
+                    pointSize: 17,
+                    weight: .semibold,
+                    tint: isActive ? theme.accentColor : theme.textSecondaryColor
+                )
+                .frame(width: 20, height: 20)
+                Text(label)
+                Spacer()
+                if isActive {
+                    Image(systemName: "checkmark")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(theme.accentColor)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(accessibilityIdentifier)
     }
 
     private func color(forHex hex: String?) -> Color? {
@@ -3737,7 +4289,8 @@ struct RootView: View {
         let normalized = CompactTabSettings.normalizedCustomViews(
             leadingRawValue: compactPrimaryTabRawValue,
             trailingRawValue: compactSecondaryTabRawValue,
-            pomodoroEnabled: pomodoroEnabled
+            pomodoroEnabled: pomodoroEnabled,
+            additionalViews: compactPerspectiveViews
         )
 
         if compactPrimaryTabRawValue != normalized.primary.rawValue {
@@ -4048,13 +4601,9 @@ private struct ExpandedTaskRow: View {
         .onChange(of: isExpanded) { _, expanded in
             if expanded {
                 syncDraftsFromRecord()
-                DispatchQueue.main.async {
-                    if focusedField == nil {
-                        focusedField = .title
-                    }
-                }
             } else {
-                saveTextEdits()
+                focusedField = nil
+                saveTextEdits(force: true)
             }
         }
         .onChange(of: focusedField) { _, field in
@@ -4071,9 +4620,10 @@ private struct ExpandedTaskRow: View {
             syncDraftsFromRecord()
         }
         .onDisappear {
-            saveTextEdits()
+            focusedField = nil
+            saveTextEdits(force: true)
         }
-        .animation(.spring(response: 0.36, dampingFraction: 0.88, blendDuration: 0.14), value: isExpanded)
+        .animation(.smooth(duration: 0.26), value: isExpanded)
     }
 
     private func collapsedTextContent(frontmatter: TaskFrontmatterV1) -> some View {
@@ -4173,6 +4723,7 @@ private struct ExpandedTaskRow: View {
         .frame(maxWidth: .infinity, alignment: .trailing)
         .padding(.top, 10)
         .padding(.trailing, 6)
+        .accessibilityIdentifier("expandedTask.actions.\(frontmatter.title)")
     }
 
     private var expandedFooter: some View {
@@ -4277,10 +4828,8 @@ private struct ExpandedTaskRow: View {
 
     private var expandedSupplementaryTransition: AnyTransition {
         .asymmetric(
-            insertion: .offset(y: 8)
-                .combined(with: .opacity)
-                .combined(with: .scale(scale: 0.98, anchor: .topTrailing)),
-            removal: .opacity.combined(with: .scale(scale: 0.985, anchor: .topTrailing))
+            insertion: .offset(y: 6).combined(with: .opacity),
+            removal: .opacity
         )
     }
 
@@ -4363,8 +4912,8 @@ private struct ExpandedTaskRow: View {
         notesDraft = record.document.frontmatter.description ?? ""
     }
 
-    private func saveTextEdits() {
-        guard isExpanded else { return }
+    private func saveTextEdits(force: Bool = false) {
+        guard force || isExpanded else { return }
         onSaveTextEdits(titleDraft, notesDraft)
     }
 
@@ -4722,19 +5271,21 @@ private struct ExpandedTaskDateEditorSheet: View {
     @EnvironmentObject private var theme: ThemeManager
     @State private var hasDate: Bool
     @State private var selectedDate: Date
+    @State private var lastCommittedDate: Date?
 
-    let onSave: (Date?) -> Void
-    let onCancel: () -> Void
+    let onPersist: (Date?) -> Void
+    let onDismiss: () -> Void
 
     init(
         initialDate: Date?,
-        onSave: @escaping (Date?) -> Void,
-        onCancel: @escaping () -> Void
+        onPersist: @escaping (Date?) -> Void,
+        onDismiss: @escaping () -> Void
     ) {
         _hasDate = State(initialValue: initialDate != nil)
         _selectedDate = State(initialValue: initialDate ?? Date())
-        self.onSave = onSave
-        self.onCancel = onCancel
+        _lastCommittedDate = State(initialValue: initialDate)
+        self.onPersist = onPersist
+        self.onDismiss = onDismiss
     }
 
     var body: some View {
@@ -4757,17 +5308,20 @@ private struct ExpandedTaskDateEditorSheet: View {
 #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel", action: onCancel)
-                        .accessibilityIdentifier("expandedTaskDate.cancelButton")
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        onSave(hasDate ? selectedDate : nil)
-                    }
-                    .accessibilityIdentifier("expandedTaskDate.doneButton")
+                    Button("Close", action: onDismiss)
+                        .accessibilityIdentifier("expandedTaskDate.closeButton")
                 }
             }
         }
+        .onChange(of: effectiveDate, initial: false) { _, newValue in
+            guard newValue != lastCommittedDate else { return }
+            lastCommittedDate = newValue
+            onPersist(newValue)
+        }
+    }
+
+    private var effectiveDate: Date? {
+        hasDate ? selectedDate : nil
     }
 }
 

@@ -1,3 +1,4 @@
+import EventKit
 @preconcurrency import Foundation
 #if canImport(SwiftData)
 import SwiftData
@@ -130,6 +131,17 @@ private struct ReminderImportCreateResult: Sendable {
     let failedCount: Int
 }
 
+enum ReminderAccessRequestOutcome: Equatable {
+    case refreshed
+    case needsCalendarAccessPrimer
+}
+
+enum IntegrationEnablementDefaults {
+    static func resolvedStoredValue(_ storedValue: Bool?, hasGrantedAccess: Bool) -> Bool {
+        storedValue ?? hasGrantedAccess
+    }
+}
+
 @MainActor
 final class AppContainer: ObservableObject {
     @Published var selectedView: ViewIdentifier = .builtIn(.inbox) {
@@ -225,6 +237,27 @@ final class AppContainer: ObservableObject {
     private static let settingsPerspectivesKey = "settings_saved_perspectives_v1"
     private static let settingsCalendarEnabledKey = "settings_google_calendar_enabled"
     private static let settingsCalendarSelectedIDsKey = "settings_google_calendar_selected_ids"
+
+    var calendarAccessRequiresSettingsRedirect: Bool {
+        appleCalendarService.requiresSettingsRedirect
+    }
+
+    var calendarAccessNeedsExplanationBeforeRequest: Bool {
+        appleCalendarService.needsExplanationBeforeRequest
+    }
+
+    var isRemindersAccessGranted: Bool {
+        ReminderAccessStatus.hasReadAccess(EKEventStore.authorizationStatus(for: .reminder))
+    }
+
+    var remindersAccessNeedsExplanationBeforeRequest: Bool {
+        ReminderAccessStatus.needsExplanationBeforeRequest(EKEventStore.authorizationStatus(for: .reminder))
+    }
+
+    var remindersAccessRequiresSettingsRedirect: Bool {
+        ReminderAccessStatus.requiresSettingsRedirect(EKEventStore.authorizationStatus(for: .reminder))
+    }
+
     private static let settingsRemindersImportListIDKey = "settings_reminders_import_list_id"
     private static let remindersImportListName = "Reminders"
     private static let settingsLocationFavoritesKey = "settings_location_favorites_v1"
@@ -253,6 +286,7 @@ final class AppContainer: ObservableObject {
         self.triageRulesRepository = TriageRulesRepository()
         self.perspectivesRepository = PerspectivesRepository()
 
+        migrateIntegrationEnablementDefaultsIfNeeded()
         loadCalendarSourceSelection()
         loadReminderListSelection()
         loadLocationFavorites()
@@ -313,7 +347,7 @@ final class AppContainer: ObservableObject {
     }
 #endif
 
-    deinit {
+    isolated deinit {
         metadataRefreshWorkItem?.cancel()
 
         let center = NotificationCenter.default
@@ -2312,15 +2346,37 @@ final class AppContainer: ObservableObject {
     }
 
     func refreshReminderListsIfNeeded() async {
-        await refreshReminderImportState(forceListRefresh: reminderLists.isEmpty)
+        await refreshReminderImportState(forceListRefresh: reminderLists.isEmpty, allowsPermissionPrompt: false)
     }
 
     func refreshReminderLists() async {
-        await refreshReminderImportState(forceListRefresh: true)
+        await refreshReminderImportState(forceListRefresh: true, allowsPermissionPrompt: false)
+    }
+
+    func handleRemindersIntegrationChange() async {
+        await refreshReminderImportState(forceListRefresh: true, allowsPermissionPrompt: false)
+    }
+
+    func requestRemindersAccess() async -> ReminderAccessRequestOutcome {
+        let remindersStatusBeforeRefresh = EKEventStore.authorizationStatus(for: .reminder)
+        await refreshReminderImportState(forceListRefresh: true, allowsPermissionPrompt: true)
+
+        guard isRemindersImportEnabled else { return .refreshed }
+
+        let permissionCoordinator = ReminderCalendarPermissionCoordinator(
+            remindersStatusBeforeRefresh: remindersStatusBeforeRefresh,
+            remindersStatusAfterRefresh: EKEventStore.authorizationStatus(for: .reminder),
+            calendarStatus: appleCalendarService.authorizationStatus,
+            isCalendarIntegrationEnabled: isCalendarIntegrationEnabled
+        )
+        if permissionCoordinator.shouldPresentCalendarAccessPrimer {
+            return .needsCalendarAccessPrimer
+        }
+        return .refreshed
     }
 
     func refreshReminderImports() async {
-        await refreshReminderImportState(forceListRefresh: false)
+        await refreshReminderImportState(forceListRefresh: false, allowsPermissionPrompt: false)
     }
 
     func setReminderListSelected(id: String) {
@@ -2387,7 +2443,7 @@ final class AppContainer: ObservableObject {
     func importAllFromReminders() async {
         guard isRemindersImportEnabled else { return }
         if pendingReminderImports.isEmpty {
-            await refreshReminderImportState(forceListRefresh: reminderLists.isEmpty)
+            await refreshReminderImportState(forceListRefresh: reminderLists.isEmpty, allowsPermissionPrompt: false)
         }
         await importReminderItems(pendingReminderImports)
     }
@@ -2401,7 +2457,7 @@ final class AppContainer: ObservableObject {
             return
         }
 
-        await refreshReminderImportState(forceListRefresh: reminderLists.isEmpty)
+        await refreshReminderImportState(forceListRefresh: reminderLists.isEmpty, allowsPermissionPrompt: false)
         guard let reminder = pendingReminderImports.first(where: { $0.id == id }) else {
             remindersImportStatusMessage = "That reminder is no longer available to import."
             return
@@ -2469,7 +2525,7 @@ final class AppContainer: ObservableObject {
             completionError: completionError
         )
 
-        await refreshReminderImportState(forceListRefresh: false)
+        await refreshReminderImportState(forceListRefresh: false, allowsPermissionPrompt: false)
         remindersImportStatusMessage = summary
     }
 
@@ -2511,7 +2567,7 @@ final class AppContainer: ObservableObject {
 
     func refreshCalendar(force: Bool = false) async {
         let defaults = UserDefaults.standard
-        let calendarEnabled = defaults.object(forKey: Self.settingsCalendarEnabledKey) as? Bool ?? true
+        let calendarEnabled = defaults.object(forKey: Self.settingsCalendarEnabledKey) as? Bool ?? false
         guard calendarEnabled else {
             calendarTodayEvents = []
             calendarUpcomingSections = []
@@ -2618,9 +2674,39 @@ final class AppContainer: ObservableObject {
         UserDefaults.standard.removeObject(forKey: Self.settingsRemindersImportListIDKey)
     }
 
-    private func refreshReminderImportState(forceListRefresh: Bool) async {
+    private func refreshReminderImportState(
+        forceListRefresh: Bool,
+        allowsPermissionPrompt: Bool
+    ) async {
         guard isRemindersImportEnabled else {
             clearReminderImportState()
+            return
+        }
+
+        let reminderAuthorizationStatus = EKEventStore.authorizationStatus(for: .reminder)
+        switch ReminderAccessStatus.refreshAction(
+            for: reminderAuthorizationStatus,
+            allowsPermissionPrompt: allowsPermissionPrompt
+        ) {
+        case .canRefresh:
+            break
+        case .needsExplanationBeforeRequest:
+            if forceListRefresh || reminderLists.isEmpty {
+                reminderLists = []
+                selectedReminderListID = nil
+                persistReminderListSelection()
+            }
+            pendingReminderImports = []
+            remindersImportStatusMessage = "Allow Reminders access in Settings to import tasks from Reminders."
+            return
+        case .requiresSettingsRedirect:
+            if forceListRefresh || reminderLists.isEmpty {
+                reminderLists = []
+                selectedReminderListID = nil
+                persistReminderListSelection()
+            }
+            pendingReminderImports = []
+            remindersImportStatusMessage = RemindersImportServiceError.accessDenied.localizedDescription
             return
         }
 
@@ -2668,7 +2754,7 @@ final class AppContainer: ObservableObject {
                 remindersImportStatusMessage = nil
             }
         } catch RemindersImportServiceError.listNotFound where !forceListRefresh {
-            await refreshReminderImportState(forceListRefresh: true)
+            await refreshReminderImportState(forceListRefresh: true, allowsPermissionPrompt: allowsPermissionPrompt)
         } catch {
             guard refreshGeneration == reminderImportRefreshGeneration else { return }
             if forceListRefresh || reminderLists.isEmpty {
@@ -2686,9 +2772,30 @@ final class AppContainer: ObservableObject {
         return reminderImportRefreshGeneration
     }
 
+    private func migrateIntegrationEnablementDefaultsIfNeeded() {
+        let defaults = UserDefaults.standard
+
+        let remindersEnabled = IntegrationEnablementDefaults.resolvedStoredValue(
+            defaults.object(forKey: Self.settingsRemindersImportEnabledKey) as? Bool,
+            hasGrantedAccess: ReminderAccessStatus.hasReadAccess(EKEventStore.authorizationStatus(for: .reminder))
+        )
+        defaults.set(remindersEnabled, forKey: Self.settingsRemindersImportEnabledKey)
+
+        let calendarEnabled = IntegrationEnablementDefaults.resolvedStoredValue(
+            defaults.object(forKey: Self.settingsCalendarEnabledKey) as? Bool,
+            hasGrantedAccess: appleCalendarService.isConnected
+        )
+        defaults.set(calendarEnabled, forKey: Self.settingsCalendarEnabledKey)
+    }
+
     private var isRemindersImportEnabled: Bool {
         let defaults = UserDefaults.standard
-        return defaults.object(forKey: Self.settingsRemindersImportEnabledKey) as? Bool ?? true
+        return defaults.object(forKey: Self.settingsRemindersImportEnabledKey) as? Bool ?? false
+    }
+
+    private var isCalendarIntegrationEnabled: Bool {
+        let defaults = UserDefaults.standard
+        return defaults.object(forKey: Self.settingsCalendarEnabledKey) as? Bool ?? false
     }
 
     private func clearReminderImportState() {

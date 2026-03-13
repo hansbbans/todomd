@@ -51,9 +51,12 @@ struct AppIconToken: Hashable {
     }
 
     static func isEmojiValue(_ rawValue: String) -> Bool {
-        guard !rawValue.isEmpty else { return false }
-        return rawValue.unicodeScalars.contains { scalar in
-            scalar.properties.isEmoji && (!scalar.isASCII || rawValue.unicodeScalars.count > 1)
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        guard trimmed.unicodeScalars.contains(where: { !$0.isASCII }) else { return false }
+
+        return trimmed.unicodeScalars.contains { scalar in
+            scalar.properties.isEmojiPresentation || scalar.properties.isEmoji
         }
     }
 }
