@@ -332,19 +332,40 @@ private struct RootPullToSearchTopMarker: ViewModifier {
 #endif
 
 private struct RootPullToSearchIndicator: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     let progress: CGFloat
     let isVisible: Bool
     let isArmed: Bool
+
+    private var activationProgress: CGFloat {
+        min(max(progress, 0), 1)
+    }
 
     private var clampedProgress: CGFloat {
         min(max(progress, 0), 1.2)
     }
 
+    private var progressAnimation: Animation {
+        if reduceMotion {
+            return .easeOut(duration: 0.12)
+        }
+        return .interactiveSpring(response: 0.18, dampingFraction: 0.84, blendDuration: 0.08)
+    }
+
+    private var armedAnimation: Animation {
+        if reduceMotion {
+            return .easeOut(duration: 0.12)
+        }
+        return .spring(response: 0.22, dampingFraction: 0.72, blendDuration: 0.1)
+    }
+
     var body: some View {
         let panelScale = 0.82 + (clampedProgress * 0.18)
-        let iconScale = 0.82 + (clampedProgress * 0.24)
-        let panelOpacity = isVisible ? min(1, clampedProgress * 1.5) : 0
+        let iconScale = 0.84 + (clampedProgress * 0.22)
+        let panelOpacity = isVisible ? min(1, 0.12 + (activationProgress * 1.28)) : 0
         let verticalOffset = max(-18, 18 - (clampedProgress * 24))
+        let badgeTint = Color(red: 0.24, green: 0.74, blue: 0.98)
 
         VStack(spacing: 7) {
             ZStack {
@@ -355,21 +376,41 @@ private struct RootPullToSearchIndicator: View {
                     .strokeBorder(Color.white.opacity(isArmed ? 0.28 : 0.14), lineWidth: 1)
 
                 Circle()
-                    .fill(Color.white.opacity(isArmed ? 0.12 : 0))
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                badgeTint.opacity(0.16 + (activationProgress * 0.14)),
+                                badgeTint.opacity(isArmed ? 0.34 : 0.08)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
                     .padding(4)
 
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(Color.white.opacity(isArmed ? 1 : 0.86))
-                    .scaleEffect(iconScale)
-                    .rotationEffect(.degrees(isArmed ? 10 : Double((clampedProgress - 0.5) * 8)))
+                RootPullToSearchMagnifyingGlass(
+                    progress: activationProgress,
+                    isArmed: isArmed
+                )
+                .padding(8)
+                .scaleEffect(iconScale)
+
+                Circle()
+                    .trim(from: 0, to: activationProgress)
+                    .stroke(
+                        badgeTint.opacity(isArmed ? 0.95 : 0.7),
+                        style: StrokeStyle(lineWidth: 2.6, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
+                    .padding(2.2)
+                    .opacity(activationProgress > 0.02 ? 1 : 0)
             }
             .frame(width: 44, height: 44)
 
             Text(isArmed ? "Release to search" : "Pull to search")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Color.white.opacity(0.92))
-                .opacity(clampedProgress > 0.35 ? 1 : 0)
+                .opacity(activationProgress > 0.2 ? 1 : activationProgress / 0.2)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -385,9 +426,91 @@ private struct RootPullToSearchIndicator: View {
         .scaleEffect(panelScale)
         .offset(y: verticalOffset)
         .opacity(panelOpacity)
-        .animation(.interactiveSpring(response: 0.18, dampingFraction: 0.84, blendDuration: 0.08), value: progress)
-        .animation(.spring(response: 0.22, dampingFraction: 0.72, blendDuration: 0.1), value: isArmed)
+        .animation(progressAnimation, value: progress)
+        .animation(armedAnimation, value: isArmed)
         .accessibilityHidden(true)
+    }
+}
+
+private struct RootPullToSearchMagnifyingGlass: View {
+    let progress: CGFloat
+    let isArmed: Bool
+
+    private var clampedProgress: CGFloat {
+        min(max(progress, 0), 1)
+    }
+
+    private var tint: Color {
+        Color(red: 0.24, green: 0.74, blue: 0.98)
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let size = min(proxy.size.width, proxy.size.height)
+            let lensDiameter = size * 0.62
+            let lensStrokeWidth = max(2.2, size * 0.085)
+            let lensInset = lensStrokeWidth * 0.8
+            let handleWidth = max(4.5, size * 0.15)
+            let handleHeight = size * 0.3
+            let handleFillHeight = max(handleWidth, handleHeight * max(clampedProgress, 0.12))
+            let lensFillHeight = max(0, (lensDiameter - (lensInset * 2)) * clampedProgress)
+
+            VStack(spacing: -(lensStrokeWidth * 0.45)) {
+                ZStack {
+                    Circle()
+                        .fill(Color.white.opacity(0.07 + (clampedProgress * 0.08)))
+
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    tint.opacity(0.98),
+                                    Color(red: 0.56, green: 0.9, blue: 1.0)
+                                ],
+                                startPoint: .bottom,
+                                endPoint: .top
+                            )
+                        )
+                        .padding(lensInset)
+                        .mask(alignment: .bottom) {
+                            Rectangle()
+                                .frame(height: lensFillHeight)
+                                .frame(maxHeight: .infinity, alignment: .bottom)
+                        }
+
+                    Circle()
+                        .strokeBorder(Color.white.opacity(isArmed ? 0.98 : 0.72), lineWidth: lensStrokeWidth)
+
+                    Circle()
+                        .strokeBorder(tint.opacity(0.22 + (clampedProgress * 0.42)), lineWidth: lensStrokeWidth * 0.34)
+                        .padding(lensStrokeWidth * 1.15)
+                        .opacity(clampedProgress > 0.06 ? 1 : 0)
+                }
+                .frame(width: lensDiameter, height: lensDiameter)
+
+                Capsule(style: .continuous)
+                    .fill(Color.white.opacity(0.46 + (clampedProgress * 0.32)))
+                    .frame(width: handleWidth, height: handleHeight)
+                    .overlay(alignment: .top) {
+                        Capsule(style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        tint.opacity(0.8),
+                                        tint
+                                    ],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                            .frame(width: handleWidth, height: handleFillHeight)
+                            .frame(maxHeight: .infinity, alignment: .top)
+                    }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .rotationEffect(.degrees(-45))
+            .shadow(color: tint.opacity(isArmed ? 0.24 : 0.14 * clampedProgress), radius: isArmed ? 10 : 6)
+        }
     }
 }
 
@@ -402,7 +525,7 @@ private struct RootPullToSearchGestureModifier: ViewModifier {
     @State private var dragStartedAtTop = false
     @State private var isTrackingDrag = false
 
-    private let activationDistance: CGFloat = 48
+    private let activationDistance: CGFloat = 96
     private let topOffsetTolerance: CGFloat = 12
     private let maxHorizontalDrift: CGFloat = 140
 #endif
