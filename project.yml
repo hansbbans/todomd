@@ -41,6 +41,16 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: todo.md
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
         INFOPLIST_KEY_UILaunchStoryboardName: LaunchScreen
+        INFOPLIST_KEY_UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription: "todo.md uses Calendar access to show your events in Today and Upcoming."
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "todo.md uses the microphone so you can dictate multiple tasks with voice ramble."
         INFOPLIST_KEY_NSRemindersFullAccessUsageDescription: "todo.md imports tasks from Apple Reminders when you run the import."
