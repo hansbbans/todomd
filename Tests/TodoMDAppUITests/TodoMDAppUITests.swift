@@ -144,6 +144,53 @@ final class TodoMDAppUITests: XCTestCase {
         waitForExpectations(timeout: 5)
     }
 
+    func testTaskDetailProjectAssignmentPersistsImmediately() {
+        let storageOverride = makeStorageOverridePath()
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        completeOnboarding(app: app)
+        createTask(app: app, title: "immediate project save")
+
+        let taskRow = app.descendants(matching: .any)["taskRow.immediate project save"].firstMatch
+        XCTAssertTrue(taskRow.waitForExistence(timeout: 10), "Created task row was not visible")
+        taskRow.tap()
+
+        let moreButton = app.buttons["More"].firstMatch
+        let legacyMoreButton = app.buttons["Open full task editor"].firstMatch
+        XCTAssertTrue(
+            moreButton.waitForExistence(timeout: 2) || legacyMoreButton.waitForExistence(timeout: 10),
+            "Expanded task detail action button was not visible"
+        )
+        if moreButton.exists {
+            moreButton.tap()
+        } else {
+            legacyMoreButton.tap()
+        }
+
+        let projectField = app.textFields["taskDetail.field.project"].firstMatch
+        if !projectField.waitForExistence(timeout: 2) {
+            let moreDetailsButton = app.buttons["More details"].firstMatch
+            XCTAssertTrue(moreDetailsButton.waitForExistence(timeout: 10), "More details toggle was not visible")
+            moreDetailsButton.tap()
+        }
+
+        XCTAssertTrue(projectField.waitForExistence(timeout: 10), "Project field was not visible in task detail")
+        projectField.tap()
+        projectField.typeText("Errands")
+
+        XCTAssertTrue(
+            waitForMarkdownStorage(rootPath: storageOverride) { content in
+                content.contains("immediate project save")
+                    && (content.contains("project: Errands") || content.contains("project: \"Errands\""))
+            },
+            "Project assignment from task detail was not persisted before leaving the editor"
+        )
+    }
+
     func testTaskDetailDueDateChooserTomorrowPresetUpdatesSummary() {
         let storageOverride = makeStorageOverridePath()
 
