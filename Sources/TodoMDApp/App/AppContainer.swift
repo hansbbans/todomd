@@ -347,7 +347,7 @@ final class AppContainer: ObservableObject {
     }
 #endif
 
-    isolated deinit {
+    deinit {
         metadataRefreshWorkItem?.cancel()
 
         let center = NotificationCenter.default
