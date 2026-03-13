@@ -9,7 +9,7 @@ protocol CalendarAccessAuthorizing: AnyObject {
 
 @MainActor
 final class EventKitCalendarAccessAuthorizer: CalendarAccessAuthorizing {
-    private let eventStore: EKEventStore
+    private nonisolated(unsafe) let eventStore: EKEventStore
 
     init(eventStore: EKEventStore) {
         self.eventStore = eventStore

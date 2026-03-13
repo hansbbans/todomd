@@ -142,6 +142,24 @@ enum IntegrationEnablementDefaults {
     }
 }
 
+private final class AppContainerObservationState {
+    var metadataObserverTokens: [NSObjectProtocol] = []
+    var lifecycleObserverTokens: [NSObjectProtocol] = []
+    var metadataRefreshWorkItem: DispatchWorkItem?
+
+    deinit {
+        metadataRefreshWorkItem?.cancel()
+
+        let center = NotificationCenter.default
+        for token in metadataObserverTokens {
+            center.removeObserver(token)
+        }
+        for token in lifecycleObserverTokens {
+            center.removeObserver(token)
+        }
+    }
+}
+
 @MainActor
 final class AppContainer: ObservableObject {
     @Published var selectedView: ViewIdentifier = .builtIn(.inbox) {
@@ -213,10 +231,8 @@ final class AppContainer: ObservableObject {
     private var snapshotDiagnostics: [ParseFailureDiagnostic] = []
     private var triageRules = TriageRulesDocument()
 
+    private let observationState = AppContainerObservationState()
     private var metadataQuery: NSMetadataQuery?
-    private var metadataObserverTokens: [NSObjectProtocol] = []
-    private var lifecycleObserverTokens: [NSObjectProtocol] = []
-    private var metadataRefreshWorkItem: DispatchWorkItem?
     private var suppressMetadataRefreshUntil: Date?
     private var calendarRefreshTask: Task<Void, Never>?
     private var foregroundRefreshTimer: Timer?
@@ -346,18 +362,6 @@ final class AppContainer: ObservableObject {
         }
     }
 #endif
-
-    isolated deinit {
-        metadataRefreshWorkItem?.cancel()
-
-        let center = NotificationCenter.default
-        for token in metadataObserverTokens {
-            center.removeObserver(token)
-        }
-        for token in lifecycleObserverTokens {
-            center.removeObserver(token)
-        }
-    }
 
     var rootFolderPath: String {
         rootURL.path
@@ -3449,7 +3453,7 @@ final class AppContainer: ObservableObject {
     private func configureLifecycleObservers() {
         let center = NotificationCenter.default
 
-        lifecycleObserverTokens.append(center.addObserver(
+        observationState.lifecycleObserverTokens.append(center.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: nil,
             queue: .main
@@ -3462,7 +3466,7 @@ final class AppContainer: ObservableObject {
         })
 
 #if canImport(UIKit)
-        lifecycleObserverTokens.append(center.addObserver(
+        observationState.lifecycleObserverTokens.append(center.addObserver(
             forName: UIApplication.willEnterForegroundNotification,
             object: nil,
             queue: .main
@@ -3474,7 +3478,7 @@ final class AppContainer: ObservableObject {
             }
         })
 
-        lifecycleObserverTokens.append(center.addObserver(
+        observationState.lifecycleObserverTokens.append(center.addObserver(
             forName: UIApplication.didEnterBackgroundNotification,
             object: nil,
             queue: .main
@@ -3516,7 +3520,7 @@ final class AppContainer: ObservableObject {
         query.predicate = NSPredicate(format: "%K BEGINSWITH %@", NSMetadataItemPathKey, rootURL.path)
 
         let center = NotificationCenter.default
-        metadataObserverTokens.append(center.addObserver(
+        observationState.metadataObserverTokens.append(center.addObserver(
             forName: .NSMetadataQueryDidFinishGathering,
             object: query,
             queue: .main
@@ -3529,7 +3533,7 @@ final class AppContainer: ObservableObject {
             metadataQuery.enableUpdates()
         })
 
-        metadataObserverTokens.append(center.addObserver(
+        observationState.metadataObserverTokens.append(center.addObserver(
             forName: .NSMetadataQueryDidUpdate,
             object: query,
             queue: .main
@@ -3544,18 +3548,18 @@ final class AppContainer: ObservableObject {
     }
 
     private func stopMetadataQuery() {
-        metadataRefreshWorkItem?.cancel()
-        metadataRefreshWorkItem = nil
+        observationState.metadataRefreshWorkItem?.cancel()
+        observationState.metadataRefreshWorkItem = nil
 
         if let query = metadataQuery {
             query.stop()
         }
         metadataQuery = nil
 
-        for token in metadataObserverTokens {
+        for token in observationState.metadataObserverTokens {
             NotificationCenter.default.removeObserver(token)
         }
-        metadataObserverTokens.removeAll()
+        observationState.metadataObserverTokens.removeAll()
     }
 
     private func debounceMetadataRefresh() {
@@ -3563,7 +3567,7 @@ final class AppContainer: ObservableObject {
             return
         }
 
-        metadataRefreshWorkItem?.cancel()
+        observationState.metadataRefreshWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -3571,7 +3575,7 @@ final class AppContainer: ObservableObject {
                 self.refresh()
             }
         }
-        metadataRefreshWorkItem = work
+        observationState.metadataRefreshWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
     }
 
@@ -4074,8 +4078,8 @@ final class AppContainer: ObservableObject {
             return
         }
         suppressMetadataRefreshUntil = candidate
-        metadataRefreshWorkItem?.cancel()
-        metadataRefreshWorkItem = nil
+        observationState.metadataRefreshWorkItem?.cancel()
+        observationState.metadataRefreshWorkItem = nil
     }
 
     private func dateFromLocalDate(_ localDate: LocalDate?) -> Date? {
