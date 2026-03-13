@@ -152,7 +152,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          cat > "$TEMP_PATH/testflight-project.yml" <<EOF
+          generated_spec_path="$GITHUB_WORKSPACE/testflight-project.yml"
+
+          cat > "$generated_spec_path" <<EOF
           include:
             - project.yml
           targets:
@@ -182,7 +184,7 @@ jobs:
                     PROVISIONING_PROFILE_SPECIFIER: "${WIDGETS_PROFILE_NAME}"
           EOF
 
-          xcodegen generate --spec "$TEMP_PATH/testflight-project.yml"
+          xcodegen generate --spec "$generated_spec_path"
 
       - name: Create export options plist
         env:
