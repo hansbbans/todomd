@@ -186,48 +186,46 @@ private struct UpcomingDaySectionView<TaskRowContent: View>: View {
     @EnvironmentObject private var theme: ThemeManager
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
-            Text(dayNumberText)
-                .font(.system(size: 46, weight: .bold))
-                .tracking(-1.8)
-                .foregroundStyle(theme.textPrimaryColor)
-                .lineLimit(1)
-                .minimumScaleFactor(0.72)
-                .frame(width: 42, alignment: .leading)
-                .offset(y: -2)
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(dayNumberText)
+                    .font(.system(size: 46, weight: .bold))
+                    .tracking(-1.8)
+                    .foregroundStyle(theme.textPrimaryColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
 
-            VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Rectangle()
-                        .fill(theme.separatorColor.opacity(0.46))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 1)
+                Text(dayHeaderLabel)
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(theme.textPrimaryColor)
+                    .tracking(-0.4)
+                    .lineLimit(1)
+                    .layoutPriority(1)
 
-                    Text(dayHeaderLabel)
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(theme.textPrimaryColor)
-                        .tracking(-0.4)
-                }
-                .padding(.top, 10)
+                Rectangle()
+                    .fill(theme.separatorColor.opacity(0.46))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 1)
+                    .offset(y: -4)
+            }
 
-                if section.records.isEmpty && section.events.isEmpty {
-                    Text("No tasks or events")
-                        .font(.system(size: 16.5, weight: .regular))
-                        .foregroundStyle(theme.textSecondaryColor)
-                } else {
-                    if !section.records.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            ForEach(section.records) { record in
-                                taskRow(record)
-                            }
+            if section.records.isEmpty && section.events.isEmpty {
+                Text("No tasks or events")
+                    .font(.system(size: 16.5, weight: .regular))
+                    .foregroundStyle(theme.textSecondaryColor)
+            } else {
+                if !section.records.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(section.records) { record in
+                            taskRow(record)
                         }
                     }
+                }
 
-                    if !section.events.isEmpty {
-                        VStack(alignment: .leading, spacing: 4) {
-                            ForEach(section.events) { event in
-                                UpcomingEventLineView(event: event)
-                            }
+                if !section.events.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(section.events) { event in
+                            UpcomingEventLineView(event: event)
                         }
                     }
                 }
@@ -259,25 +257,31 @@ private struct UpcomingEventLineView: View {
         HStack(alignment: .firstTextBaseline, spacing: 7) {
             if event.isAllDay {
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(Color(hex: event.calendarColorHex))
-                    .frame(width: 4, height: 22)
+                    .fill(eventAccentColor)
+                    .frame(width: 4, height: 21)
 
                 Text(event.title)
                     .foregroundStyle(theme.textPrimaryColor.opacity(0.9))
                     .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 Text(formatTime(event.startDate))
-                    .foregroundStyle(Color(red: 0.29, green: 0.55, blue: 1.0))
+                    .foregroundStyle(eventAccentColor)
                     .monospacedDigit()
-                    .frame(width: 88, alignment: .leading)
+                    .frame(width: 84, alignment: .leading)
                     .lineLimit(1)
 
                 Text(event.title)
                     .foregroundStyle(theme.textPrimaryColor.opacity(0.9))
                     .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .font(.system(size: 16.5, weight: .regular))
+    }
+
+    private var eventAccentColor: Color {
+        Color(hex: event.calendarColorHex)
     }
 
     private func formatTime(_ date: Date) -> String {
