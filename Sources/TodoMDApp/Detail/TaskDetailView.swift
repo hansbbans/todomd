@@ -43,6 +43,7 @@ struct TaskDetailView: View {
     @State private var showDeleteConfirmation = false
     @State private var errorMessage: String?
     @State private var showNotesEditor = false
+    @State private var pendingProjectPersistenceTask: Task<Void, Never>?
     @State private var newTagText = ""
     @State private var locationPresetName = ""
     @State private var selectedLocationFavoriteID = ""
@@ -94,6 +95,7 @@ struct TaskDetailView: View {
             syncSelectedLocationFavorite()
         }
         .onDisappear {
+            pendingProjectPersistenceTask?.cancel()
             autoSave()
         }
         .onChange(of: container.locationFavorites.map(\.id), initial: false) { _, _ in
@@ -420,8 +422,9 @@ struct TaskDetailView: View {
                     isExpanded: true,
                     onTap: {}
                 ) {
-                    TextField("Project", text: binding(\.project))
+                    TextField("Project", text: projectBinding)
                         .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier("taskDetail.field.project")
                 }
 
                 // Estimate
@@ -1024,6 +1027,18 @@ struct TaskDetailView: View {
         Binding(get: { editState?.scheduledDate ?? Date() }, set: { _ in })
     }
 
+    private var projectBinding: Binding<String> {
+        Binding(
+            get: { editState?.project ?? "" },
+            set: { newValue in
+                guard var editState else { return }
+                editState.project = newValue
+                self.editState = editState
+                scheduleProjectPersistence()
+            }
+        )
+    }
+
     private func autoSave() {
         guard let editState else { return }
         if let locationError = validateLocationReminder(editState) {
@@ -1069,6 +1084,54 @@ struct TaskDetailView: View {
         }
 
         return nil
+    }
+
+    private func scheduleProjectPersistence() {
+        pendingProjectPersistenceTask?.cancel()
+        pendingProjectPersistenceTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .milliseconds(250))
+            } catch {
+                return
+            }
+            persistProjectRoutingIfNeeded()
+        }
+    }
+
+    private func persistProjectRoutingIfNeeded() {
+        guard let persistedFrontmatter = container.record(for: path)?.document.frontmatter else { return }
+
+        let persistedArea = normalizedRoutingValue(persistedFrontmatter.area)
+        let persistedProject = normalizedRoutingValue(persistedFrontmatter.project)
+        guard let editState else { return }
+
+        let currentArea = normalizedRoutingValue(editState.area)
+        let currentProject = normalizedRoutingValue(editState.project)
+        guard persistedArea != currentArea || persistedProject != currentProject else { return }
+
+        let didSave: Bool
+        if let currentProject, currentArea == nil {
+            didSave = container.addToProject(path: path, project: currentProject)
+        } else {
+            didSave = container.moveTask(path: path, area: currentArea, project: currentProject)
+        }
+
+        guard didSave,
+              let updatedFrontmatter = container.record(for: path)?.document.frontmatter,
+              var syncedEditState = self.editState
+        else {
+            return
+        }
+
+        syncedEditState.area = updatedFrontmatter.area ?? ""
+        syncedEditState.project = updatedFrontmatter.project ?? ""
+        self.editState = syncedEditState
+    }
+
+    private func normalizedRoutingValue(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private var selectedLocationFavorite: LocationFavorite? {
