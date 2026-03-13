@@ -3,24 +3,30 @@ import Foundation
 public enum CompactTabSettings {
     public static let leadingViewKey = "settings_compact_tab_primary_view"
     public static let trailingViewKey = "settings_compact_tab_secondary_view"
-    public static let defaultLeadingView: BuiltInView = .upcoming
-    public static let defaultTrailingView: BuiltInView = .logbook
+    public static let defaultLeadingView: ViewIdentifier = .builtIn(.upcoming)
+    public static let defaultTrailingView: ViewIdentifier = .builtIn(.logbook)
 
-    private static let baseCustomViews: [BuiltInView] = [
-        .upcoming,
-        .logbook,
-        .myTasks,
-        .delegated,
-        .anytime,
-        .someday,
-        .flagged,
-        .review
+    private static let baseCustomViews: [ViewIdentifier] = [
+        .builtIn(.upcoming),
+        .builtIn(.logbook),
+        .builtIn(.myTasks),
+        .builtIn(.delegated),
+        .builtIn(.anytime),
+        .builtIn(.someday),
+        .builtIn(.flagged),
+        .builtIn(.review)
     ]
 
-    public static func availableCustomViews(pomodoroEnabled: Bool) -> [BuiltInView] {
+    public static func availableCustomViews(
+        pomodoroEnabled: Bool,
+        additionalViews: [ViewIdentifier] = []
+    ) -> [ViewIdentifier] {
         var views = baseCustomViews
         if pomodoroEnabled {
-            views.append(.pomodoro)
+            views.append(.builtIn(.pomodoro))
+        }
+        for view in additionalViews where isSupportedCustomView(view) && !views.contains(view) {
+            views.append(view)
         }
         return views
     }
@@ -28,9 +34,13 @@ public enum CompactTabSettings {
     public static func normalizedCustomViews(
         leadingRawValue: String,
         trailingRawValue: String,
-        pomodoroEnabled: Bool
-    ) -> (primary: BuiltInView, secondary: BuiltInView) {
-        let available = availableCustomViews(pomodoroEnabled: pomodoroEnabled)
+        pomodoroEnabled: Bool,
+        additionalViews: [ViewIdentifier] = []
+    ) -> (primary: ViewIdentifier, secondary: ViewIdentifier) {
+        let available = availableCustomViews(
+            pomodoroEnabled: pomodoroEnabled,
+            additionalViews: additionalViews
+        )
         let primary = resolveCustomView(
             rawValue: leadingRawValue,
             available: available,
@@ -48,13 +58,13 @@ public enum CompactTabSettings {
 
     private static func resolveCustomView(
         rawValue: String,
-        available: [BuiltInView],
-        fallbackOrder: [BuiltInView],
-        excluding: [BuiltInView]
-    ) -> BuiltInView {
+        available: [ViewIdentifier],
+        fallbackOrder: [ViewIdentifier],
+        excluding: [ViewIdentifier]
+    ) -> ViewIdentifier {
         let excluded = Set(excluding)
-        if let candidate = BuiltInView(rawValue: rawValue),
-           available.contains(candidate),
+        let candidate = ViewIdentifier(rawValue: rawValue)
+        if available.contains(candidate),
            !excluded.contains(candidate) {
             return candidate
         }
@@ -64,5 +74,16 @@ public enum CompactTabSettings {
         }
 
         return available.first(where: { !excluded.contains($0) }) ?? defaultLeadingView
+    }
+
+    private static func isSupportedCustomView(_ view: ViewIdentifier) -> Bool {
+        switch view {
+        case .builtIn(let builtInView):
+            return baseCustomViews.contains(.builtIn(builtInView)) || builtInView == .pomodoro
+        case .custom(let rawValue):
+            return rawValue.hasPrefix("perspective:") && !ViewIdentifier.custom(rawValue).isBrowse
+        case .area, .project, .tag:
+            return false
+        }
     }
 }

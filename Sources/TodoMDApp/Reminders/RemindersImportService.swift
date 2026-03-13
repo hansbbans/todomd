@@ -141,7 +141,7 @@ final class RemindersImportService: RemindersImportServicing, @unchecked Sendabl
 
         let status = EKEventStore.authorizationStatus(for: .reminder)
         switch status {
-        case .fullAccess:
+        case .fullAccess, .authorized:
             return
         case .notDetermined:
             let granted = try await eventStore.requestFullAccessToReminders()

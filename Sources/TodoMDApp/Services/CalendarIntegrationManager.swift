@@ -112,7 +112,7 @@ final class CalendarIntegrationManager {
 
     /// Returns whether the calendar integration is enabled by the user's settings.
     var isEnabled: Bool {
-        UserDefaults.standard.object(forKey: Self.settingsCalendarEnabledKey) as? Bool ?? true
+        UserDefaults.standard.object(forKey: Self.settingsCalendarEnabledKey) as? Bool ?? false
     }
 
     // MARK: - Private event grouping

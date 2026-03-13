@@ -23,24 +23,50 @@ final class AppleCalendarService {
     // EKEventStore is thread-safe but not Sendable under Swift 6; nonisolated(unsafe)
     // lets the @MainActor async methods pass it across the concurrency boundary safely.
     private nonisolated(unsafe) let eventStore: EKEventStore
+    private let accessAuthorizer: any CalendarAccessAuthorizing
+    private let usageDescriptionProvider: () -> String?
 
-    init(eventStore: EKEventStore = EKEventStore()) {
+    init(
+        eventStore: EKEventStore = EKEventStore(),
+        accessAuthorizer: (any CalendarAccessAuthorizing)? = nil,
+        usageDescriptionProvider: @escaping () -> String? = {
+            Bundle.main.object(forInfoDictionaryKey: "NSCalendarsFullAccessUsageDescription") as? String
+        }
+    ) {
         self.eventStore = eventStore
+        self.accessAuthorizer = accessAuthorizer ?? EventKitCalendarAccessAuthorizer(eventStore: eventStore)
+        self.usageDescriptionProvider = usageDescriptionProvider
+    }
+
+    var authorizationStatus: EKAuthorizationStatus {
+        accessAuthorizer.authorizationStatus
     }
 
     var isConnected: Bool {
-        Self.hasReadAccess(status: EKEventStore.authorizationStatus(for: .event))
+        Self.hasReadAccess(status: authorizationStatus)
+    }
+
+    var needsExplanationBeforeRequest: Bool {
+        authorizationStatus == .notDetermined
+    }
+
+    var requiresSettingsRedirect: Bool {
+        switch authorizationStatus {
+        case .denied, .restricted:
+            return true
+        default:
+            return false
+        }
     }
 
     func requestAccessIfNeeded() async throws {
         try ensureUsageDescription()
 
-        let status = EKEventStore.authorizationStatus(for: .event)
-        switch status {
-        case .fullAccess:
+        switch authorizationStatus {
+        case .fullAccess, .authorized:
             return
         case .notDetermined:
-            let granted = try await eventStore.requestFullAccessToEvents()
+            let granted = try await accessAuthorizer.requestFullAccess()
             if granted {
                 return
             }
@@ -110,7 +136,7 @@ final class AppleCalendarService {
     }
 
     private func ensureUsageDescription() throws {
-        let usageDescription = (Bundle.main.object(forInfoDictionaryKey: "NSCalendarsFullAccessUsageDescription") as? String)?
+        let usageDescription = usageDescriptionProvider()?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard usageDescription?.isEmpty == false else {
             throw AppleCalendarServiceError.missingUsageDescription
@@ -129,7 +155,7 @@ final class AppleCalendarService {
 
     private static func hasReadAccess(status: EKAuthorizationStatus) -> Bool {
         switch status {
-        case .fullAccess:
+        case .fullAccess, .authorized:
             return true
         default:
             return false

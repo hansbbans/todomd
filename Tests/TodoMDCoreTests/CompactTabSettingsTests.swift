@@ -9,8 +9,8 @@ final class CompactTabSettingsTests: XCTestCase {
             pomodoroEnabled: false
         )
 
-        XCTAssertEqual(normalized.primary, .upcoming)
-        XCTAssertEqual(normalized.secondary, .logbook)
+        XCTAssertEqual(normalized.primary, .builtIn(.upcoming))
+        XCTAssertEqual(normalized.secondary, .builtIn(.logbook))
     }
 
     func testNormalizedCustomViewsAvoidsDuplicateSelections() {
@@ -20,8 +20,8 @@ final class CompactTabSettingsTests: XCTestCase {
             pomodoroEnabled: false
         )
 
-        XCTAssertEqual(normalized.primary, .logbook)
-        XCTAssertEqual(normalized.secondary, .upcoming)
+        XCTAssertEqual(normalized.primary, .builtIn(.logbook))
+        XCTAssertEqual(normalized.secondary, .builtIn(.upcoming))
     }
 
     func testNormalizedCustomViewsDropsPomodoroWhenDisabled() {
@@ -31,7 +31,48 @@ final class CompactTabSettingsTests: XCTestCase {
             pomodoroEnabled: false
         )
 
-        XCTAssertEqual(normalized.primary, .upcoming)
-        XCTAssertEqual(normalized.secondary, .anytime)
+        XCTAssertEqual(normalized.primary, .builtIn(.upcoming))
+        XCTAssertEqual(normalized.secondary, .builtIn(.anytime))
+    }
+
+    func testAvailableCustomViewsIncludesCustomPerspectives() {
+        let perspectiveView = ViewIdentifier.custom("perspective:focus")
+
+        let views = CompactTabSettings.availableCustomViews(
+            pomodoroEnabled: false,
+            additionalViews: [perspectiveView]
+        )
+
+        XCTAssertTrue(views.contains(perspectiveView))
+    }
+
+    func testNormalizedCustomViewsKeepsCustomPerspectiveSelections() {
+        let firstPerspective = ViewIdentifier.custom("perspective:focus")
+        let secondPerspective = ViewIdentifier.custom("perspective:deep-work")
+
+        let normalized = CompactTabSettings.normalizedCustomViews(
+            leadingRawValue: firstPerspective.rawValue,
+            trailingRawValue: secondPerspective.rawValue,
+            pomodoroEnabled: false,
+            additionalViews: [firstPerspective, secondPerspective]
+        )
+
+        XCTAssertEqual(normalized.primary, firstPerspective)
+        XCTAssertEqual(normalized.secondary, secondPerspective)
+    }
+
+    func testNormalizedCustomViewsAvoidsDuplicateCustomPerspectives() {
+        let firstPerspective = ViewIdentifier.custom("perspective:focus")
+        let secondPerspective = ViewIdentifier.custom("perspective:deep-work")
+
+        let normalized = CompactTabSettings.normalizedCustomViews(
+            leadingRawValue: firstPerspective.rawValue,
+            trailingRawValue: firstPerspective.rawValue,
+            pomodoroEnabled: false,
+            additionalViews: [firstPerspective, secondPerspective]
+        )
+
+        XCTAssertEqual(normalized.primary, firstPerspective)
+        XCTAssertEqual(normalized.secondary, .builtIn(.logbook))
     }
 }

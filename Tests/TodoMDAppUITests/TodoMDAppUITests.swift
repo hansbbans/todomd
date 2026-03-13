@@ -28,6 +28,8 @@ final class TodoMDAppUITests: XCTestCase {
         XCTAssertTrue(getStartedButton.isEnabled)
         getStartedButton.tap()
 
+        dismissIntegrationPrimersIfNeeded(app: app)
+
         let addButton = app.buttons["root.inlineAddButton"].firstMatch
         XCTAssertTrue(addButton.waitForExistence(timeout: 10))
         addButton.tap()
@@ -43,6 +45,49 @@ final class TodoMDAppUITests: XCTestCase {
 
         addButton.tap()
         XCTAssertTrue(titleInput.waitForExistence(timeout: 5), "Inline task composer did not reopen")
+    }
+
+    func testOnboardingShowsIntegrationPrimersBeforeEnteringHomeScreen() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = makeStorageOverridePath()
+        app.launch()
+
+        let nextButton = app.buttons["onboarding.nextButton"]
+        XCTAssertTrue(nextButton.waitForExistence(timeout: 10), "Onboarding did not appear")
+        nextButton.tap()
+        nextButton.tap()
+
+        let useDefaultButton = app.buttons["onboarding.useDefaultButton"]
+        XCTAssertTrue(useDefaultButton.waitForExistence(timeout: 10), "Default folder option did not appear")
+        useDefaultButton.tap()
+
+        let getStartedButton = app.buttons["onboarding.getStartedButton"]
+        XCTAssertTrue(getStartedButton.waitForExistence(timeout: 10), "Get Started button did not appear")
+        getStartedButton.tap()
+
+        let primerModal = app.otherElements["onboarding.accessPrimer.modal"].firstMatch
+        XCTAssertTrue(primerModal.waitForExistence(timeout: 10), "An integration primer did not appear before entering the app")
+        let primerTitle = app.staticTexts["onboarding.accessPrimer.title"].firstMatch
+        XCTAssertTrue(primerTitle.waitForExistence(timeout: 5), "Reminders primer title was not visible")
+        XCTAssertTrue(
+            ["Allow Reminders Access", "Allow Calendar Access"].contains(primerTitle.label),
+            "Unexpected onboarding primer title: \(primerTitle.label)"
+        )
+
+        let skipButton = app.buttons["onboarding.accessPrimer.skipButton"].firstMatch
+        XCTAssertTrue(skipButton.waitForExistence(timeout: 5), "Primer dismiss button was not visible")
+        let initialPrimerTitle = primerTitle.label
+        skipButton.tap()
+
+        if initialPrimerTitle == "Allow Reminders Access",
+           primerModal.waitForExistence(timeout: 5)
+        {
+            XCTAssertEqual(primerTitle.label, "Allow Calendar Access")
+            skipButton.tap()
+        }
+
+        XCTAssertTrue(rootViewReached(app: app, timeout: 10), "App did not reach the home screen after onboarding primers")
     }
 
     func testInlineQuickAddUsesNaturalLanguageDueDate() {
@@ -131,7 +176,7 @@ final class TodoMDAppUITests: XCTestCase {
         XCTAssertEqual(summaryTitle.label, "Tomorrow", "Tomorrow preset should update the due-date summary immediately")
     }
 
-    func testExpandedTaskDueDateChooserUsesPresetFlow() {
+    func testExpandedTaskDueDateChooserPersistsSelectionWhenTappingOutside() {
         let storageOverride = makeStorageOverridePath()
 
         let app = XCUIApplication()
@@ -150,6 +195,9 @@ final class TodoMDAppUITests: XCTestCase {
         XCTAssertTrue(dueButton.waitForExistence(timeout: 10), "Expanded task due button was not visible")
         dueButton.tap()
 
+        let dateModal = app.otherElements["expandedTaskDate.modal"].firstMatch
+        XCTAssertTrue(dateModal.waitForExistence(timeout: 10), "Expanded task due chooser should appear as a floating modal")
+
         XCTAssertFalse(
             app.switches["Set due date"].firstMatch.exists,
             "Expanded task due chooser should not require a due-date toggle"
@@ -159,16 +207,66 @@ final class TodoMDAppUITests: XCTestCase {
         XCTAssertTrue(todayPreset.waitForExistence(timeout: 10), "Today preset was not visible")
         todayPreset.tap()
 
-        let doneButton = app.buttons["expandedTaskDate.doneButton"].firstMatch
-        XCTAssertTrue(doneButton.waitForExistence(timeout: 10), "Done button was not visible in expanded task due chooser")
-        doneButton.tap()
+        let backdrop = app.otherElements["expandedTaskDate.backdrop"].firstMatch
+        XCTAssertTrue(backdrop.waitForExistence(timeout: 10), "Expanded task due chooser backdrop was not visible")
+        backdrop.tap()
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 5, pollInterval: 0.1) {
+                dateModal.exists == false
+            },
+            "Expanded task due chooser should close when tapping outside"
+        )
 
         XCTAssertTrue(
             waitForMarkdownStorage(rootPath: storageOverride) { content in
                 content.contains("expanded due chooser") && content.contains("due:")
             },
-            "Selected due date was not persisted after using the expanded task due chooser"
+            "Selected due date was not persisted after tapping outside the expanded task due chooser"
         )
+    }
+
+    func testSwitchingExpandedTasksCollapsesThePreviousCardWithoutShowingKeyboard() {
+        let storageOverride = makeStorageOverridePath()
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        completeOnboarding(app: app)
+        createTask(app: app, title: "smooth first")
+        createTask(app: app, title: "smooth second")
+
+        let firstRow = app.descendants(matching: .any)["taskRow.smooth first"].firstMatch
+        XCTAssertTrue(firstRow.waitForExistence(timeout: 10), "First task row was not visible")
+        firstRow.tap()
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 5, pollInterval: 0.1) {
+                (firstRow.value as? String) == "expanded"
+            },
+            "First task did not expand"
+        )
+        XCTAssertFalse(app.keyboards.firstMatch.exists, "Expanding a task should not auto-focus a text field")
+
+        let secondRow = app.descendants(matching: .any)["taskRow.smooth second"].firstMatch
+        XCTAssertTrue(secondRow.waitForExistence(timeout: 10), "Second task row was not visible")
+        secondRow.tap()
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 5, pollInterval: 0.1) {
+                (secondRow.value as? String) == "expanded"
+            },
+            "Second task did not expand after tapping it"
+        )
+        XCTAssertTrue(
+            waitForCondition(timeout: 5, pollInterval: 0.1) {
+                (firstRow.value as? String) == "collapsed"
+            },
+            "Switching tasks should collapse the previously expanded task"
+        )
+        XCTAssertFalse(app.keyboards.firstMatch.exists, "Switching expanded tasks should not show the keyboard")
     }
 
     func testOnboardingDefaultFolderAllowsColdRelaunch() {
@@ -238,7 +336,7 @@ final class TodoMDAppUITests: XCTestCase {
 
         completeOnboarding(app: app)
 
-        let browseTab = app.tabBars.buttons["Browse"].firstMatch
+        let browseTab = browseTabButton(in: app)
         XCTAssertTrue(browseTab.waitForExistence(timeout: 10), "Browse tab not visible")
         browseTab.tap()
 
@@ -272,7 +370,7 @@ final class TodoMDAppUITests: XCTestCase {
 
         XCTAssertTrue(rootViewReached(app: relaunchedApp, timeout: 10), "App did not relaunch into the root view")
 
-        let relaunchedBrowseTab = relaunchedApp.tabBars.buttons["Browse"].firstMatch
+        let relaunchedBrowseTab = browseTabButton(in: relaunchedApp)
         XCTAssertTrue(relaunchedBrowseTab.waitForExistence(timeout: 10), "Browse tab not visible after relaunch")
         relaunchedBrowseTab.tap()
 
@@ -318,7 +416,7 @@ final class TodoMDAppUITests: XCTestCase {
 
         XCTAssertTrue(rootViewReached(app: verificationApp, timeout: 10), "App did not relaunch after duplication")
 
-        let verificationBrowseTab = verificationApp.tabBars.buttons["Browse"].firstMatch
+        let verificationBrowseTab = browseTabButton(in: verificationApp)
         XCTAssertTrue(verificationBrowseTab.waitForExistence(timeout: 10), "Browse tab not visible after duplication")
         verificationBrowseTab.tap()
 
@@ -405,19 +503,73 @@ final class TodoMDAppUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Pomodoro"].waitForExistence(timeout: 10), "Pomodoro view did not open")
     }
 
+    func testIntegrationsSettingsContainsCalendarAndNewInstallsStartDisabledWithoutAccess() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = makeStorageOverridePath()
+        app.launch()
+
+        completeOnboarding(app: app)
+        openSettings(app: app)
+
+        XCTAssertFalse(
+            app.buttons["settings.section.calendar"].exists,
+            "Calendar should be configured inside Integrations instead of a standalone Settings section"
+        )
+
+        let integrationsSection = app.buttons["settings.section.integrations"]
+        XCTAssertTrue(integrationsSection.waitForExistence(timeout: 10), "Integrations section not visible")
+        integrationsSection.tap()
+
+        let remindersToggle = app.switches["settings.integrations.remindersToggle"].firstMatch
+        let calendarToggle = app.switches["settings.integrations.calendarToggle"].firstMatch
+        XCTAssertTrue(remindersToggle.waitForExistence(timeout: 10), "Reminders toggle not visible")
+        XCTAssertTrue(calendarToggle.waitForExistence(timeout: 10), "Calendar toggle not visible")
+
+        if app.buttons["settings.integrations.allowRemindersAccessButton"].exists {
+            XCTAssertEqual(remindersToggle.value as? String, "0", "Reminders should stay off before access is granted")
+        }
+
+        if app.buttons["settings.integrations.allowCalendarAccessButton"].exists {
+            XCTAssertEqual(calendarToggle.value as? String, "0", "Calendar should stay off before access is granted")
+        }
+    }
+
+    func testBrowseTabShowsAnIconInCompactTabBar() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = makeStorageOverridePath()
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let browseTab = app.tabBars.buttons["Browse"]
+        XCTAssertTrue(browseTab.waitForExistence(timeout: 10), "Browse tab should render in the compact tab bar after onboarding")
+        XCTAssertFalse(
+            app.staticTexts["square.grid.2x2"].exists,
+            "Browse tab should not render the raw SF Symbol name as visible text"
+        )
+    }
+
     func testInboxSmartTriageManualProjectAssignmentCanAdvanceQueue() throws {
-        throw XCTSkip("Inbox triage toggle is temporarily hidden while root header spacing is being normalized.")
+        throw XCTSkip("Workflow placement is covered by RootNavigationCatalogTests; compact tab automation is still flaky in UI tests.")
     }
 
     private func completeOnboarding(app: XCUIApplication) {
         let nextButton = app.buttons["onboarding.nextButton"]
         let useDefaultButton = app.buttons["onboarding.useDefaultButton"]
         let getStartedButton = app.buttons["onboarding.getStartedButton"]
+        let skipPrimerButton = app.buttons["onboarding.accessPrimer.skipButton"]
 
         let timeout = Date().addingTimeInterval(25)
         while Date() < timeout {
             if rootViewReached(app: app) {
                 return
+            }
+
+            if skipPrimerButton.exists, skipPrimerButton.isHittable {
+                skipPrimerButton.tap()
+                continue
             }
 
             if getStartedButton.exists, getStartedButton.isHittable, getStartedButton.isEnabled {
@@ -441,13 +593,26 @@ final class TodoMDAppUITests: XCTestCase {
         XCTAssertTrue(rootViewReached(app: app, timeout: 5), "App did not reach root view")
     }
 
+    private func dismissIntegrationPrimersIfNeeded(app: XCUIApplication) {
+        let skipPrimerButton = app.buttons["onboarding.accessPrimer.skipButton"]
+        let timeout = Date().addingTimeInterval(10)
+
+        while Date() < timeout {
+            guard skipPrimerButton.exists, skipPrimerButton.isHittable else {
+                return
+            }
+            skipPrimerButton.tap()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+    }
+
     private func rootViewReached(app: XCUIApplication, timeout: TimeInterval = 0) -> Bool {
         let addButton = app.buttons["root.inlineAddButton"]
-        let areasTab = app.tabBars.buttons["Areas"]
+        let tabBar = app.tabBars.firstMatch
         guard timeout > 0 else {
-            return addButton.exists || areasTab.exists
+            return addButton.exists || tabBar.exists
         }
-        return addButton.waitForExistence(timeout: timeout) || areasTab.waitForExistence(timeout: timeout)
+        return addButton.waitForExistence(timeout: timeout) || tabBar.waitForExistence(timeout: timeout)
     }
 
     private func createTask(app: XCUIApplication, title: String) {
@@ -466,12 +631,23 @@ final class TodoMDAppUITests: XCTestCase {
     }
 
     private func openSettings(app: XCUIApplication) {
-        let areasTab = app.tabBars.buttons["Areas"]
-        XCTAssertTrue(areasTab.waitForExistence(timeout: 10), "Areas tab not visible")
-        areasTab.tap()
-
         let settingsButton = app.buttons["root.settingsButton"]
-        XCTAssertTrue(settingsButton.waitForExistence(timeout: 10), "Settings button not visible in Areas")
+        if !settingsButton.exists {
+            let tabBar = app.tabBars.firstMatch
+            XCTAssertTrue(tabBar.waitForExistence(timeout: 10), "Compact tab bar not visible")
+
+            let tabButtons = tabBar.buttons.allElementsBoundByIndex
+            XCTAssertFalse(tabButtons.isEmpty, "Compact tab bar had no buttons")
+
+            for tabButton in tabButtons {
+                tabButton.tap()
+                if settingsButton.waitForExistence(timeout: 1) {
+                    break
+                }
+            }
+        }
+
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 10), "Settings button not visible in compact navigation")
         settingsButton.tap()
     }
 
@@ -489,6 +665,49 @@ final class TodoMDAppUITests: XCTestCase {
             return
         }
         app.typeText("\n")
+    }
+
+    private func browseTabButton(in app: XCUIApplication, timeout: TimeInterval = 0) -> XCUIElement {
+        let identifiedTab = app.buttons["root.tab.browse"].firstMatch
+        if timeout > 0, identifiedTab.waitForExistence(timeout: timeout) {
+            return identifiedTab
+        }
+        if identifiedTab.exists {
+            return identifiedTab
+        }
+
+        let glyphTabBarButton = app.tabBars.buttons["▦ Browse"].firstMatch
+        if timeout > 0, glyphTabBarButton.waitForExistence(timeout: min(2, timeout)) {
+            return glyphTabBarButton
+        }
+        if glyphTabBarButton.exists {
+            return glyphTabBarButton
+        }
+
+        let tabBarButton = app.tabBars.buttons["Browse"].firstMatch
+        if timeout > 0, tabBarButton.waitForExistence(timeout: min(2, timeout)) {
+            return tabBarButton
+        }
+        if tabBarButton.exists {
+            return tabBarButton
+        }
+
+        let genericButton = app.buttons["Browse"].firstMatch
+        if genericButton.exists {
+            return genericButton
+        }
+        if timeout > 0 {
+            _ = genericButton.waitForExistence(timeout: min(2, timeout))
+            if genericButton.exists {
+                return genericButton
+            }
+        }
+
+        let indexedTab = app.tabBars.buttons.element(boundBy: 3)
+        if timeout > 0 {
+            _ = indexedTab.waitForExistence(timeout: min(2, timeout))
+        }
+        return indexedTab
     }
 
     private func makeStorageOverridePath() -> String {
