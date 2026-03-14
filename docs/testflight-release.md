@@ -6,6 +6,7 @@ This repository now includes a manual GitHub Actions workflow at `.github/workfl
 
 - Runs only when you trigger it with `workflow_dispatch`
 - Checks out the branch, tag, or commit you choose
+- Selects Xcode 26.3 so archives use the iOS 26 SDK
 - Regenerates `TodoMD.xcodeproj` with XcodeGen
 - Runs `swift test`
 - Archives a signed iOS release build
@@ -153,6 +154,8 @@ After upload, App Store Connect still needs to process the build before it appea
 ## Build number behavior
 
 The workflow overrides `CURRENT_PROJECT_VERSION` during archive using the GitHub Actions run number, so each uploaded build gets a unique TestFlight build number without changing `project.yml`.
+
+The share extension and widgets now read `CFBundleVersion` and `CFBundleShortVersionString` from `$(CURRENT_PROJECT_VERSION)` and `$(MARKETING_VERSION)`, so the archive override stays aligned across the app and embedded extensions.
 
 ## Reference links
 
