@@ -243,6 +243,7 @@ final class AppContainer: ObservableObject {
     private static let settingsNotificationHourKey = "settings_notification_hour"
     private static let settingsNotificationMinuteKey = "settings_notification_minute"
     private static let settingsNotifyAutoUnblockedKey = "settings_notify_auto_unblocked"
+    private static let settingsNotifyAgentCreatedTasksKey = "settings_notify_agent_created_tasks"
     private static let settingsPersistentRemindersEnabledKey = "settings_persistent_reminders_enabled"
     private static let settingsPersistentReminderIntervalMinutesKey = "settings_persistent_reminder_interval_minutes"
     private static let settingsRemindersImportEnabledKey = "settings_reminders_import_enabled"
@@ -378,6 +379,7 @@ final class AppContainer: ObservableObject {
 
     func refresh(forceFullScan: Bool = false) {
         do {
+            let hadKnownTaskStateBeforeRefresh = lastSyncSummary != nil || !canonicalByPath.isEmpty
             loadPerspectivesFromDisk()
             let sync = try fileWatcher.synchronize(forceFullScan: forceFullScan)
             applySyncDelta(sync)
@@ -464,6 +466,12 @@ final class AppContainer: ObservableObject {
             if let pendingNotificationPath = NotificationActionCoordinator.shared.consumePendingNavigationPath() {
                 navigationTaskPath = pendingNotificationPath
             }
+
+            notifyAgentCreatedTasksIfEnabled(
+                events: sync.events,
+                records: canonicalRecords,
+                hadKnownTaskStateBeforeRefresh: hadKnownTaskStateBeforeRefresh
+            )
 
             logger.info("Sync completed", metadata: [
                 "ingested": "\(sync.summary.ingestedCount)",
@@ -813,10 +821,58 @@ final class AppContainer: ObservableObject {
             }
         }
     }
+
+    private func notifyAgentCreatedTasksIfEnabled(
+        events: [FileWatcherEvent],
+        records: [TaskRecord],
+        hadKnownTaskStateBeforeRefresh: Bool
+    ) {
+        guard hadKnownTaskStateBeforeRefresh else { return }
+
+        let shouldNotify = UserDefaults.standard.object(forKey: Self.settingsNotifyAgentCreatedTasksKey) as? Bool ?? true
+        guard shouldNotify else { return }
+
+        let createdPaths = Set(events.compactMap { event -> String? in
+            guard case .created(let path, _, _) = event else { return nil }
+            return path
+        })
+        guard !createdPaths.isEmpty else { return }
+
+        let byPath = Dictionary(uniqueKeysWithValues: records.map { ($0.identity.path, $0) })
+
+        Task {
+            for path in createdPaths.sorted() {
+                guard let record = byPath[path] else { continue }
+
+                let source = record.document.frontmatter.source
+                guard TaskSourceAttribution.shouldNotifyForAgentCreatedTask(source: source),
+                      let sourceDisplayName = TaskSourceAttribution.displayName(source)
+                else {
+                    continue
+                }
+
+                await notificationScheduler.scheduleAgentCreatedTaskNotification(
+                    taskPath: path,
+                    title: record.document.frontmatter.title,
+                    source: sourceDisplayName
+                )
+            }
+        }
+    }
 #else
     private func notifyAutoUnblockedTasksIfEnabled(paths: [String], records: [TaskRecord]) {
         _ = paths
         _ = records
+    }
+
+    private func notifyAgentCreatedTasksIfEnabled(
+        events: [FileWatcherEvent],
+        records: [TaskRecord],
+        hadKnownTaskStateBeforeRefresh: Bool
+    ) {
+        _ = events
+        _ = records
+        _ = hadKnownTaskStateBeforeRefresh
     }
 #endif
 

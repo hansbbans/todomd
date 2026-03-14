@@ -88,6 +88,7 @@ struct SettingsView: View {
     @AppStorage("settings_notification_hour") private var notificationHour = 9
     @AppStorage("settings_notification_minute") private var notificationMinute = 0
     @AppStorage("settings_notify_auto_unblocked") private var notifyAutoUnblocked = true
+    @AppStorage("settings_notify_agent_created_tasks") private var notifyAgentCreatedTasks = true
     @AppStorage("settings_persistent_reminders_enabled") private var persistentRemindersEnabled = false
     @AppStorage("settings_persistent_reminder_interval_minutes") private var persistentReminderIntervalMinutes = 1
     @AppStorage("settings_reminders_import_enabled") private var remindersImportEnabled = false
@@ -471,7 +472,11 @@ struct SettingsView: View {
                 )
 
                 Toggle("Persistent reminders", isOn: $persistentRemindersEnabled)
+                    .accessibilityIdentifier("settings.notifications.persistentRemindersToggle")
+                Toggle("Notify when agents create tasks", isOn: $notifyAgentCreatedTasks)
+                    .accessibilityIdentifier("settings.notifications.agentCreatedTasksToggle")
                 Toggle("Notify when blocked tasks are unblocked", isOn: $notifyAutoUnblocked)
+                    .accessibilityIdentifier("settings.notifications.autoUnblockedToggle")
 
                 if persistentRemindersEnabled {
                     Stepper(value: $persistentReminderIntervalMinutes, in: 1 ... 240, step: 1) {
@@ -484,6 +489,10 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+
+                Text("Tasks you create in the app, via Shortcuts, voice ramble, or Reminders import won't trigger this alert.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .navigationTitle(SettingsSection.notifications.title)
