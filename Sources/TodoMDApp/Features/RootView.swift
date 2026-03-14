@@ -698,6 +698,7 @@ struct RootView: View {
     @State private var expandedTaskMoveTarget: ExpandedTaskMoveTarget?
     @State private var pendingExpandedTaskPath: String?
     @State private var expandedTaskScrollTask: Task<Void, Never>?
+    @State private var inlineComposerScrollTask: Task<Void, Never>?
     @State private var swipeAddProjectPath: String?
     @State private var editingPerspective: PerspectiveDefinition?
     @State private var builtInRulesTarget: BuiltInRulesTarget?
@@ -727,6 +728,10 @@ struct RootView: View {
                 }
             }
         }
+    }
+
+    private var inlineTaskComposerScrollID: String {
+        "inlineTask.composerRow"
     }
 
     var body: some View {
@@ -1601,9 +1606,6 @@ struct RootView: View {
                 mainHeroListRow
 
                 if isEditing {
-                    if shouldRenderInlineTaskComposerInList {
-                        inlineTaskComposerListRow
-                    }
                     ForEach(records) { record in
                         taskRowItem(record)
                     }
@@ -1612,13 +1614,12 @@ struct RootView: View {
                         reordered.move(fromOffsets: source, toOffset: destination)
                         container.saveManualOrder(filenames: reordered.map { $0.identity.filename })
                     }
+                    if shouldRenderInlineTaskComposerInList {
+                        inlineTaskComposerListRow
+                    }
                 } else {
                     if container.isCalendarConnected {
                         todayCalendarCardListRow
-                    }
-
-                    if shouldRenderInlineTaskComposerInList {
-                        inlineTaskComposerListRow
                     }
 
                     ForEach(container.todaySections()) { section in
@@ -1630,15 +1631,16 @@ struct RootView: View {
                             SectionHeaderView(section.group.rawValue, count: section.records.count)
                         }
                     }
+
+                    if shouldRenderInlineTaskComposerInList {
+                        inlineTaskComposerListRow
+                    }
                 }
             } else {
                 mainHeroListRow
 
                 if container.selectedView == .builtIn(.inbox) {
                     InboxRemindersImportPanel()
-                }
-                if shouldRenderInlineTaskComposerInList {
-                    inlineTaskComposerListRow
                 }
                 ForEach(records) { record in
                     taskRowItem(record)
@@ -1648,6 +1650,9 @@ struct RootView: View {
                     var reordered = records
                     reordered.move(fromOffsets: source, toOffset: destination)
                     container.saveManualOrder(filenames: reordered.map { $0.identity.filename })
+                }
+                if shouldRenderInlineTaskComposerInList {
+                    inlineTaskComposerListRow
                 }
             }
         }
@@ -1785,6 +1790,7 @@ struct RootView: View {
         .listRowInsets(EdgeInsets())
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
+        .id(inlineTaskComposerScrollID)
         .transition(.asymmetric(
             insertion: .push(from: .top).combined(with: .opacity),
             removal: .opacity
@@ -3431,6 +3437,11 @@ struct RootView: View {
                 guard let path else { return }
                 scheduleExpandedTaskScroll(to: path, proxy: proxy)
             }
+            .onChange(of: isCreatingTask) { _, isCreating in
+                inlineComposerScrollTask?.cancel()
+                guard isCreating, shouldRenderInlineTaskComposerInList else { return }
+                scheduleInlineTaskComposerScroll(proxy: proxy)
+            }
         }
     }
 
@@ -3462,6 +3473,24 @@ struct RootView: View {
             withTransaction(transaction) {
                 proxy.scrollTo(path, anchor: anchor)
             }
+        }
+    }
+
+    private func scheduleInlineTaskComposerScroll(proxy: ScrollViewProxy) {
+        inlineComposerScrollTask?.cancel()
+
+        inlineComposerScrollTask = Task { @MainActor in
+            do {
+                try await Task.sleep(nanoseconds: 80_000_000)
+            } catch {
+                return
+            }
+
+            guard !Task.isCancelled, isCreatingTask, shouldRenderInlineTaskComposerInList else { return }
+            withAnimation(.smooth(duration: 0.24)) {
+                proxy.scrollTo(inlineTaskComposerScrollID, anchor: .bottom)
+            }
+            inlineComposerScrollTask = nil
         }
     }
 
