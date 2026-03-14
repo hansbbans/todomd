@@ -5,11 +5,42 @@ import Foundation
         @preconcurrency import CoreLocation
     #endif
 
+    protocol UserNotificationCentering: AnyObject, Sendable {
+        func add(_ request: UNNotificationRequest) async throws
+        func requestAuthorization(options: UNAuthorizationOptions) async throws -> Bool
+        func removePendingNotificationRequests(withIdentifiers identifiers: [String])
+        func getPendingNotificationRequests(completionHandler: @escaping @Sendable ([UNNotificationRequest]) -> Void)
+    }
+
+    private final class SystemUserNotificationCenter: UserNotificationCentering, @unchecked Sendable {
+        private let center: UNUserNotificationCenter
+
+        init(center: UNUserNotificationCenter = .current()) {
+            self.center = center
+        }
+
+        func add(_ request: UNNotificationRequest) async throws {
+            try await center.add(request)
+        }
+
+        func requestAuthorization(options: UNAuthorizationOptions) async throws -> Bool {
+            try await center.requestAuthorization(options: options)
+        }
+
+        func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {
+            center.removePendingNotificationRequests(withIdentifiers: identifiers)
+        }
+
+        func getPendingNotificationRequests(completionHandler: @escaping @Sendable ([UNNotificationRequest]) -> Void) {
+            center.getPendingNotificationRequests(completionHandler: completionHandler)
+        }
+    }
+
     @MainActor
     final class UserNotificationScheduler {
-        // UNUserNotificationCenter is thread-safe but not Sendable under Swift 6;
-        // nonisolated(unsafe) lets @MainActor async methods pass it across the concurrency boundary safely.
-        private nonisolated(unsafe) let center: UNUserNotificationCenter
+        // Notification center callbacks can arrive on arbitrary queues, so this adapter
+        // stays nonisolated and Sendable across async boundaries.
+        private nonisolated let center: any UserNotificationCentering
         private let maxPendingTimedNotifications = 64
         private let maxPendingLocationNotifications = 20
         private let maxCatchUpNotificationsPerSync = 8
@@ -38,7 +69,7 @@ import Foundation
             let radiusMeters: Double
         }
 
-        init(center: UNUserNotificationCenter = .current()) {
+        init(center: any UserNotificationCentering = SystemUserNotificationCenter()) {
             self.center = center
         }
 
