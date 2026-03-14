@@ -121,6 +121,46 @@ final class TodoMDAppUITests: XCTestCase {
         )
     }
 
+    func testRegularWidthInlineComposerAppearsBelowExistingTasks() throws {
+        let storageOverride = makeStorageOverridePath()
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let settingsButton = app.buttons["root.settingsButton"].firstMatch
+        try XCTSkipUnless(
+            settingsButton.waitForExistence(timeout: 5),
+            "This regression only applies to regular-width layouts."
+        )
+
+        createTask(app: app, title: "placement first")
+        createTask(app: app, title: "placement second")
+
+        let firstRow = app.descendants(matching: .any)["taskRow.placement first"].firstMatch
+        let secondRow = app.descendants(matching: .any)["taskRow.placement second"].firstMatch
+        XCTAssertTrue(firstRow.waitForExistence(timeout: 10), "First seeded task row was not visible")
+        XCTAssertTrue(secondRow.waitForExistence(timeout: 10), "Second seeded task row was not visible")
+
+        let addButton = app.buttons["root.inlineAddButton"].firstMatch
+        XCTAssertTrue(addButton.waitForExistence(timeout: 10), "Inline add button not visible")
+        addButton.tap()
+
+        let titleInput = app.textFields["inlineTask.titleField"].firstMatch
+        XCTAssertTrue(titleInput.waitForExistence(timeout: 10), "Inline task title field did not appear")
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 5, pollInterval: 0.1) {
+                let lastTaskBottom = max(firstRow.frame.maxY, secondRow.frame.maxY)
+                return titleInput.frame.minY >= lastTaskBottom - 2
+            },
+            "Inline composer should appear below the existing task rows on regular-width layouts"
+        )
+    }
+
     func testMarkingTaskDoneRemovesItFromInboxImmediately() {
         let storageOverride = makeStorageOverridePath()
 
