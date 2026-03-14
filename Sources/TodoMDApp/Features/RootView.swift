@@ -234,6 +234,8 @@ private struct InlineTaskComposerSuggestionContext {
 private struct InlineTaskDraft: Equatable {
     var title = ""
     var dueDate: Date?
+    var dueTime = NotificationTimePreference().date(on: Date())
+    var hasDueTime = false
     var area: String?
     var project: String?
     var tagsText = ""
@@ -1798,17 +1800,28 @@ struct RootView: View {
     }
 
     private var compactInlineTaskComposerOverlay: some View {
-        ZStack(alignment: .bottom) {
-            Color.black.opacity(0.001)
-                .ignoresSafeArea()
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    cancelInlineTaskComposer()
-                }
+        GeometryReader { geometry in
+            ZStack(alignment: .bottom) {
+                Color.black.opacity(0.001)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        cancelInlineTaskComposer()
+                    }
 
-            compactInlineTaskComposerCard
+                compactInlineTaskComposerCard(
+                    maxHeight: max(
+                        220,
+                        min(
+                            geometry.size.height - geometry.safeAreaInsets.top - geometry.safeAreaInsets.bottom - 24,
+                            520
+                        )
+                    )
+                )
                 .padding(.horizontal, 12)
-                .padding(.bottom, 10)
+                .padding(.bottom, max(10, geometry.safeAreaInsets.bottom + 4))
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
         .transition(
             .asymmetric(
@@ -1823,48 +1836,52 @@ struct RootView: View {
         .zIndex(3)
     }
 
-    private var compactInlineTaskComposerCard: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .top, spacing: 12) {
-                CompactComposerCheckbox(strokeColor: compactComposerCheckboxColor)
-                    .padding(.top, 1)
+    private func compactInlineTaskComposerCard(maxHeight: CGFloat) -> some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(alignment: .top, spacing: 12) {
+                    CompactComposerCheckbox(strokeColor: compactComposerCheckboxColor)
+                        .padding(.top, 1)
 
-                VStack(alignment: .leading, spacing: 10) {
-                    TextField("New To-Do", text: $inlineTaskDraft.title)
-                        .font(.system(size: 17, weight: .regular))
-                        .foregroundStyle(compactComposerPrimaryTextColor)
-                        .focused($inlineTaskFocused)
-                        .submitLabel(.done)
-                        .accessibilityIdentifier("inlineTask.titleField")
-                        .onChange(of: inlineTaskDraft.title) { _, newValue in
-                            handleInlineTaskTitleChanged(newValue)
-                        }
-                        .onSubmit {
-                            commitInlineTaskComposer()
-                        }
+                    VStack(alignment: .leading, spacing: 10) {
+                        TextField("New To-Do", text: $inlineTaskDraft.title)
+                            .font(.system(size: 17, weight: .regular))
+                            .foregroundStyle(compactComposerPrimaryTextColor)
+                            .focused($inlineTaskFocused)
+                            .submitLabel(.done)
+                            .accessibilityIdentifier("inlineTask.titleField")
+                            .onChange(of: inlineTaskDraft.title) { _, newValue in
+                                handleInlineTaskTitleChanged(newValue)
+                            }
+                            .onSubmit {
+                                commitInlineTaskComposer()
+                            }
 
-                    Text("Notes")
-                        .font(.system(size: 15, weight: .regular))
-                        .foregroundStyle(compactComposerSecondaryTextColor)
+                        Text("Notes")
+                            .font(.system(size: 15, weight: .regular))
+                            .foregroundStyle(compactComposerSecondaryTextColor)
+                    }
+
+                    Spacer(minLength: 0)
                 }
 
-                Spacer(minLength: 0)
+                inlineTaskComposerDetectedMetadata
+                compactInlineTaskAccessoryBar
+
+                if let expandedInlineTaskPanel {
+                    inlineTaskExpandedPanel(expandedInlineTaskPanel)
+                        .padding(.top, 2)
+                }
+
+                compactInlineTaskFooterBar
             }
-
-            inlineTaskComposerDetectedMetadata
-            compactInlineTaskAccessoryBar
-
-            if let expandedInlineTaskPanel {
-                inlineTaskExpandedPanel(expandedInlineTaskPanel)
-                    .padding(.top, 2)
-            }
-
-            compactInlineTaskFooterBar
+            .frame(maxWidth: .infinity, minHeight: expandedInlineTaskPanel == nil ? 134 : nil, alignment: .topLeading)
+            .padding(.horizontal, 18)
+            .padding(.top, 18)
+            .padding(.bottom, 18)
         }
-        .frame(maxWidth: .infinity, minHeight: expandedInlineTaskPanel == nil ? 134 : nil, alignment: .topLeading)
-        .padding(.horizontal, 18)
-        .padding(.top, 18)
-        .padding(.bottom, 18)
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(maxWidth: .infinity, maxHeight: maxHeight, alignment: .topLeading)
         .opacity(compactComposerContentVisible ? 1 : 0.001)
         .offset(y: compactComposerContentVisible ? 0 : 10)
         .scaleEffect(compactComposerContentVisible ? 1 : 0.978, anchor: .bottomTrailing)
@@ -2132,43 +2149,14 @@ struct RootView: View {
     private func inlineTaskExpandedPanel(_ panel: InlineTaskPanel) -> some View {
         switch panel {
         case .date:
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    InlineTaskOptionButton(
-                        title: "Today",
-                        isSelected: inlineTaskDraft.dueDate.map(Calendar.current.isDateInToday) == true,
-                        tint: theme.accentColor
-                    ) {
-                        applyInlineDueDate(Calendar.current.startOfDay(for: Date()))
-                    }
-
-                    InlineTaskOptionButton(
-                        title: "Tomorrow",
-                        isSelected: inlineTaskDraft.dueDate.map(Calendar.current.isDateInTomorrow) == true,
-                        tint: theme.accentColor
-                    ) {
-                        guard let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: Date()) else { return }
-                        applyInlineDueDate(Calendar.current.startOfDay(for: tomorrow))
-                    }
-
-                    InlineTaskOptionButton(
-                        title: "Next Week",
-                        isSelected: false,
-                        tint: theme.accentColor
-                    ) {
-                        guard let nextWeek = Calendar.current.date(byAdding: .day, value: 7, to: Date()) else { return }
-                        applyInlineDueDate(Calendar.current.startOfDay(for: nextWeek))
-                    }
-
-                    InlineTaskOptionButton(
-                        title: "No Date",
-                        isSelected: inlineTaskDraft.dueDate == nil,
-                        tint: theme.textSecondaryColor
-                    ) {
-                        applyInlineDueDate(nil)
-                    }
-                }
-            }
+            DateChooserView(
+                context: .due,
+                timeMode: .optional,
+                hasDate: inlineTaskHasDueDateBinding,
+                date: inlineTaskDueDateBinding,
+                hasTime: inlineTaskHasDueTimeBinding,
+                time: inlineTaskDueTimeBinding
+            )
 
         case .destination:
             ScrollView(.horizontal, showsIndicators: false) {
@@ -2235,13 +2223,72 @@ struct RootView: View {
     private var inlineTaskDateLabel: String {
         guard let dueDate = inlineTaskDraft.dueDate else { return "Date" }
         let calendar = Calendar.current
+        let hasDueTime = inlineTaskDraft.hasDueTime
+        let timeText = inlineTaskDraft.dueTime.formatted(date: .omitted, time: .shortened)
+        let notificationTimePreference = NotificationTimePreference()
         if calendar.isDateInToday(dueDate) {
+            if hasDueTime && notificationTimePreference.matches(inlineTaskDraft.dueTime, calendar: calendar) {
+                return "Tonight"
+            }
+            if hasDueTime {
+                return "Today \(timeText)"
+            }
             return "Today"
         }
         if calendar.isDateInTomorrow(dueDate) {
+            if hasDueTime {
+                return "Tomorrow \(timeText)"
+            }
             return "Tomorrow"
         }
+        if hasDueTime {
+            return "\(dueDate.formatted(date: .abbreviated, time: .omitted)) \(timeText)"
+        }
         return dueDate.formatted(date: .abbreviated, time: .omitted)
+    }
+
+    private var inlineTaskHasDueDateBinding: Binding<Bool> {
+        Binding(
+            get: { inlineTaskDraft.dueDate != nil },
+            set: { hasDate in
+                if hasDate {
+                    if inlineTaskDraft.dueDate == nil {
+                        setInlineTaskDueDate(Calendar.current.startOfDay(for: Date()))
+                    }
+                } else {
+                    setInlineTaskDueDate(nil)
+                }
+            }
+        )
+    }
+
+    private var inlineTaskDueDateBinding: Binding<Date> {
+        Binding(
+            get: { inlineTaskDraft.dueDate ?? Calendar.current.startOfDay(for: Date()) },
+            set: { date in
+                setInlineTaskDueDate(Calendar.current.startOfDay(for: date))
+            }
+        )
+    }
+
+    private var inlineTaskHasDueTimeBinding: Binding<Bool> {
+        Binding(
+            get: { inlineTaskDraft.dueDate != nil && inlineTaskDraft.hasDueTime },
+            set: { hasDueTime in
+                inlineTaskDraft.hasDueTime = hasDueTime && inlineTaskDraft.dueDate != nil
+                inlineAutoDatePhrase = nil
+            }
+        )
+    }
+
+    private var inlineTaskDueTimeBinding: Binding<Date> {
+        Binding(
+            get: { inlineTaskDraft.dueTime },
+            set: { time in
+                inlineTaskDraft.dueTime = time
+                inlineAutoDatePhrase = nil
+            }
+        )
     }
 
     private var inlineTaskDestinationLabel: String {
@@ -2323,7 +2370,23 @@ struct RootView: View {
 
     private func applyInlineDueDate(_ date: Date?, autoPhrase: String? = nil) {
         inlineTaskDraft.dueDate = date
+        inlineTaskDraft.hasDueTime = false
+        inlineTaskDraft.dueTime = NotificationTimePreference().date(on: date ?? Date())
         inlineAutoDatePhrase = autoPhrase
+    }
+
+    private func setInlineTaskDueDate(_ date: Date?) {
+        let hadDueDate = inlineTaskDraft.dueDate != nil
+        inlineTaskDraft.dueDate = date
+        if let date {
+            if !inlineTaskDraft.hasDueTime && !hadDueDate {
+                inlineTaskDraft.dueTime = NotificationTimePreference().date(on: date)
+            }
+        } else {
+            inlineTaskDraft.hasDueTime = false
+            inlineTaskDraft.dueTime = NotificationTimePreference().date(on: Date())
+        }
+        inlineAutoDatePhrase = nil
     }
 
     private func appendInlineTag(_ tag: String) {
@@ -3622,10 +3685,24 @@ struct RootView: View {
 
         let defaultDraft = defaultInlineTaskDraft(for: container.selectedView)
         let explicitDue: LocalDate?
-        if inlineTaskDraft.dueDate == defaultDraft.dueDate {
+        let inlineDueTimeMatchesDefault = inlineTaskDraft.hasDueTime == defaultDraft.hasDueTime && (
+            !inlineTaskDraft.hasDueTime ||
+                Calendar.current.compare(inlineTaskDraft.dueTime, to: defaultDraft.dueTime, toGranularity: .minute) == .orderedSame
+        )
+        if inlineTaskDraft.dueDate == defaultDraft.dueDate, inlineDueTimeMatchesDefault {
             explicitDue = nil
         } else {
             explicitDue = inlineTaskDraft.dueDate.map(localDate(from:))
+        }
+        let explicitDueTime: LocalTime?
+        if inlineTaskDraft.dueDate != nil, inlineTaskDraft.hasDueTime, explicitDue != nil {
+            let components = Calendar.current.dateComponents([.hour, .minute], from: inlineTaskDraft.dueTime)
+            explicitDueTime = (try? LocalTime(
+                hour: components.hour ?? 0,
+                minute: components.minute ?? 0
+            )) ?? .midnight
+        } else {
+            explicitDueTime = nil
         }
         let defaultView: BuiltInView? = {
             if case .builtIn(let builtInView) = container.selectedView {
@@ -3637,6 +3714,7 @@ struct RootView: View {
         let created = container.createTask(
             fromQuickEntryText: trimmedTitle,
             explicitDue: explicitDue,
+            explicitDueTime: explicitDueTime,
             priority: nil,
             flagged: inlineTaskDraft.flagged,
             tags: inlineTaskDraft.normalizedTags,
@@ -3650,6 +3728,7 @@ struct RootView: View {
                 naturalDate: nil,
                 tags: inlineTaskDraft.normalizedTags,
                 explicitDue: explicitDue,
+                explicitDueTime: explicitDueTime,
                 priorityOverride: nil,
                 flagged: inlineTaskDraft.flagged,
                 area: inlineTaskDraft.area,
@@ -5237,6 +5316,14 @@ private struct ExpandedTaskRow: View {
         components.second = 0
         components.calendar = .current
         return Calendar.current.date(from: components)
+    }
+
+    private func localTime(from date: Date) -> LocalTime {
+        let components = Calendar.current.dateComponents([.hour, .minute], from: date)
+        return (try? LocalTime(
+            hour: components.hour ?? 0,
+            minute: components.minute ?? 0
+        )) ?? .midnight
     }
 
     private func formattedTime(_ localTime: LocalTime) -> String {

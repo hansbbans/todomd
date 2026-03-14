@@ -47,27 +47,29 @@ struct DateChooserView: View {
         }
     }
 
-    private enum Preset: String, CaseIterable, Identifiable {
+    private enum Preset: String, Identifiable {
         case today = "Today"
+        case tonight = "Tonight"
         case tomorrow = "Tomorrow"
         case nextWeek = "Next Week"
-        case noDate = "No Date"
 
         var id: String {
             switch self {
             case .today:
                 "today"
+            case .tonight:
+                "tonight"
             case .tomorrow:
                 "tomorrow"
             case .nextWeek:
                 "nextWeek"
-            case .noDate:
-                "noDate"
             }
         }
     }
 
     @EnvironmentObject private var theme: ThemeManager
+    @AppStorage(NotificationTimePreference.hourKey) private var notificationHour = 9
+    @AppStorage(NotificationTimePreference.minuteKey) private var notificationMinute = 0
 
     let context: Context
     let timeMode: TimeMode
@@ -104,10 +106,8 @@ struct DateChooserView: View {
                 let calendar = Calendar.current
                 let hour = calendar.component(.hour, from: time)
                 let minute = calendar.component(.minute, from: time)
-                if hour == 0, minute == 0,
-                   let nineAM = calendar.date(bySettingHour: 9, minute: 0, second: 0, of: date)
-                {
-                    time = nineAM
+                if hour == 0, minute == 0 {
+                    time = notificationTimePreference.date(on: date, calendar: calendar)
                 }
             }
         }
@@ -148,7 +148,7 @@ struct DateChooserView: View {
 
     private var presetGrid: some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-            ForEach(Preset.allCases) { preset in
+            ForEach(availablePresets) { preset in
                 Button {
                     apply(preset)
                 } label: {
@@ -284,14 +284,18 @@ struct DateChooserView: View {
         let calendar = Calendar.current
         switch preset {
         case .today:
-            return hasDate && calendar.isDateInToday(date)
+            guard hasDate, calendar.isDateInToday(date) else { return false }
+            return !hasTime || !notificationTimePreference.matches(time, calendar: calendar)
+        case .tonight:
+            return hasDate &&
+                hasTime &&
+                calendar.isDateInToday(date) &&
+                notificationTimePreference.matches(time, calendar: calendar)
         case .tomorrow:
             return hasDate && calendar.isDateInTomorrow(date)
         case .nextWeek:
             guard hasDate, let nextWeek = nextWeekDate else { return false }
             return calendar.isDate(date, inSameDayAs: nextWeek)
-        case .noDate:
-            return !hasDate
         }
     }
 
@@ -301,6 +305,15 @@ struct DateChooserView: View {
         case .today:
             hasDate = true
             date = calendar.startOfDay(for: Date())
+            if showsTonightPreset {
+                hasTime = false
+            }
+        case .tonight:
+            let today = calendar.startOfDay(for: Date())
+            hasDate = true
+            hasTime = true
+            date = today
+            time = notificationTimePreference.date(on: today, calendar: calendar)
         case .tomorrow:
             guard let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: Date()))
             else { return }
@@ -310,8 +323,6 @@ struct DateChooserView: View {
             guard let nextWeek = nextWeekDate else { return }
             hasDate = true
             date = nextWeek
-        case .noDate:
-            hasDate = false
         }
     }
 
@@ -341,13 +352,30 @@ struct DateChooserView: View {
         switch preset {
         case .today:
             "sun.max"
+        case .tonight:
+            "moon.stars"
         case .tomorrow:
             "sunrise"
         case .nextWeek:
             "forward"
-        case .noDate:
-            "slash.circle"
         }
+    }
+
+    private var availablePresets: [Preset] {
+        var presets: [Preset] = [.today]
+        if showsTonightPreset {
+            presets.append(.tonight)
+        }
+        presets.append(contentsOf: [.tomorrow, .nextWeek])
+        return presets
+    }
+
+    private var showsTonightPreset: Bool {
+        context == .due && timeMode == .optional
+    }
+
+    private var notificationTimePreference: NotificationTimePreference {
+        NotificationTimePreference(hour: notificationHour, minute: notificationMinute)
     }
 
     private var accessibilityIDPrefix: String {
