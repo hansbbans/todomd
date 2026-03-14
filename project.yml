@@ -56,6 +56,15 @@ targets:
         INFOPLIST_KEY_NSRemindersFullAccessUsageDescription: "todo.md imports tasks from Apple Reminders when you run the import."
         INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: "todo.md uses speech recognition to transcribe voice ramble into structured tasks."
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "todo.md uses your location to trigger reminders when you arrive at or leave saved places."
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         INFOPLIST_KEY_UIBackgroundModes:
           - fetch
         INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers:

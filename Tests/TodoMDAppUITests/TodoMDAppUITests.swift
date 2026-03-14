@@ -231,7 +231,7 @@ final class TodoMDAppUITests: XCTestCase {
         )
     }
 
-    func testTaskDetailDueDateChooserTomorrowPresetUpdatesSummary() {
+    func testInlineTaskDateButtonUsesSharedDateChooserAndPersistsDueTime() {
         let storageOverride = makeStorageOverridePath()
 
         let app = XCUIApplication()
@@ -240,76 +240,30 @@ final class TodoMDAppUITests: XCTestCase {
         app.launch()
 
         completeOnboarding(app: app)
-        createTask(app: app, title: "detail date chooser")
 
-        let taskRow = app.descendants(matching: .any)["taskRow.detail date chooser"].firstMatch
-        XCTAssertTrue(taskRow.waitForExistence(timeout: 10), "Created task row was not visible")
-        taskRow.tap()
+        let addButton = app.buttons["root.inlineAddButton"].firstMatch
+        XCTAssertTrue(addButton.waitForExistence(timeout: 10), "Inline add button not visible")
+        addButton.tap()
 
-        let moreButton = app.buttons["Open full task editor"].firstMatch
-        XCTAssertTrue(moreButton.waitForExistence(timeout: 10), "Expanded task actions did not appear")
-        moreButton.tap()
+        let dateButton = app.buttons["Date"].firstMatch
+        XCTAssertTrue(dateButton.waitForExistence(timeout: 10), "Inline task date button was not visible")
+        dateButton.tap()
 
-        let dueRow = app.buttons["taskDetail.row.due"].firstMatch
-        XCTAssertTrue(dueRow.waitForExistence(timeout: 10), "Due row was not visible in task detail")
-        dueRow.tap()
+        let tonightPreset = app.descendants(matching: .any)["dateChooser.due.preset.tonight"].firstMatch
+        XCTAssertTrue(tonightPreset.waitForExistence(timeout: 10), "Tonight preset was not visible in inline task creation")
+        tonightPreset.tap()
 
-        let tomorrowPreset = app.descendants(matching: .any)["dateChooser.due.preset.tomorrow"].firstMatch
-        XCTAssertTrue(tomorrowPreset.waitForExistence(timeout: 10), "Tomorrow preset was not visible")
-        tomorrowPreset.tap()
-
-        let summaryTitle = app.staticTexts["dateChooser.due.summaryTitle"].firstMatch
-        XCTAssertTrue(summaryTitle.waitForExistence(timeout: 10), "Date chooser summary did not appear")
-        XCTAssertEqual(summaryTitle.label, "Tomorrow", "Tomorrow preset should update the due-date summary immediately")
-    }
-
-    func testExpandedTaskDueDateChooserPersistsSelectionWhenTappingOutside() {
-        let storageOverride = makeStorageOverridePath()
-
-        let app = XCUIApplication()
-        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
-        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
-        app.launch()
-
-        completeOnboarding(app: app)
-        createTask(app: app, title: "expanded due chooser")
-
-        let taskRow = app.descendants(matching: .any)["taskRow.expanded due chooser"].firstMatch
-        XCTAssertTrue(taskRow.waitForExistence(timeout: 10), "Created task row was not visible")
-        taskRow.tap()
-
-        let dueButton = app.buttons["Choose due date"].firstMatch
-        XCTAssertTrue(dueButton.waitForExistence(timeout: 10), "Expanded task due button was not visible")
-        dueButton.tap()
-
-        let dateModal = app.otherElements["expandedTaskDate.modal"].firstMatch
-        XCTAssertTrue(dateModal.waitForExistence(timeout: 10), "Expanded task due chooser should appear as a floating modal")
-
-        XCTAssertFalse(
-            app.switches["Set due date"].firstMatch.exists,
-            "Expanded task due chooser should not require a due-date toggle"
-        )
-
-        let todayPreset = app.descendants(matching: .any)["dateChooser.due.preset.today"].firstMatch
-        XCTAssertTrue(todayPreset.waitForExistence(timeout: 10), "Today preset was not visible")
-        todayPreset.tap()
-
-        let backdrop = app.otherElements["expandedTaskDate.backdrop"].firstMatch
-        XCTAssertTrue(backdrop.waitForExistence(timeout: 10), "Expanded task due chooser backdrop was not visible")
-        backdrop.tap()
-
-        XCTAssertTrue(
-            waitForCondition(timeout: 5, pollInterval: 0.1) {
-                dateModal.exists == false
-            },
-            "Expanded task due chooser should close when tapping outside"
-        )
+        let titleInput = app.textFields["inlineTask.titleField"].firstMatch
+        XCTAssertTrue(titleInput.waitForExistence(timeout: 10), "Inline task title field did not appear")
+        titleInput.tap()
+        titleInput.typeText("inline tonight chooser")
+        submitInlineTask(from: app)
 
         XCTAssertTrue(
             waitForMarkdownStorage(rootPath: storageOverride) { content in
-                content.contains("expanded due chooser") && content.contains("due:")
+                content.contains("inline tonight chooser") && content.contains("due_time:")
             },
-            "Selected due date was not persisted after tapping outside the expanded task due chooser"
+            "Inline task creation should persist a due time when Tonight is selected"
         )
     }
 
