@@ -11,8 +11,14 @@ private struct DeferDateTarget: Identifiable {
 private struct ExpandedTaskDateTarget: Identifiable {
     let path: String
     let initialDate: Date?
+    let initialRecurrence: String?
 
     var id: String { path }
+}
+
+private struct PersistedExpandedTaskDateState: Equatable {
+    let date: Date?
+    let recurrence: String?
 }
 
 private struct ExpandedTaskTagsTarget: Identifiable {
@@ -236,6 +242,7 @@ private struct InlineTaskDraft: Equatable {
     var dueDate: Date?
     var dueTime = NotificationTimePreference().date(on: Date())
     var hasDueTime = false
+    var recurrence = ""
     var area: String?
     var project: String?
     var tagsText = ""
@@ -2155,7 +2162,8 @@ struct RootView: View {
                 hasDate: inlineTaskHasDueDateBinding,
                 date: inlineTaskDueDateBinding,
                 hasTime: inlineTaskHasDueTimeBinding,
-                time: inlineTaskDueTimeBinding
+                time: inlineTaskDueTimeBinding,
+                recurrence: inlineTaskRecurrenceBinding
             )
 
         case .destination:
@@ -2286,6 +2294,16 @@ struct RootView: View {
             get: { inlineTaskDraft.dueTime },
             set: { time in
                 inlineTaskDraft.dueTime = time
+                inlineAutoDatePhrase = nil
+            }
+        )
+    }
+
+    private var inlineTaskRecurrenceBinding: Binding<String> {
+        Binding(
+            get: { inlineTaskDraft.recurrence },
+            set: { recurrence in
+                inlineTaskDraft.recurrence = recurrence
                 inlineAutoDatePhrase = nil
             }
         )
@@ -3710,11 +3728,16 @@ struct RootView: View {
             }
             return nil
         }()
+        let explicitRecurrence: String? = {
+            let trimmed = inlineTaskDraft.recurrence.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }()
 
         let created = container.createTask(
             fromQuickEntryText: trimmedTitle,
             explicitDue: explicitDue,
             explicitDueTime: explicitDueTime,
+            explicitRecurrence: explicitRecurrence,
             priority: nil,
             flagged: inlineTaskDraft.flagged,
             tags: inlineTaskDraft.normalizedTags,
@@ -3729,6 +3752,7 @@ struct RootView: View {
                 tags: inlineTaskDraft.normalizedTags,
                 explicitDue: explicitDue,
                 explicitDueTime: explicitDueTime,
+                explicitRecurrence: explicitRecurrence,
                 priorityOverride: nil,
                 flagged: inlineTaskDraft.flagged,
                 area: inlineTaskDraft.area,
@@ -4047,8 +4071,8 @@ struct RootView: View {
     }
 
     private func expandedTaskDateContent(target: ExpandedTaskDateTarget) -> some View {
-        ExpandedTaskDateEditorSheet(initialDate: target.initialDate) { date in
-            _ = container.setDue(path: target.path, date: date)
+        ExpandedTaskDateEditorSheet(initialDate: target.initialDate, initialRecurrence: target.initialRecurrence) { date, recurrence in
+            _ = container.setDueAndRecurrence(path: target.path, date: date, recurrence: recurrence)
         } onDismiss: {
             dismissExpandedTaskDateEditor(animated: true)
         }
@@ -4195,7 +4219,8 @@ struct RootView: View {
     private func showExpandedTaskDateEditor(for record: TaskRecord) {
         let target = ExpandedTaskDateTarget(
             path: record.identity.path,
-            initialDate: dateValue(for: record.document.frontmatter.due)
+            initialDate: dateValue(for: record.document.frontmatter.due),
+            initialRecurrence: record.document.frontmatter.recurrence
         )
 
         if usesFloatingExpandedTaskDateModal {
@@ -5510,19 +5535,26 @@ private struct ExpandedTaskDateEditorSheet: View {
     @EnvironmentObject private var theme: ThemeManager
     @State private var hasDate: Bool
     @State private var selectedDate: Date
-    @State private var lastCommittedDate: Date?
+    @State private var recurrence: String
+    @State private var lastCommittedState: PersistedExpandedTaskDateState
 
-    let onPersist: (Date?) -> Void
+    let onPersist: (Date?, String?) -> Void
     let onDismiss: () -> Void
 
     init(
         initialDate: Date?,
-        onPersist: @escaping (Date?) -> Void,
+        initialRecurrence: String?,
+        onPersist: @escaping (Date?, String?) -> Void,
         onDismiss: @escaping () -> Void
     ) {
+        let normalizedRecurrence: String? = {
+            let trimmed = initialRecurrence?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return trimmed.isEmpty ? nil : trimmed
+        }()
         _hasDate = State(initialValue: initialDate != nil)
         _selectedDate = State(initialValue: initialDate ?? Date())
-        _lastCommittedDate = State(initialValue: initialDate)
+        _recurrence = State(initialValue: normalizedRecurrence ?? "")
+        _lastCommittedState = State(initialValue: PersistedExpandedTaskDateState(date: initialDate, recurrence: normalizedRecurrence))
         self.onPersist = onPersist
         self.onDismiss = onDismiss
     }
@@ -5536,7 +5568,8 @@ private struct ExpandedTaskDateEditorSheet: View {
                     hasDate: $hasDate,
                     date: $selectedDate,
                     hasTime: .constant(false),
-                    time: .constant(selectedDate)
+                    time: .constant(selectedDate),
+                    recurrence: $recurrence
                 )
                 .padding(16)
             }
@@ -5552,15 +5585,22 @@ private struct ExpandedTaskDateEditorSheet: View {
                 }
             }
         }
-        .onChange(of: effectiveDate, initial: false) { _, newValue in
-            guard newValue != lastCommittedDate else { return }
-            lastCommittedDate = newValue
-            onPersist(newValue)
+        .onChange(of: effectiveState, initial: false) { _, newValue in
+            guard newValue != lastCommittedState else { return }
+            lastCommittedState = newValue
+            onPersist(newValue.date, newValue.recurrence)
         }
     }
 
-    private var effectiveDate: Date? {
-        hasDate ? selectedDate : nil
+    private var effectiveState: PersistedExpandedTaskDateState {
+        let normalizedRecurrence: String? = {
+            let trimmed = recurrence.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }()
+        return PersistedExpandedTaskDateState(
+            date: hasDate ? selectedDate : nil,
+            recurrence: normalizedRecurrence
+        )
     }
 }
 
