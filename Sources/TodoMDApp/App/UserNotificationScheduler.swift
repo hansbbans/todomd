@@ -318,6 +318,23 @@ import Foundation
             }
         }
 
+        func scheduleAgentCreatedTaskNotification(taskPath: String, title: String, source: String) async {
+            let content = notificationContent(
+                title: title,
+                body: "Created by \(source)",
+                taskPath: taskPath,
+                kind: "agent_created"
+            )
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+            let identifier = "agent-created-\(abs(taskPath.hashValue))"
+            let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
+            do {
+                try await addNotificationRequest(request)
+            } catch {
+                // Keep non-fatal.
+            }
+        }
+
         private func dueCatchUpPlans(from allPlans: [PlannedNotification], now: Date) -> [PlannedNotification] {
             let oldestAllowed = now.addingTimeInterval(-catchUpGraceWindowSeconds)
             let ledger = loadCatchUpLedger(now: now)
