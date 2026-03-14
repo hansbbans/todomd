@@ -13,6 +13,7 @@ struct QuickEntrySheet: View {
     @State private var dueDate = Date()
     @State private var hasDueTime = false
     @State private var dueTime = Date()
+    @State private var recurrence = ""
     @State private var flagged = false
     @State private var priorityOverride: TaskPriority?
     @State private var tagsText = ""
@@ -416,7 +417,8 @@ struct QuickEntrySheet: View {
                     hasDate: $hasDueDate,
                     date: $dueDate,
                     hasTime: $hasDueTime,
-                    time: $dueTime
+                    time: $dueTime,
+                    recurrence: $recurrence
                 )
                 .padding(16)
             }
@@ -531,11 +533,16 @@ struct QuickEntrySheet: View {
         let defaultView = BuiltInView(rawValue: quickEntryDefaultView)
         let explicitDue = (supportsDueInputs && hasDueDate) ? localDate(from: dueDate) : nil
         let explicitDueTime = (supportsDueInputs && hasDueDate && hasDueTime) ? localTime(from: dueTime) : nil
+        let explicitRecurrence: String? = {
+            let trimmed = recurrence.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }()
         let activeFields = activeFieldSet
         let created = container.createTask(
             fromQuickEntryText: trimmedEntry,
             explicitDue: explicitDue,
             explicitDueTime: explicitDueTime,
+            explicitRecurrence: explicitRecurrence,
             priority: activeFields.contains(.priority) ? priorityOverride : nil,
             flagged: activeFields.contains(.flag) ? flagged : false,
             tags: activeFields.contains(.tags) ? parsedTags(from: tagsText) : [],

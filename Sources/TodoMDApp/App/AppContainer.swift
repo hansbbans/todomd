@@ -1925,6 +1925,29 @@ final class AppContainer: ObservableObject {
     }
 
     @discardableResult
+    func setDueAndRecurrence(path: String, date: Date?, recurrence: String?) -> Bool {
+        do {
+            let updated = try repository.update(path: path) { document in
+                if let date {
+                    document.frontmatter.due = localDateFromDate(date)
+                } else {
+                    document.frontmatter.due = nil
+                    document.frontmatter.dueTime = nil
+                    document.frontmatter.persistentReminder = nil
+                }
+                document.frontmatter.recurrence = recurrence?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                document.frontmatter.modified = Date()
+            }
+            markSelfWrite(path: updated.identity.path)
+            refresh()
+            return true
+        } catch {
+            logger.error("Set due and recurrence failed", metadata: ["path": path, "error": error.localizedDescription])
+            return false
+        }
+    }
+
+    @discardableResult
     func setTags(path: String, tags: [String]) -> Bool {
         do {
             let normalizedTags = normalizeTags(tags)
@@ -2090,6 +2113,7 @@ final class AppContainer: ObservableObject {
         tags: [String] = [],
         explicitDue: LocalDate? = nil,
         explicitDueTime: LocalTime? = nil,
+        explicitRecurrence: String? = nil,
         priorityOverride: TaskPriority? = nil,
         flagged: Bool = false,
         area: String? = nil,
@@ -2118,6 +2142,7 @@ final class AppContainer: ObservableObject {
         let resolvedProject = normalizedProject.map { resolvedProjectName(for: $0) ?? $0 }
         let resolvedArea = normalizedArea ?? resolvedProject.flatMap { inferredArea(forProject: $0) }
         let normalizedDescription = description?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        let normalizedRecurrence = explicitRecurrence?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
 
         let now = Date()
         let frontmatter = TaskFrontmatterV1(
@@ -2130,6 +2155,7 @@ final class AppContainer: ObservableObject {
             area: resolvedArea,
             project: resolvedProject,
             tags: normalizedTags,
+            recurrence: normalizedRecurrence,
             estimatedMinutes: estimatedMinutes,
             description: normalizedDescription,
             created: now,
@@ -2146,6 +2172,7 @@ final class AppContainer: ObservableObject {
         fromQuickEntryText text: String,
         explicitDue: LocalDate? = nil,
         explicitDueTime: LocalTime? = nil,
+        explicitRecurrence: String? = nil,
         priority: TaskPriority? = nil,
         flagged: Bool = false,
         tags: [String] = [],
@@ -2164,6 +2191,7 @@ final class AppContainer: ObservableObject {
             tags: mergedTags,
             explicitDue: explicitDue ?? parsed.due,
             explicitDueTime: explicitDueTime ?? parsed.dueTime,
+            explicitRecurrence: explicitRecurrence,
             priorityOverride: priority,
             flagged: flagged,
             area: area,
