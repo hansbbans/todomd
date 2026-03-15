@@ -238,6 +238,7 @@ private struct InlineTaskComposerSuggestionContext {
 
 private struct InlineTaskDraft: Equatable {
     var title = ""
+    var description = ""
     var dueDate: Date?
     var dueTime = NotificationTimePreference().date(on: Date())
     var hasDueTime = false
@@ -663,6 +664,7 @@ struct RootView: View {
 #if os(iOS)
     @Environment(\.editMode) private var editMode
 #endif
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var showingQuickEntry = false
@@ -1289,11 +1291,6 @@ struct RootView: View {
                         .padding(.bottom, 18)
                 }
             }
-            .overlay {
-                if shouldShowCompactInlineTaskComposer {
-                    compactInlineTaskComposerOverlay
-                }
-            }
             .animation(.spring(response: 0.34, dampingFraction: 0.9, blendDuration: 0.12), value: shouldShowExpandedTaskBottomBar)
     }
 
@@ -1513,6 +1510,8 @@ struct RootView: View {
         List {
             mainHeroListRow
 
+            inlineTaskComposerListRow
+
             if container.selectedView == .builtIn(.inbox) {
                 InboxRemindersImportPanel()
             }
@@ -1521,7 +1520,6 @@ struct RootView: View {
                     todayCalendarCardListRow
                 }
             }
-            inlineTaskComposerListRow
         }
         .id("\(container.selectedView.rawValue)-inline-empty")
         .listStyle(.plain)
@@ -1626,6 +1624,9 @@ struct RootView: View {
                 mainHeroListRow
 
                 if isEditing {
+                    if shouldRenderInlineTaskComposerInList {
+                        inlineTaskComposerListRow
+                    }
                     ForEach(records) { record in
                         taskRowItem(record)
                     }
@@ -1634,12 +1635,13 @@ struct RootView: View {
                         reordered.move(fromOffsets: source, toOffset: destination)
                         container.saveManualOrder(filenames: reordered.map { $0.identity.filename })
                     }
-                    if shouldRenderInlineTaskComposerInList {
-                        inlineTaskComposerListRow
-                    }
                 } else {
                     if container.isCalendarConnected {
                         todayCalendarCardListRow
+                    }
+
+                    if shouldRenderInlineTaskComposerInList {
+                        inlineTaskComposerListRow
                     }
 
                     ForEach(container.todaySections()) { section in
@@ -1652,15 +1654,15 @@ struct RootView: View {
                         }
                     }
 
-                    if shouldRenderInlineTaskComposerInList {
-                        inlineTaskComposerListRow
-                    }
                 }
             } else {
                 mainHeroListRow
 
                 if container.selectedView == .builtIn(.inbox) {
                     InboxRemindersImportPanel()
+                }
+                if shouldRenderInlineTaskComposerInList {
+                    inlineTaskComposerListRow
                 }
                 ForEach(records) { record in
                     taskRowItem(record)
@@ -1670,9 +1672,6 @@ struct RootView: View {
                     var reordered = records
                     reordered.move(fromOffsets: source, toOffset: destination)
                     container.saveManualOrder(filenames: reordered.map { $0.identity.filename })
-                }
-                if shouldRenderInlineTaskComposerInList {
-                    inlineTaskComposerListRow
                 }
             }
         }
@@ -1770,51 +1769,235 @@ struct RootView: View {
     }
 
     private var inlineTaskComposerListRow: some View {
-        HStack(alignment: .top, spacing: 12) {
-            TaskCheckbox(
-                isCompleted: false,
-                isDashed: false,
-                tint: theme.accentColor,
-                isInteractive: false,
-                onTap: {}
-            )
-            .padding(.top, 2)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                TaskCheckbox(
+                    isCompleted: false,
+                    isDashed: false,
+                    tint: theme.accentColor,
+                    isInteractive: false,
+                    onTap: {}
+                )
+                .padding(.top, 4)
 
-            VStack(alignment: .leading, spacing: 8) {
-                TextField("New Task", text: $inlineTaskDraft.title)
-                    .font(.body)
-                    .foregroundStyle(theme.textPrimaryColor)
-                    .focused($inlineTaskFocused)
-                    .submitLabel(.done)
-                    .accessibilityIdentifier("inlineTask.titleField")
-                    .onChange(of: inlineTaskDraft.title) { _, newValue in
-                        handleInlineTaskTitleChanged(newValue)
-                    }
-                    .onSubmit {
-                        commitInlineTaskComposer()
-                    }
+                VStack(alignment: .leading, spacing: 8) {
+                    inlineTaskExpandedTitleField
+                    inlineTaskExpandedNotesField
+                    inlineTaskComposerDetectedMetadata
+                }
 
-                inlineTaskComposerDetectedMetadata
+                Spacer(minLength: 0)
+            }
+
+            VStack(alignment: .leading, spacing: 14) {
                 inlineTaskAccessoryBar
 
                 if let expandedInlineTaskPanel {
                     inlineTaskExpandedPanel(expandedInlineTaskPanel)
                 }
-            }
 
-            Spacer(minLength: 0)
+                Rectangle()
+                    .fill(inlineTaskComposerDividerColor)
+                    .frame(height: 1)
+
+                inlineTaskComposerFooterBar
+            }
+            .padding(.leading, 34)
         }
-        .padding(.vertical, 13)
-        .padding(.leading, 20)
-        .padding(.trailing, 16)
+        .padding(.leading, 16)
+        .padding(.trailing, 17)
+        .padding(.top, 17)
+        .padding(.bottom, 16)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(inlineTaskComposerCardGradient)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(colorScheme == .dark ? 0.035 : 0.18),
+                                    Color.clear,
+                                    Color.black.opacity(colorScheme == .dark ? 0.08 : 0.02)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(inlineTaskComposerBorderColor, lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.3 : 0.12), radius: 28, y: 16)
+        .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.17 : 0.05), radius: 12, y: 5)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
         .listRowInsets(EdgeInsets())
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
         .id(inlineTaskComposerScrollID)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("inlineTask.row")
+        .accessibilityValue("expanded")
         .transition(.asymmetric(
             insertion: .push(from: .top).combined(with: .opacity),
             removal: .opacity
         ))
+    }
+
+    private var inlineTaskExpandedTitleField: some View {
+        ZStack(alignment: .topLeading) {
+            if inlineTaskDraft.title.isEmpty {
+                Text("Task")
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundStyle(theme.textTertiaryColor)
+                    .padding(.top, 1)
+            }
+
+            TextField("", text: $inlineTaskDraft.title, axis: .vertical)
+                .modifier(RootViewWordsAutocapitalization())
+                .textFieldStyle(.plain)
+                .font(.system(size: 16, weight: .regular))
+                .foregroundStyle(theme.textPrimaryColor)
+                .focused($inlineTaskFocused)
+                .lineLimit(1...3)
+                .submitLabel(.done)
+                .accessibilityIdentifier("inlineTask.titleField")
+                .onChange(of: inlineTaskDraft.title) { _, newValue in
+                    handleInlineTaskTitleChanged(newValue)
+                }
+                .onSubmit {
+                    commitInlineTaskComposer()
+                }
+        }
+    }
+
+    private var inlineTaskExpandedNotesField: some View {
+        ZStack(alignment: .topLeading) {
+            if inlineTaskDraft.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text("Notes")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(inlineTaskComposerNotePlaceholderColor)
+                    .padding(.top, 1)
+            }
+
+            TextField("", text: $inlineTaskDraft.description, axis: .vertical)
+                .modifier(RootViewWordsAutocapitalization())
+                .textFieldStyle(.plain)
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(inlineTaskComposerNoteTextColor)
+                .lineLimit(1...5)
+                .accessibilityIdentifier("inlineTask.notesField")
+        }
+        .frame(minHeight: 86, alignment: .topLeading)
+    }
+
+    private var inlineTaskComposerCardGradient: LinearGradient {
+        if colorScheme == .dark {
+            return LinearGradient(
+                colors: [
+                    Color(red: 0.11, green: 0.12, blue: 0.16),
+                    Color(red: 0.08, green: 0.09, blue: 0.12)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+
+        return LinearGradient(
+            colors: [
+                theme.surfaceColor.opacity(0.98),
+                theme.backgroundColor.opacity(0.96)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private var inlineTaskComposerBorderColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.06) : theme.textSecondaryColor.opacity(0.16)
+    }
+
+    private var inlineTaskComposerDividerColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.06) : theme.textSecondaryColor.opacity(0.09)
+    }
+
+    private var inlineTaskComposerNoteTextColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.82) : theme.textSecondaryColor
+    }
+
+    private var inlineTaskComposerNotePlaceholderColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.3) : theme.textSecondaryColor.opacity(0.7)
+    }
+
+    private var inlineTaskComposerFooterBar: some View {
+        HStack(spacing: 0) {
+            ExpandedTaskFooterButton(
+                title: "Cancel",
+                systemImage: "xmark",
+                tint: inlineTaskComposerFooterTextColor,
+                action: cancelInlineTaskComposer
+            )
+
+            Rectangle()
+                .fill(inlineTaskComposerFooterDividerColor)
+                .frame(width: 1, height: 22)
+                .padding(.vertical, 6)
+
+            ExpandedTaskFooterButton(
+                title: "Add",
+                systemImage: "plus",
+                tint: canCommitInlineTask ? theme.accentColor : theme.textSecondaryColor,
+                action: commitInlineTaskComposer
+            )
+            .disabled(!canCommitInlineTask)
+            .accessibilityIdentifier("inlineTask.submitButton")
+        }
+        .padding(4)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(inlineTaskComposerFooterGradient)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(inlineTaskComposerFooterBorderColor, lineWidth: 1)
+        )
+    }
+
+    private var inlineTaskComposerFooterTextColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.92) : theme.textPrimaryColor
+    }
+
+    private var inlineTaskComposerFooterGradient: LinearGradient {
+        if colorScheme == .dark {
+            return LinearGradient(
+                colors: [
+                    Color.white.opacity(0.055),
+                    Color.white.opacity(0.03)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+
+        return LinearGradient(
+            colors: [
+                theme.surfaceColor.opacity(0.92),
+                theme.backgroundColor.opacity(0.88)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private var inlineTaskComposerFooterBorderColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.07) : theme.textSecondaryColor.opacity(0.12)
+    }
+
+    private var inlineTaskComposerFooterDividerColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.08) : theme.textSecondaryColor.opacity(0.12)
     }
 
     private var compactInlineTaskComposerOverlay: some View {
@@ -1949,46 +2132,137 @@ struct RootView: View {
     }
 
     private var inlineTaskAccessoryBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        inlineTaskAccessoryBarLayout(
+            dateActiveTint: theme.accentColor,
+            activeTint: theme.accentColor,
+            inactiveTint: inlineTaskAccessoryInactiveTint,
+            flagTint: theme.flaggedColor
+        )
+    }
+
+    private var inlineTaskAccessoryInactiveTint: Color {
+        colorScheme == .dark ? Color.white.opacity(0.72) : theme.textSecondaryColor
+    }
+
+    private var inlineTaskAccessoryBorderColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.08) : theme.textSecondaryColor.opacity(0.12)
+    }
+
+    private func inlineTaskAccessoryBarLayout(
+        dateActiveTint: Color,
+        activeTint: Color,
+        inactiveTint: Color,
+        flagTint: Color
+    ) -> some View {
+        HStack(spacing: 12) {
+            inlineTaskDateAccessoryButton(activeTint: dateActiveTint, inactiveTint: inactiveTint)
+
+            Spacer(minLength: 0)
+
             HStack(spacing: 8) {
-                QuickAddChip(
-                    icon: "calendar",
-                    label: inlineTaskDateLabel,
-                    isSet: inlineTaskDraft.dueDate != nil,
-                    tint: theme.accentColor
-                ) {
-                    presentInlineTaskDateEditor()
-                }
-
-                QuickAddChip(
-                    icon: "tray",
-                    label: inlineTaskDestinationLabel,
-                    isSet: inlineTaskDraft.project != nil || inlineTaskDraft.area != nil,
-                    tint: theme.accentColor
-                ) {
-                    toggleInlineTaskPanel(.destination)
-                }
-
-                QuickAddChip(
-                    icon: "tag",
-                    label: inlineTaskTagsLabel,
-                    isSet: !inlineTaskDraft.normalizedTags.isEmpty,
-                    tint: theme.accentColor
-                ) {
-                    toggleInlineTaskPanel(.tags)
-                }
-
-                QuickAddChip(
-                    icon: "flag",
-                    label: "Flag",
-                    isSet: inlineTaskDraft.flagged,
-                    tint: theme.flaggedColor
-                ) {
-                    inlineTaskDraft.flagged.toggle()
-                }
+                inlineTaskProjectAccessoryMenu(activeTint: activeTint, inactiveTint: inactiveTint)
+                inlineTaskTagsAccessoryButton(activeTint: activeTint, inactiveTint: inactiveTint)
+                inlineTaskFlagAccessoryButton(activeTint: flagTint, inactiveTint: inactiveTint)
             }
-            .padding(.vertical, 1)
         }
+    }
+
+    private func inlineTaskDateAccessoryButton(
+        activeTint: Color,
+        inactiveTint: Color
+    ) -> some View {
+        let isActive = inlineTaskDraft.dueDate != nil
+        return Button {
+            presentInlineTaskDateEditor()
+        } label: {
+            InlineTaskAccessoryIconLabel(
+                systemImage: "calendar",
+                tint: isActive ? activeTint : inactiveTint,
+                fill: inlineTaskAccessoryFillColor(tint: activeTint, isActive: isActive),
+                border: inlineTaskAccessoryStrokeColor(tint: activeTint, isActive: isActive)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("inlineTask.dateButton")
+        .accessibilityLabel("Date")
+        .accessibilityValue(inlineTaskDateLabel)
+    }
+
+    private func inlineTaskProjectAccessoryMenu(
+        activeTint: Color,
+        inactiveTint: Color
+    ) -> some View {
+        let isActive = inlineTaskDraft.project != nil || inlineTaskDraft.area != nil
+        return Menu {
+            inlineTaskProjectMenuContent
+        } label: {
+            InlineTaskAccessoryIconLabel(
+                systemImage: "folder",
+                tint: isActive ? activeTint : inactiveTint,
+                fill: inlineTaskAccessoryFillColor(tint: activeTint, isActive: isActive),
+                border: inlineTaskAccessoryStrokeColor(tint: activeTint, isActive: isActive)
+            )
+        }
+        .menuIndicator(.hidden)
+        .accessibilityIdentifier("inlineTask.projectMenuButton")
+        .accessibilityLabel("Project")
+        .accessibilityValue(inlineTaskDestinationLabel)
+    }
+
+    private func inlineTaskTagsAccessoryButton(
+        activeTint: Color,
+        inactiveTint: Color
+    ) -> some View {
+        let isActive = !inlineTaskDraft.normalizedTags.isEmpty
+        return Button {
+            toggleInlineTaskPanel(.tags)
+        } label: {
+            InlineTaskAccessoryIconLabel(
+                systemImage: "tag",
+                tint: isActive ? activeTint : inactiveTint,
+                fill: inlineTaskAccessoryFillColor(tint: activeTint, isActive: isActive),
+                border: inlineTaskAccessoryStrokeColor(tint: activeTint, isActive: isActive)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("inlineTask.tagsButton")
+        .accessibilityLabel("Tags")
+        .accessibilityValue(inlineTaskTagsLabel)
+    }
+
+    private func inlineTaskFlagAccessoryButton(
+        activeTint: Color,
+        inactiveTint: Color
+    ) -> some View {
+        let isActive = inlineTaskDraft.flagged
+        return Button {
+            inlineTaskDraft.flagged.toggle()
+        } label: {
+            InlineTaskAccessoryIconLabel(
+                systemImage: "flag",
+                tint: isActive ? activeTint : inactiveTint,
+                fill: inlineTaskAccessoryFillColor(tint: activeTint, isActive: isActive),
+                border: inlineTaskAccessoryStrokeColor(tint: activeTint, isActive: isActive)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("inlineTask.flagButton")
+        .accessibilityLabel("Flag")
+        .accessibilityValue(isActive ? "On" : "Off")
+    }
+
+    private func inlineTaskAccessoryFillColor(tint: Color, isActive: Bool) -> Color {
+        if isActive {
+            return tint.opacity(colorScheme == .dark ? 0.22 : 0.14)
+        }
+        return colorScheme == .dark ? Color.white.opacity(0.04) : theme.surfaceColor
+    }
+
+    private func inlineTaskAccessoryStrokeColor(tint: Color, isActive: Bool) -> Color {
+        if isActive {
+            return tint.opacity(colorScheme == .dark ? 0.34 : 0.18)
+        }
+        return inlineTaskAccessoryBorderColor
     }
 
     private var compactInlineDueTint: Color {
@@ -2059,44 +2333,12 @@ struct RootView: View {
     }
 
     private var compactInlineTaskAccessoryBar: some View {
-        HStack(alignment: .center, spacing: 14) {
-            CompactInlineLeadingButton(
-                icon: "star.fill",
-                label: inlineTaskDateLabel,
-                tint: compactInlineDueTint
-            ) {
-                presentInlineTaskDateEditor()
-            }
-
-            Spacer(minLength: 0)
-
-            CompactQuickAddIconButton(
-                icon: "tag",
-                tint: compactComposerIconActiveColor,
-                inactiveTint: compactComposerIconColor,
-                isActive: !inlineTaskDraft.normalizedTags.isEmpty
-            ) {
-                toggleInlineTaskPanel(.tags)
-            }
-
-            CompactQuickAddIconButton(
-                icon: "list.bullet",
-                tint: compactComposerIconActiveColor,
-                inactiveTint: compactComposerIconColor,
-                isActive: inlineTaskDraft.project != nil || inlineTaskDraft.area != nil
-            ) {
-                toggleInlineTaskPanel(.destination)
-            }
-
-            CompactQuickAddIconButton(
-                icon: "flag",
-                tint: compactComposerFlagTint,
-                inactiveTint: compactComposerIconColor,
-                isActive: inlineTaskDraft.flagged
-            ) {
-                inlineTaskDraft.flagged.toggle()
-            }
-        }
+        inlineTaskAccessoryBarLayout(
+            dateActiveTint: compactInlineDueTint,
+            activeTint: compactComposerIconActiveColor,
+            inactiveTint: compactComposerIconColor,
+            flagTint: compactComposerFlagTint
+        )
     }
 
     @ViewBuilder
@@ -2307,6 +2549,86 @@ struct RootView: View {
                 inlineAutoDatePhrase = nil
             }
         )
+    }
+
+    @ViewBuilder
+    private var inlineTaskProjectMenuContent: some View {
+        Button {
+            expandedInlineTaskPanel = nil
+            inlineTaskDraft.project = nil
+            inlineTaskDraft.area = nil
+        } label: {
+            inlineTaskProjectMenuRow(
+                title: "Inbox",
+                systemImage: "tray",
+                isSelected: inlineTaskDraft.project == nil && inlineTaskDraft.area == nil
+            )
+        }
+
+        let areas = inlineTaskAreaMenuOptions
+        if !areas.isEmpty {
+            Section("Areas") {
+                ForEach(areas, id: \.self) { area in
+                    Button {
+                        expandedInlineTaskPanel = nil
+                        inlineTaskDraft.area = area
+                        inlineTaskDraft.project = nil
+                    } label: {
+                        inlineTaskProjectMenuRow(
+                            title: area,
+                            systemImage: "square.grid.2x2",
+                            isSelected: inlineTaskDraft.area == area && inlineTaskDraft.project == nil
+                        )
+                    }
+                }
+            }
+        }
+
+        let projects = container.allProjects()
+        if !projects.isEmpty {
+            Section("Projects") {
+                ForEach(projects, id: \.self) { project in
+                    Button {
+                        expandedInlineTaskPanel = nil
+                        inlineTaskDraft.project = project
+                        inlineTaskDraft.area = nil
+                    } label: {
+                        inlineTaskProjectMenuRow(
+                            title: project,
+                            systemImage: container.projectIconSymbol(for: project),
+                            isSelected: inlineTaskDraft.project == project
+                        )
+                    }
+                    .accessibilityIdentifier("inlineTask.projectMenuItem.\(project)")
+                }
+            }
+        } else {
+            Button("No projects yet") {}
+                .disabled(true)
+        }
+    }
+
+    private var inlineTaskAreaMenuOptions: [String] {
+        let availableAreas = container.availableAreas()
+        guard let currentArea = defaultInlineTaskDraft(for: container.selectedView).area,
+              !availableAreas.contains(currentArea) else {
+            return availableAreas
+        }
+        return [currentArea] + availableAreas
+    }
+
+    private func inlineTaskProjectMenuRow(
+        title: String,
+        systemImage: String,
+        isSelected: Bool
+    ) -> some View {
+        HStack(spacing: 10) {
+            Label(title, systemImage: systemImage)
+            Spacer(minLength: 12)
+            if isSelected {
+                Image(systemName: "checkmark")
+            }
+        }
     }
 
     private var inlineTaskDestinationLabel: String {
@@ -3381,7 +3703,7 @@ struct RootView: View {
     }
 
     private var shouldRenderInlineTaskComposerInList: Bool {
-        shouldRenderInlineTaskComposer && horizontalSizeClass != .compact
+        shouldRenderInlineTaskComposer
     }
 
     private var shouldShowCompactInlineTaskComposer: Bool {
@@ -3580,7 +3902,7 @@ struct RootView: View {
 
             guard !Task.isCancelled, isCreatingTask, shouldRenderInlineTaskComposerInList else { return }
             withAnimation(.smooth(duration: 0.24)) {
-                proxy.scrollTo(inlineTaskComposerScrollID, anchor: .bottom)
+                proxy.scrollTo(inlineTaskComposerScrollID, anchor: .top)
             }
             inlineComposerScrollTask = nil
         }
@@ -3741,6 +4063,10 @@ struct RootView: View {
             }
             return nil
         }()
+        let explicitDescription: String? = {
+            let trimmed = inlineTaskDraft.description.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }()
         let explicitRecurrence: String? = {
             let trimmed = inlineTaskDraft.recurrence.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
@@ -3756,6 +4082,7 @@ struct RootView: View {
             tags: inlineTaskDraft.normalizedTags,
             area: inlineTaskDraft.area,
             project: inlineTaskDraft.project,
+            description: explicitDescription,
             defaultView: defaultView
         )
         if !created {
@@ -3770,6 +4097,7 @@ struct RootView: View {
                 flagged: inlineTaskDraft.flagged,
                 area: inlineTaskDraft.area,
                 project: inlineTaskDraft.project,
+                description: explicitDescription,
                 source: "user",
                 defaultView: defaultView
             )
@@ -5572,7 +5900,7 @@ private struct InlineTaskDateEditorSheet: View {
             .navigationTitle("Due")
 #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
-            .presentationDetents([.fraction(0.64), .large])
+            .presentationDetents([.large])
             .presentationDragIndicator(.visible)
 #endif
             .toolbar {
@@ -5992,6 +6320,28 @@ private struct CompactQuickAddIconButton: View {
                 .frame(width: 28, height: 28)
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct InlineTaskAccessoryIconLabel: View {
+    let systemImage: String
+    let tint: Color
+    let fill: Color
+    let border: Color
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(tint)
+            .frame(width: 38, height: 38)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(fill)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(border, lineWidth: 1)
+            )
     }
 }
 
