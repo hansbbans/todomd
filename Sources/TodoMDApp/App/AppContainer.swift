@@ -2197,6 +2197,7 @@ final class AppContainer: ObservableObject {
         tags: [String] = [],
         area: String? = nil,
         project: String? = nil,
+        description: String? = nil,
         defaultView: BuiltInView? = nil
     ) -> Bool {
         guard let parsed = quickEntryParser.parse(text) else {
@@ -2215,6 +2216,7 @@ final class AppContainer: ObservableObject {
             flagged: flagged,
             area: area,
             project: project,
+            description: description,
             defaultView: defaultView
         )
         return true

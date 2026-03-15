@@ -220,6 +220,55 @@ final class TodoMDAppUITests: XCTestCase {
         )
     }
 
+    func testInlineComposerOpensExpandedAtTopOfInboxList() {
+        let storageOverride = makeStorageOverridePath()
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        completeOnboarding(app: app)
+        createTask(app: app, title: "composer first")
+        createTask(app: app, title: "composer second")
+
+        let firstRow = app.descendants(matching: .any)["taskRow.composer first"].firstMatch
+        let secondRow = app.descendants(matching: .any)["taskRow.composer second"].firstMatch
+        XCTAssertTrue(firstRow.waitForExistence(timeout: 10), "First seeded task row was not visible")
+        XCTAssertTrue(secondRow.waitForExistence(timeout: 10), "Second seeded task row was not visible")
+
+        let addButton = app.buttons["root.inlineAddButton"].firstMatch
+        XCTAssertTrue(addButton.waitForExistence(timeout: 10), "Inline add button not visible")
+        addButton.tap()
+
+        let titleInput = app.textFields["inlineTask.titleField"].firstMatch
+        XCTAssertTrue(titleInput.waitForExistence(timeout: 10), "Inline task title field did not appear")
+        let notesInput = app.textFields["inlineTask.notesField"].firstMatch
+        XCTAssertTrue(notesInput.waitForExistence(timeout: 10), "New task creation should open with the expanded notes field visible")
+
+        let composerRow = app.descendants(matching: .any)["inlineTask.row"].firstMatch
+        XCTAssertTrue(
+            composerRow.waitForExistence(timeout: 2),
+            "Inline composer row was not visible"
+        )
+        XCTAssertEqual(composerRow.value as? String, "expanded", "New task composer should open expanded")
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 5, pollInterval: 0.1) {
+                let firstExistingTop = min(firstRow.frame.minY, secondRow.frame.minY)
+                return composerRow.frame.maxY <= firstExistingTop + 2
+            },
+            "New task composer should appear above the existing tasks at the top of the list"
+        )
+
+        let referenceHeight = max(firstRow.frame.height, secondRow.frame.height)
+        XCTAssertGreaterThanOrEqual(
+            composerRow.frame.height,
+            referenceHeight + 40,
+            "New task composer should open as an expanded row instead of a collapsed task row"
+        )
+    }
+
     func testTaskDetailProjectAssignmentPersistsImmediately() {
         let storageOverride = makeStorageOverridePath()
 
@@ -281,7 +330,7 @@ final class TodoMDAppUITests: XCTestCase {
         XCTAssertTrue(addButton.waitForExistence(timeout: 10), "Inline add button not visible")
         addButton.tap()
 
-        let dateButton = app.buttons["Date"].firstMatch
+        let dateButton = app.buttons["inlineTask.dateButton"].firstMatch
         XCTAssertTrue(dateButton.waitForExistence(timeout: 10), "Inline task date button was not visible")
         dateButton.tap()
 
@@ -308,6 +357,110 @@ final class TodoMDAppUITests: XCTestCase {
                 content.contains("inline tonight chooser") && content.contains("due_time:")
             },
             "Inline task creation should persist a due time when Tonight is selected"
+        )
+    }
+
+    func testInlineTaskDateButtonOpensDateChooserExpandedAtTop() {
+        let storageOverride = makeStorageOverridePath()
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let addButton = app.buttons["root.inlineAddButton"].firstMatch
+        XCTAssertTrue(addButton.waitForExistence(timeout: 10), "Inline add button not visible")
+        addButton.tap()
+
+        let dateButton = app.buttons["inlineTask.dateButton"].firstMatch
+        XCTAssertTrue(dateButton.waitForExistence(timeout: 10), "Inline task date button was not visible")
+        dateButton.tap()
+
+        let popup = app.otherElements["inlineTaskDate.modal"].firstMatch
+        XCTAssertTrue(popup.waitForExistence(timeout: 10), "Date chooser should open in a distinct popup")
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 3, pollInterval: 0.1) {
+                popup.frame.minY <= app.frame.height * 0.18
+            },
+            "Date chooser should open expanded near the top of the screen instead of requiring an upward drag"
+        )
+    }
+
+    func testInlineComposerUsesIconToolbarAndProjectMenuSelection() {
+        let storageOverride = makeStorageOverridePath()
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let browseTab = browseTabButton(in: app, timeout: 10)
+        XCTAssertTrue(browseTab.exists, "Browse tab not visible")
+        browseTab.tap()
+
+        let createProjectButton = app.buttons["Create Project"].firstMatch
+        XCTAssertTrue(createProjectButton.waitForExistence(timeout: 10), "Create Project action not visible")
+        createProjectButton.tap()
+
+        let projectNameField = app.textFields["projectSheet.nameField"].firstMatch
+        XCTAssertTrue(projectNameField.waitForExistence(timeout: 10), "Project name field did not appear")
+        projectNameField.tap()
+        projectNameField.typeText("Errands")
+
+        let createButton = app.buttons["projectSheet.createButton"].firstMatch
+        XCTAssertTrue(createButton.waitForExistence(timeout: 10), "Project create button did not appear")
+        createButton.tap()
+
+        let inboxTab = inboxTabButton(in: app, timeout: 10)
+        XCTAssertTrue(inboxTab.exists, "Inbox tab not visible")
+        inboxTab.tap()
+
+        let addButton = app.buttons["root.inlineAddButton"].firstMatch
+        XCTAssertTrue(addButton.waitForExistence(timeout: 10), "Inline add button not visible")
+        addButton.tap()
+
+        let dateButton = app.buttons["inlineTask.dateButton"].firstMatch
+        let projectMenuButton = app.buttons["inlineTask.projectMenuButton"].firstMatch
+        let tagsButton = app.buttons["inlineTask.tagsButton"].firstMatch
+        let flagButton = app.buttons["inlineTask.flagButton"].firstMatch
+
+        XCTAssertTrue(dateButton.waitForExistence(timeout: 10), "Date icon button was not visible")
+        XCTAssertTrue(projectMenuButton.waitForExistence(timeout: 10), "Project menu icon was not visible")
+        XCTAssertTrue(tagsButton.waitForExistence(timeout: 10), "Tags icon button was not visible")
+        XCTAssertTrue(flagButton.waitForExistence(timeout: 10), "Flag icon button was not visible")
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 3, pollInterval: 0.1) {
+                dateButton.frame.maxX < projectMenuButton.frame.minX
+                    && projectMenuButton.frame.minX < tagsButton.frame.minX
+                    && tagsButton.frame.minX < flagButton.frame.minX
+            },
+            "Toolbar should place the date icon on the left and the other controls on the right"
+        )
+
+        projectMenuButton.tap()
+
+        let errandsMenuItem = app.buttons["inlineTask.projectMenuItem.Errands"].firstMatch
+        XCTAssertTrue(errandsMenuItem.waitForExistence(timeout: 10), "Project menu did not show the created project")
+        errandsMenuItem.tap()
+
+        let titleInput = app.textFields["inlineTask.titleField"].firstMatch
+        XCTAssertTrue(titleInput.waitForExistence(timeout: 10), "Inline task title field did not appear")
+        titleInput.tap()
+        titleInput.typeText("project menu assignment")
+        submitInlineTask(from: app)
+
+        XCTAssertTrue(
+            waitForMarkdownStorage(rootPath: storageOverride) { content in
+                content.contains("project menu assignment")
+                    && (content.contains("project: Errands") || content.contains("project: \"Errands\""))
+            },
+            "Project chosen from the inline project menu was not persisted to markdown storage"
         )
     }
 
@@ -751,6 +904,11 @@ final class TodoMDAppUITests: XCTestCase {
     }
 
     private func submitInlineTask(from app: XCUIApplication) {
+        let submitButton = app.buttons["inlineTask.submitButton"].firstMatch
+        if submitButton.waitForExistence(timeout: 1), submitButton.isHittable {
+            submitButton.tap()
+            return
+        }
         if app.keyboards.buttons["Done"].exists {
             app.keyboards.buttons["Done"].tap()
             return
@@ -803,6 +961,41 @@ final class TodoMDAppUITests: XCTestCase {
         }
 
         let indexedTab = app.tabBars.buttons.element(boundBy: 3)
+        if timeout > 0 {
+            _ = indexedTab.waitForExistence(timeout: min(2, timeout))
+        }
+        return indexedTab
+    }
+
+    private func inboxTabButton(in app: XCUIApplication, timeout: TimeInterval = 0) -> XCUIElement {
+        let identifiedTab = app.buttons["root.tab.builtIn-inbox"].firstMatch
+        if timeout > 0, identifiedTab.waitForExistence(timeout: timeout) {
+            return identifiedTab
+        }
+        if identifiedTab.exists {
+            return identifiedTab
+        }
+
+        let tabBarButton = app.tabBars.buttons["Inbox"].firstMatch
+        if timeout > 0, tabBarButton.waitForExistence(timeout: min(2, timeout)) {
+            return tabBarButton
+        }
+        if tabBarButton.exists {
+            return tabBarButton
+        }
+
+        let genericButton = app.buttons["Inbox"].firstMatch
+        if genericButton.exists {
+            return genericButton
+        }
+        if timeout > 0 {
+            _ = genericButton.waitForExistence(timeout: min(2, timeout))
+            if genericButton.exists {
+                return genericButton
+            }
+        }
+
+        let indexedTab = app.tabBars.buttons.element(boundBy: 0)
         if timeout > 0 {
             _ = indexedTab.waitForExistence(timeout: min(2, timeout))
         }
