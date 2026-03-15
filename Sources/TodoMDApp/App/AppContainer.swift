@@ -207,6 +207,7 @@ final class AppContainer: ObservableObject {
     private let dateParser = NaturalLanguageDateParser()
     private let urlRouter = URLRouter()
     private let appleCalendarService = AppleCalendarService()
+    private let usesFakeRemindersImportService: Bool
     private let remindersImportService: any RemindersImportServicing
     private let logger: RuntimeLogging
     private let snapshotStore = TaskRecordSnapshotStore()
@@ -264,15 +265,24 @@ final class AppContainer: ObservableObject {
     }
 
     var isRemindersAccessGranted: Bool {
-        ReminderAccessStatus.hasReadAccess(EKEventStore.authorizationStatus(for: .reminder))
+        if usesFakeRemindersImportService {
+            return true
+        }
+        return ReminderAccessStatus.hasReadAccess(EKEventStore.authorizationStatus(for: .reminder))
     }
 
     var remindersAccessNeedsExplanationBeforeRequest: Bool {
-        ReminderAccessStatus.needsExplanationBeforeRequest(EKEventStore.authorizationStatus(for: .reminder))
+        if usesFakeRemindersImportService {
+            return false
+        }
+        return ReminderAccessStatus.needsExplanationBeforeRequest(EKEventStore.authorizationStatus(for: .reminder))
     }
 
     var remindersAccessRequiresSettingsRedirect: Bool {
-        ReminderAccessStatus.requiresSettingsRedirect(EKEventStore.authorizationStatus(for: .reminder))
+        if usesFakeRemindersImportService {
+            return false
+        }
+        return ReminderAccessStatus.requiresSettingsRedirect(EKEventStore.authorizationStatus(for: .reminder))
     }
 
     private static let settingsRemindersImportListIDKey = "settings_reminders_import_list_id"
@@ -285,7 +295,11 @@ final class AppContainer: ObservableObject {
 
     init(logger: RuntimeLogging = ConsoleRuntimeLogger()) {
         self.logger = logger
-        remindersImportService = Self.makeRemindersImportServiceForCurrentProcess()
+        let useFakeRemindersImportService = Self.shouldUseFakeRemindersImportServiceForCurrentProcess()
+        self.usesFakeRemindersImportService = useFakeRemindersImportService
+        remindersImportService = Self.makeRemindersImportServiceForCurrentProcess(
+            useFakeRemindersImportService: useFakeRemindersImportService
+        )
 
         let resolvedRoot = Self.resolveRootURL()
         self.rootURL = resolvedRoot
@@ -320,9 +334,14 @@ final class AppContainer: ObservableObject {
         scheduleInitialRefresh()
     }
 
-    private static func makeRemindersImportServiceForCurrentProcess() -> any RemindersImportServicing {
-        let environment = ProcessInfo.processInfo.environment
-        if environment["TODOMD_FAKE_REMINDERS_IMPORT"] == "1" {
+    private static func shouldUseFakeRemindersImportServiceForCurrentProcess() -> Bool {
+        ProcessInfo.processInfo.environment["TODOMD_FAKE_REMINDERS_IMPORT"] == "1"
+    }
+
+    private static func makeRemindersImportServiceForCurrentProcess(
+        useFakeRemindersImportService: Bool
+    ) -> any RemindersImportServicing {
+        if useFakeRemindersImportService {
             return FakeRemindersImportService()
         }
         return RemindersImportService()
@@ -2771,31 +2790,33 @@ final class AppContainer: ObservableObject {
             return
         }
 
-        let reminderAuthorizationStatus = EKEventStore.authorizationStatus(for: .reminder)
-        switch ReminderAccessStatus.refreshAction(
-            for: reminderAuthorizationStatus,
-            allowsPermissionPrompt: allowsPermissionPrompt
-        ) {
-        case .canRefresh:
-            break
-        case .needsExplanationBeforeRequest:
-            if forceListRefresh || reminderLists.isEmpty {
-                reminderLists = []
-                selectedReminderListID = nil
-                persistReminderListSelection()
+        if !usesFakeRemindersImportService {
+            let reminderAuthorizationStatus = EKEventStore.authorizationStatus(for: .reminder)
+            switch ReminderAccessStatus.refreshAction(
+                for: reminderAuthorizationStatus,
+                allowsPermissionPrompt: allowsPermissionPrompt
+            ) {
+            case .canRefresh:
+                break
+            case .needsExplanationBeforeRequest:
+                if forceListRefresh || reminderLists.isEmpty {
+                    reminderLists = []
+                    selectedReminderListID = nil
+                    persistReminderListSelection()
+                }
+                pendingReminderImports = []
+                remindersImportStatusMessage = "Allow Reminders access in Settings to import tasks from Reminders."
+                return
+            case .requiresSettingsRedirect:
+                if forceListRefresh || reminderLists.isEmpty {
+                    reminderLists = []
+                    selectedReminderListID = nil
+                    persistReminderListSelection()
+                }
+                pendingReminderImports = []
+                remindersImportStatusMessage = RemindersImportServiceError.accessDenied.localizedDescription
+                return
             }
-            pendingReminderImports = []
-            remindersImportStatusMessage = "Allow Reminders access in Settings to import tasks from Reminders."
-            return
-        case .requiresSettingsRedirect:
-            if forceListRefresh || reminderLists.isEmpty {
-                reminderLists = []
-                selectedReminderListID = nil
-                persistReminderListSelection()
-            }
-            pendingReminderImports = []
-            remindersImportStatusMessage = RemindersImportServiceError.accessDenied.localizedDescription
-            return
         }
 
         let refreshGeneration = nextReminderImportRefreshGeneration()
@@ -2862,11 +2883,15 @@ final class AppContainer: ObservableObject {
 
     private func migrateIntegrationEnablementDefaultsIfNeeded() {
         let defaults = UserDefaults.standard
+        let remindersGrantedAccess = usesFakeRemindersImportService
+            || ReminderAccessStatus.hasReadAccess(EKEventStore.authorizationStatus(for: .reminder))
 
-        let remindersEnabled = IntegrationEnablementDefaults.resolvedStoredValue(
-            defaults.object(forKey: Self.settingsRemindersImportEnabledKey) as? Bool,
-            hasGrantedAccess: ReminderAccessStatus.hasReadAccess(EKEventStore.authorizationStatus(for: .reminder))
-        )
+        let remindersEnabled = usesFakeRemindersImportService
+            ? true
+            : IntegrationEnablementDefaults.resolvedStoredValue(
+                defaults.object(forKey: Self.settingsRemindersImportEnabledKey) as? Bool,
+                hasGrantedAccess: remindersGrantedAccess
+            )
         defaults.set(remindersEnabled, forKey: Self.settingsRemindersImportEnabledKey)
 
         let calendarEnabled = IntegrationEnablementDefaults.resolvedStoredValue(

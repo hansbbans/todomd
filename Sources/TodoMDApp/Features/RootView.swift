@@ -203,7 +203,6 @@ private struct CompactTabBarImageConfigurator: UIViewRepresentable {
 #endif
 
 private enum InlineTaskPanel: Equatable {
-    case date
     case destination
     case tags
 }
@@ -688,6 +687,7 @@ struct RootView: View {
     @State private var compactComposerContentVisible = false
     @State private var inlineTaskDraft = InlineTaskDraft()
     @State private var expandedInlineTaskPanel: InlineTaskPanel?
+    @State private var showingInlineTaskDateModal = false
     @State private var inlineComposerTransitionTask: Task<Void, Never>?
     @State private var showingProjectSettingsSheet = false
     @State private var editingProjectOriginalName = ""
@@ -781,6 +781,17 @@ struct RootView: View {
                         cancelInlineTaskComposer()
                     }
                 )
+            }
+            .sheet(isPresented: $showingInlineTaskDateModal) {
+                InlineTaskDateEditorSheet(
+                    hasDate: inlineTaskHasDueDateBinding,
+                    date: inlineTaskDueDateBinding,
+                    hasTime: inlineTaskHasDueTimeBinding,
+                    time: inlineTaskDueTimeBinding,
+                    recurrence: inlineTaskRecurrenceBinding
+                ) {
+                    dismissInlineTaskDateEditor(animated: false)
+                }
             }
             .sheet(item: $activeProjectSheetMode) { mode in
                 NavigationStack {
@@ -1946,7 +1957,7 @@ struct RootView: View {
                     isSet: inlineTaskDraft.dueDate != nil,
                     tint: theme.accentColor
                 ) {
-                    toggleInlineTaskPanel(.date)
+                    presentInlineTaskDateEditor()
                 }
 
                 QuickAddChip(
@@ -2054,7 +2065,7 @@ struct RootView: View {
                 label: inlineTaskDateLabel,
                 tint: compactInlineDueTint
             ) {
-                toggleInlineTaskPanel(.date)
+                presentInlineTaskDateEditor()
             }
 
             Spacer(minLength: 0)
@@ -2155,17 +2166,6 @@ struct RootView: View {
     @ViewBuilder
     private func inlineTaskExpandedPanel(_ panel: InlineTaskPanel) -> some View {
         switch panel {
-        case .date:
-            DateChooserView(
-                context: .due,
-                timeMode: .optional,
-                hasDate: inlineTaskHasDueDateBinding,
-                date: inlineTaskDueDateBinding,
-                hasTime: inlineTaskHasDueTimeBinding,
-                time: inlineTaskDueTimeBinding,
-                recurrence: inlineTaskRecurrenceBinding
-            )
-
         case .destination:
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -2379,11 +2379,22 @@ struct RootView: View {
     }
 
     private func toggleInlineTaskPanel(_ panel: InlineTaskPanel) {
+        showingInlineTaskDateModal = false
         if expandedInlineTaskPanel == panel {
             expandedInlineTaskPanel = nil
         } else {
             expandedInlineTaskPanel = panel
         }
+    }
+
+    private func presentInlineTaskDateEditor() {
+        inlineTaskFocused = false
+        expandedInlineTaskPanel = nil
+        showingInlineTaskDateModal = true
+    }
+
+    private func dismissInlineTaskDateEditor(animated _: Bool) {
+        showingInlineTaskDateModal = false
     }
 
     private func applyInlineDueDate(_ date: Date?, autoPhrase: String? = nil) {
@@ -3608,6 +3619,7 @@ struct RootView: View {
 
         inlineTaskDraft = defaultInlineTaskDraft(for: container.selectedView)
         expandedInlineTaskPanel = nil
+        showingInlineTaskDateModal = false
         inlineAutoDatePhrase = nil
         compactComposerContentVisible = horizontalSizeClass != .compact
         withAnimation(compactComposerOpenAnimation) {
@@ -3634,6 +3646,7 @@ struct RootView: View {
         inlineComposerTransitionTask?.cancel()
         inlineComposerTransitionTask = nil
         showingInlineVoiceRamble = false
+        showingInlineTaskDateModal = false
         if horizontalSizeClass == .compact {
             withAnimation(.easeOut(duration: 0.12)) {
                 compactComposerContentVisible = false
@@ -5528,6 +5541,48 @@ private struct ExpandedTaskFooterButtonStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed ? 0.985 : 1)
             .opacity(configuration.isPressed ? 0.92 : 1)
             .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
+    }
+}
+
+private struct InlineTaskDateEditorSheet: View {
+    @EnvironmentObject private var theme: ThemeManager
+
+    let hasDate: Binding<Bool>
+    let date: Binding<Date>
+    let hasTime: Binding<Bool>
+    let time: Binding<Date>
+    let recurrence: Binding<String>
+    let onDismiss: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                DateChooserView(
+                    context: .due,
+                    timeMode: .optional,
+                    hasDate: hasDate,
+                    date: date,
+                    hasTime: hasTime,
+                    time: time,
+                    recurrence: recurrence
+                )
+                .padding(16)
+            }
+            .background(theme.backgroundColor.ignoresSafeArea())
+            .navigationTitle("Due")
+#if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            .presentationDetents([.fraction(0.64), .large])
+            .presentationDragIndicator(.visible)
+#endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done", action: onDismiss)
+                        .accessibilityIdentifier("inlineTaskDate.closeButton")
+                }
+            }
+        }
+        .accessibilityIdentifier("inlineTaskDate.modal")
     }
 }
 

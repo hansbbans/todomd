@@ -373,6 +373,26 @@ struct SettingsView: View {
         )
     }
 
+    private var pomodoroToggleBinding: Binding<Bool> {
+        Binding(
+            get: { pomodoroEnabled },
+            set: { isOn in
+                guard isOn != pomodoroEnabled else { return }
+
+                pomodoroEnabled = isOn
+
+                let normalized = CompactTabSettings.normalizedCustomViews(
+                    leadingRawValue: compactPrimaryTabRawValue,
+                    trailingRawValue: compactSecondaryTabRawValue,
+                    pomodoroEnabled: isOn,
+                    additionalViews: compactPerspectiveViews
+                )
+                compactPrimaryTabRawValue = normalized.primary.rawValue
+                compactSecondaryTabRawValue = normalized.secondary.rawValue
+            }
+        )
+    }
+
     private var appearanceSettingsView: some View {
         Form {
             Section {
@@ -548,7 +568,7 @@ struct SettingsView: View {
                     }
                 }
 
-                Toggle("Enable Pomodoro view", isOn: $pomodoroEnabled)
+                Toggle("Enable Pomodoro view", isOn: pomodoroToggleBinding)
                     .accessibilityIdentifier("settings.taskBehavior.pomodoroToggle")
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -593,7 +613,7 @@ struct SettingsView: View {
                     .onMove(perform: moveExpandedTaskActions)
                 }
 
-                Text("Pomodoro appears in Areas on compact screens and in the sidebar on larger layouts.")
+                Text("Pomodoro appears in Browse on compact screens and in the sidebar on larger layouts.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
