@@ -11,12 +11,12 @@ public struct ManualOrderService {
 
     public func ordered(records: [TaskRecord], view: ViewIdentifier) -> [TaskRecord] {
         guard let orderDocument = try? repository.load(rootURL: rootURL) else {
-            return records.sorted { $0.document.frontmatter.created > $1.document.frontmatter.created }
+            return records.sorted(by: Self.creationOrderComparator)
         }
 
         let key = view.rawValue
         guard let orderedFilenames = orderDocument.views[key], !orderedFilenames.isEmpty else {
-            return records.sorted { $0.document.frontmatter.created > $1.document.frontmatter.created }
+            return records.sorted(by: Self.creationOrderComparator)
         }
 
         let indexByFilename = Dictionary(uniqueKeysWithValues: orderedFilenames.enumerated().map { ($1, $0) })
@@ -33,7 +33,7 @@ public struct ManualOrderService {
             case (.none, .some):
                 return false
             case (.none, .none):
-                return lhs.document.frontmatter.created > rhs.document.frontmatter.created
+                return Self.creationOrderComparator(lhs, rhs)
             }
         }
     }
@@ -42,5 +42,14 @@ public struct ManualOrderService {
         var orderDocument = try repository.load(rootURL: rootURL)
         orderDocument.views[view.rawValue] = filenames
         try repository.save(orderDocument, rootURL: rootURL)
+    }
+
+    private static func creationOrderComparator(_ lhs: TaskRecord, _ rhs: TaskRecord) -> Bool {
+        let leftCreated = lhs.document.frontmatter.created
+        let rightCreated = rhs.document.frontmatter.created
+        if leftCreated != rightCreated {
+            return leftCreated < rightCreated
+        }
+        return lhs.document.frontmatter.title.localizedCaseInsensitiveCompare(rhs.document.frontmatter.title) == .orderedAscending
     }
 }

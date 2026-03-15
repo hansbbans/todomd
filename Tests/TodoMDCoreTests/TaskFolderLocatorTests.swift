@@ -40,6 +40,7 @@ final class TaskFolderLocatorTests: XCTestCase {
     }
 
     func testLocatorFallsBackToDefaultFolderNameWhenLegacyIsBlank() throws {
+        let root = try TestSupport.tempDirectory(prefix: "TaskFolderLocatorDefault")
         let suiteName = "TaskFolderLocatorTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create isolated UserDefaults suite")
@@ -48,7 +49,11 @@ final class TaskFolderLocatorTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set("   ", forKey: TaskFolderPreferences.legacyFolderNameKey)
-        let locator = TaskFolderLocator(folderName: "todo.md", defaults: defaults)
+        let locator = TaskFolderLocator(
+            folderName: "todo.md",
+            defaults: defaults,
+            documentsRootURL: root
+        )
         let resolved = try locator.resolveVisibleICloudURL()
 
         XCTAssertEqual(resolved.lastPathComponent, "todo.md")

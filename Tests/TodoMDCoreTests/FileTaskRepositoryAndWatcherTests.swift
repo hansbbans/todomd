@@ -316,6 +316,29 @@ final class FileTaskRepositoryAndWatcherTests: XCTestCase {
         XCTAssertEqual(optimistic.fingerprints.count, 2)
     }
 
+    func testOptimisticSnapshotHydrationFallsBackWhenDirectoryFingerprintChanges() throws {
+        let root = try TestSupport.tempDirectory(prefix: "SnapshotOptimisticDirty")
+        let repository = FileTaskRepository(rootURL: root)
+        let snapshotStore = try makeSnapshotStore()
+
+        _ = try repository.create(
+            document: .init(frontmatter: TestSupport.sampleFrontmatter(title: "One", source: "agent"), body: "body-1"),
+            preferredFilename: "bucket-000/one.md"
+        )
+
+        _ = try snapshotStore.hydrate(rootURL: root, repository: repository, mode: .validated)
+
+        _ = try repository.create(
+            document: .init(frontmatter: TestSupport.sampleFrontmatter(title: "Two", source: "agent"), body: "body-2"),
+            preferredFilename: "bucket-000/two.md"
+        )
+
+        let refreshed = try snapshotStore.hydrate(rootURL: root, repository: repository, mode: .optimistic)
+
+        XCTAssertEqual(Set(refreshed.records.map(\.document.frontmatter.title)), Set(["One", "Two"]))
+        XCTAssertFalse(refreshed.requiresValidation)
+    }
+
     private func makeSnapshotStore() throws -> TaskRecordSnapshotStore {
         TaskRecordSnapshotStore(cacheBaseURL: try TestSupport.tempDirectory(prefix: "SnapshotCache"))
     }

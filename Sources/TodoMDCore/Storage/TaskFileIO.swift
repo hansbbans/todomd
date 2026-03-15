@@ -536,10 +536,7 @@ public struct TaskRecordSnapshotStore: @unchecked Sendable {
         manifest: TaskSnapshotManifest
     ) throws -> TaskSnapshotHydration? {
         guard !manifest.entries.isEmpty else { return nil }
-
-        let currentDirectoryFingerprints = try fileIO.enumerateDirectoryFingerprints(rootURL: rootURL)
-        let cachedDirectoryFingerprints = manifest.directories.map(\.fingerprint)
-        guard cachedDirectoryFingerprints == currentDirectoryFingerprints else { return nil }
+        guard cachedDirectoriesMatchCurrentState(manifest.directories) else { return nil }
 
         let records: [TaskRecord]
         let metadataEntries: [TaskMetadataEntry]
@@ -566,6 +563,32 @@ public struct TaskRecordSnapshotStore: @unchecked Sendable {
             failures: [],
             requiresValidation: true
         )
+    }
+
+    private func cachedDirectoriesMatchCurrentState(
+        _ cachedDirectories: [TaskDirectoryFingerprintSnapshot]
+    ) -> Bool {
+        guard !cachedDirectories.isEmpty else { return false }
+
+        // Optimistic hydration only needs to know whether any previously known
+        // directory changed. Statting the cached directories is much cheaper
+        // than re-enumerating every file in the tree on launch.
+        for cachedDirectory in cachedDirectories {
+            let url = URL(fileURLWithPath: cachedDirectory.path)
+                .standardizedFileURL
+                .resolvingSymlinksInPath()
+            do {
+                let values = try url.resourceValues(forKeys: [.isDirectoryKey, .contentModificationDateKey])
+                guard values.isDirectory == true else { return false }
+                guard values.contentModificationDate ?? .distantPast == cachedDirectory.fingerprint.modificationDate else {
+                    return false
+                }
+            } catch {
+                return false
+            }
+        }
+
+        return true
     }
 
     private func loadLaunchState(rootURL: URL) throws -> TaskLaunchState? {

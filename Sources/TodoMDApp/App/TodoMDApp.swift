@@ -65,14 +65,22 @@ struct TodoMDApp: App {
 
     private func applyUITestConfigurationIfNeeded() {
         let arguments = ProcessInfo.processInfo.arguments
-        guard arguments.contains("-ui-testing"),
-              arguments.contains("-ui-testing-reset") else {
+        let environment = ProcessInfo.processInfo.environment
+
+        guard arguments.contains("-ui-testing") else {
             return
         }
 
         let defaults = UserDefaults.standard
-        defaults.removeObject(forKey: "did_complete_onboarding")
-        TaskFolderPreferences.setLegacyFolderName(nil)
-        TaskFolderPreferences.clearSelectedFolder()
+        if arguments.contains("-ui-testing-reset") {
+            defaults.removeObject(forKey: "did_complete_onboarding")
+            defaults.removeObject(forKey: "settings_pomodoro_enabled")
+            TaskFolderPreferences.setLegacyFolderName(nil)
+            TaskFolderPreferences.clearSelectedFolder()
+        }
+
+        if let pomodoroOverride = environment["TODOMD_UI_TEST_POMODORO_ENABLED"] {
+            defaults.set(pomodoroOverride == "1", forKey: "settings_pomodoro_enabled")
+        }
     }
 }

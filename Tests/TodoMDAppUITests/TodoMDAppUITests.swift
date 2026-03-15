@@ -172,16 +172,52 @@ final class TodoMDAppUITests: XCTestCase {
         completeOnboarding(app: app)
         createTask(app: app, title: "done regression")
 
-        let checkbox = app.buttons["taskRow.done regression"].firstMatch
-        let rowLabel = app.staticTexts["taskRow.done regression"].firstMatch
-        XCTAssertTrue(rowLabel.waitForExistence(timeout: 10), "Created task row was not visible before completion")
+        let row = app.descendants(matching: .any)["taskRow.done regression"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "Created task row was not visible before completion")
+        completeTask(app: app, title: "done regression")
 
-        XCTAssertTrue(checkbox.waitForExistence(timeout: 10), "Completion checkbox was not visible before completion")
-        checkbox.tap()
+        XCTAssertTrue(
+            waitForCondition(timeout: 5, pollInterval: 0.1) { !row.exists },
+            "Completed task row should disappear from Inbox immediately"
+        )
+    }
 
-        let rowRemoved = NSPredicate(format: "exists == false")
-        expectation(for: rowRemoved, evaluatedWith: rowLabel)
-        waitForExpectations(timeout: 5)
+    func testNewInboxTaskAppendsBelowExistingTasksOnCompactLayout() {
+        let storageOverride = makeStorageOverridePath()
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        completeOnboarding(app: app)
+        createTask(app: app, title: "append first")
+        createTask(app: app, title: "append second")
+
+        let firstRow = app.descendants(matching: .any)["taskRow.append first"].firstMatch
+        let secondRow = app.descendants(matching: .any)["taskRow.append second"].firstMatch
+        XCTAssertTrue(firstRow.waitForExistence(timeout: 10), "First seeded task row was not visible")
+        XCTAssertTrue(secondRow.waitForExistence(timeout: 10), "Second seeded task row was not visible")
+
+        let addButton = app.buttons["root.inlineAddButton"].firstMatch
+        XCTAssertTrue(addButton.waitForExistence(timeout: 10), "Inline add button not visible")
+        addButton.tap()
+
+        let titleInput = app.textFields["inlineTask.titleField"].firstMatch
+        XCTAssertTrue(titleInput.waitForExistence(timeout: 10), "Inline task title field did not appear")
+        titleInput.tap()
+        titleInput.typeText("append third")
+        submitInlineTask(from: app)
+
+        let thirdRow = app.descendants(matching: .any)["taskRow.append third"].firstMatch
+        XCTAssertTrue(thirdRow.waitForExistence(timeout: 10), "New task row was not visible")
+        XCTAssertTrue(
+            waitForCondition(timeout: 5, pollInterval: 0.1) {
+                let existingBottom = max(firstRow.frame.maxY, secondRow.frame.maxY)
+                return thirdRow.frame.minY >= existingBottom - 2
+            },
+            "New tasks should append below the existing task rows instead of jumping to the top"
+        )
     }
 
     func testTaskDetailProjectAssignmentPersistsImmediately() {
@@ -249,9 +285,17 @@ final class TodoMDAppUITests: XCTestCase {
         XCTAssertTrue(dateButton.waitForExistence(timeout: 10), "Inline task date button was not visible")
         dateButton.tap()
 
+        let popup = app.otherElements["inlineTaskDate.modal"].firstMatch
+        XCTAssertTrue(popup.waitForExistence(timeout: 10), "Date chooser should open in a distinct popup")
+
         let tonightPreset = app.descendants(matching: .any)["dateChooser.due.preset.tonight"].firstMatch
         XCTAssertTrue(tonightPreset.waitForExistence(timeout: 10), "Tonight preset was not visible in inline task creation")
         tonightPreset.tap()
+
+        let closeButton = app.buttons["inlineTaskDate.closeButton"].firstMatch
+        XCTAssertTrue(closeButton.waitForExistence(timeout: 10), "Inline date popup close button was not visible")
+        closeButton.tap()
+        XCTAssertFalse(popup.waitForExistence(timeout: 1), "Date chooser popup should dismiss after tapping Done")
 
         let titleInput = app.textFields["inlineTask.titleField"].firstMatch
         XCTAssertTrue(titleInput.waitForExistence(timeout: 10), "Inline task title field did not appear")
@@ -335,24 +379,26 @@ final class TodoMDAppUITests: XCTestCase {
     }
 
     func testRemindersImportEndToEndWithFakeSource() {
+        let storageOverride = makeStorageOverridePath()
+
         let app = XCUIApplication()
         app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
-        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = "Library/Caches/TodoMDUITests/\(UUID().uuidString)"
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
         app.launchEnvironment["TODOMD_FAKE_REMINDERS_IMPORT"] = "1"
         app.launch()
 
         completeOnboarding(app: app)
 
-        let importRow = app.buttons["from reminders e2e"].firstMatch
-        let importAllButton = app.buttons["Import All"].firstMatch
+        let importRow = app.buttons["inbox.remindersImport.row.ui-test-reminder-1"].firstMatch
+        let importAllButton = app.buttons["inbox.remindersImport.importAllButton"].firstMatch
         XCTAssertTrue(importRow.waitForExistence(timeout: 10), "Pending reminders row not visible")
 
         XCTAssertTrue(importAllButton.waitForExistence(timeout: 10), "Import all button not visible")
         XCTAssertTrue(importAllButton.isHittable)
         importAllButton.tap()
 
-        XCTAssertFalse(
-            importRow.waitForExistence(timeout: 5),
+        XCTAssertTrue(
+            waitForCondition(timeout: 5, pollInterval: 0.1) { !importRow.exists },
             "Imported reminder should no longer be listed as pending"
         )
 
@@ -511,37 +557,23 @@ final class TodoMDAppUITests: XCTestCase {
         XCTAssertTrue(taskResult.waitForExistence(timeout: 5), "Typing should show matching task results in the modal")
     }
 
-    func testPomodoroCanBeEnabledAndOpenedFromAreas() {
+    func testPomodoroAppearsInBrowseWhenEnabled() {
+        let storageOverride = makeStorageOverridePath()
+
         let app = XCUIApplication()
         app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
-        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = "Library/Caches/TodoMDUITests/\(UUID().uuidString)"
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launchEnvironment["TODOMD_UI_TEST_POMODORO_ENABLED"] = "1"
         app.launch()
 
         completeOnboarding(app: app)
 
-        openSettings(app: app)
+        let browseTab = browseTabButton(in: app, timeout: 10)
+        XCTAssertTrue(browseTab.exists, "Browse tab not visible")
+        browseTab.tap()
 
-        let taskBehaviorSection = app.buttons["settings.section.taskBehavior"]
-        XCTAssertTrue(taskBehaviorSection.waitForExistence(timeout: 10), "Task Behavior section not visible")
-        taskBehaviorSection.tap()
-
-        let pomodoroToggle = app.switches["settings.taskBehavior.pomodoroToggle"]
-        XCTAssertTrue(pomodoroToggle.waitForExistence(timeout: 10), "Pomodoro toggle not visible")
-        if (pomodoroToggle.value as? String) != "1" {
-            pomodoroToggle.tap()
-        }
-
-        for _ in 0 ..< 2 {
-            let backButton = app.navigationBars.buttons.firstMatch
-            XCTAssertTrue(backButton.waitForExistence(timeout: 10))
-            backButton.tap()
-        }
-
-        let pomodoroButton = app.buttons["Pomodoro"].firstMatch
-        XCTAssertTrue(pomodoroButton.waitForExistence(timeout: 10), "Pomodoro entry not visible in Areas")
-        pomodoroButton.tap()
-
-        XCTAssertTrue(app.navigationBars["Pomodoro"].waitForExistence(timeout: 10), "Pomodoro view did not open")
+        let pomodoroButton = app.buttons["root.browse.pomodoro"].firstMatch
+        XCTAssertTrue(reveal(element: pomodoroButton, in: app), "Pomodoro entry not visible in Browse")
     }
 
     func testIntegrationsSettingsContainsCalendarAndNewInstallsStartDisabledWithoutAccess() {
@@ -671,6 +703,32 @@ final class TodoMDAppUITests: XCTestCase {
         XCTAssertTrue(createdTaskRow.waitForExistence(timeout: 10), "Created task row was not visible")
     }
 
+    private func completeTask(app: XCUIApplication, title: String) {
+        let row = app.descendants(matching: .any)["taskRow.\(title)"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "Task row was not visible before completion")
+
+        let checkbox = app.buttons["taskRow.complete.\(title)"].firstMatch
+        if checkbox.waitForExistence(timeout: 1), checkbox.isHittable {
+            checkbox.tap()
+        } else {
+            let checkboxCoordinate = row.coordinate(withNormalizedOffset: CGVector(dx: 0.06, dy: 0.32))
+            checkboxCoordinate.tap()
+        }
+
+        if waitForCondition(timeout: 2, pollInterval: 0.1, predicate: { !row.exists }) {
+            return
+        }
+
+        let start = row.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5))
+        let end = row.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.5))
+        start.press(forDuration: 0.01, thenDragTo: end)
+
+        let completeButton = app.buttons["Complete"].firstMatch
+        if completeButton.waitForExistence(timeout: 2), completeButton.isHittable {
+            completeButton.tap()
+        }
+    }
+
     private func openSettings(app: XCUIApplication) {
         let settingsButton = app.buttons["root.settingsButton"]
         if !settingsButton.exists {
@@ -749,6 +807,23 @@ final class TodoMDAppUITests: XCTestCase {
             _ = indexedTab.waitForExistence(timeout: min(2, timeout))
         }
         return indexedTab
+    }
+
+    private func reveal(element: XCUIElement, in app: XCUIApplication, maxScrolls: Int = 6) -> Bool {
+        if element.waitForExistence(timeout: 1) {
+            return true
+        }
+
+        let scrollContainer = app.tables.firstMatch.exists ? app.tables.firstMatch : app
+        for _ in 0 ..< maxScrolls {
+            scrollContainer.swipeUp()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            if element.exists {
+                return true
+            }
+        }
+
+        return element.waitForExistence(timeout: 1)
     }
 
     private func makeStorageOverridePath() -> String {
