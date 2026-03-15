@@ -2085,6 +2085,7 @@ final class AppContainer: ObservableObject {
                 document.frontmatter.project = project?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
                 document.frontmatter.modified = Date()
             }
+            upsertRecordInMemory(updated)
             markSelfWrite(path: updated.identity.path)
             refresh()
             return true
