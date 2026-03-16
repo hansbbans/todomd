@@ -18,7 +18,7 @@ struct QuickFindCard<Results: View>: View {
             cardContent
         }
         .frame(maxHeight: maxHeight, alignment: .top)
-        .background(.background)
+        .background(.regularMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .shadow(color: .black.opacity(0.18), radius: 16, y: 4)
         .onAppear {
@@ -61,9 +61,11 @@ struct QuickFindCard<Results: View>: View {
         if normalizedQuery.isEmpty {
             preQueryContent
         } else {
-            ScrollView {
+            List {
                 resultsContent(normalizedQuery)
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
         }
     }
 
