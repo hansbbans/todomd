@@ -1,132 +1,186 @@
 // Tests/TodoMDAppTests/QuickFindStoreTests.swift
-import XCTest
+import Foundation
+import Testing
 @testable import TodoMDApp
 
 @MainActor
-final class QuickFindStoreTests: XCTestCase {
-    private var store: QuickFindStore!
-    // Use an isolated UserDefaults suite to prevent cross-test contamination
-    private var testDefaults: UserDefaults!
-    private var testSuiteName: String!
+struct QuickFindStoreTests {
 
-    override func setUp() async throws {
-        try await super.setUp()
-        testSuiteName = UUID().uuidString
-        testDefaults = UserDefaults(suiteName: testSuiteName)!
-        store = QuickFindStore(defaults: testDefaults)
-    }
+    // MARK: - Helpers
 
-    override func tearDown() async throws {
-        UserDefaults.standard.removePersistentDomain(forName: testSuiteName)
-        testDefaults = nil
-        testSuiteName = nil
-        store = nil
-        try await super.tearDown()
+    private func makeStore() throws -> (QuickFindStore, UserDefaults, String) {
+        let suiteName = "QuickFindStoreTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            Issue.record("Failed to create isolated UserDefaults suite")
+            throw CancellationError()
+        }
+        let store = QuickFindStore(defaults: defaults)
+        return (store, defaults, suiteName)
     }
 
     // MARK: - record
 
-    func testRecord_addsToRecents() {
+    @Test("record adds query to the top of recentSearches")
+    func record_addsToRecents() throws {
+        let (store, defaults, suiteName) = try makeStore()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
         store.record(query: "inbox")
-        XCTAssertEqual(store.recentSearches, ["inbox"])
+        #expect(store.recentSearches == ["inbox"])
     }
 
-    func testRecord_deduplicates_caseInsensitive() {
+    @Test("record deduplicates case-insensitively, keeping newer casing")
+    func record_deduplicates_caseInsensitive() throws {
+        let (store, defaults, suiteName) = try makeStore()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
         store.record(query: "Inbox")
         store.record(query: "inbox")
-        XCTAssertEqual(store.recentSearches, ["inbox"])
+        #expect(store.recentSearches == ["inbox"])
     }
 
-    func testRecord_promotesExistingEntry() {
+    @Test("record promotes an existing entry to the front")
+    func record_promotesExistingEntry() throws {
+        let (store, defaults, suiteName) = try makeStore()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
         store.record(query: "alpha")
         store.record(query: "beta")
         store.record(query: "alpha")
-        XCTAssertEqual(store.recentSearches, ["alpha", "beta"])
+        #expect(store.recentSearches == ["alpha", "beta"])
     }
 
-    func testRecord_trimsToTen() {
+    @Test("record trims list to a maximum of 10 entries, newest first")
+    func record_trimsToTen() throws {
+        let (store, defaults, suiteName) = try makeStore()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
         for i in 1...11 {
             store.record(query: "query\(i)")
         }
-        XCTAssertEqual(store.recentSearches.count, 10)
-        XCTAssertEqual(store.recentSearches.first, "query11")
+        #expect(store.recentSearches.count == 10)
+        #expect(store.recentSearches.first == "query11")
     }
 
-    func testRecord_doesNotRecordEmptyOrWhitespace() {
+    @Test("record ignores empty strings and whitespace-only input")
+    func record_doesNotRecordEmptyOrWhitespace() throws {
+        let (store, defaults, suiteName) = try makeStore()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
         store.record(query: "")
         store.record(query: "   ")
-        XCTAssertTrue(store.recentSearches.isEmpty)
+        #expect(store.recentSearches.isEmpty)
     }
 
     // MARK: - pin / unpin
 
-    func testPin_movesPinnedOutOfRecents() {
+    @Test("pin moves the query out of displayedRecent into pinnedSearches")
+    func pin_movesPinnedOutOfRecents() throws {
+        let (store, defaults, suiteName) = try makeStore()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
         store.record(query: "sprint")
         store.pin("sprint")
-        XCTAssertEqual(store.pinnedSearches, ["sprint"])
-        XCTAssertEqual(store.displayedRecent, [])
+        #expect(store.pinnedSearches == ["sprint"])
+        #expect(store.displayedRecent == [])
     }
 
-    func testPin_caseInsensitiveExclusionFromRecents() {
+    @Test("pin excludes matching recents case-insensitively")
+    func pin_caseInsensitiveExclusionFromRecents() throws {
+        let (store, defaults, suiteName) = try makeStore()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
         store.record(query: "Sprint")
         store.pin("sprint")
-        XCTAssertTrue(store.displayedRecent.isEmpty)
+        #expect(store.displayedRecent.isEmpty)
     }
 
-    func testPin_capsAtThree() {
+    @Test("pin caps at three entries and ignores further additions")
+    func pin_capsAtThree() throws {
+        let (store, defaults, suiteName) = try makeStore()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
         store.pin("a")
         store.pin("b")
         store.pin("c")
         store.pin("d")
-        XCTAssertEqual(store.pinnedSearches.count, 3)
-        XCTAssertFalse(store.pinnedSearches.contains("d"))
+        #expect(store.pinnedSearches.count == 3)
+        #expect(!store.pinnedSearches.contains("d"))
     }
 
-    func testUnpin_addsBackToRecentsAtTop() {
+    @Test("unpin removes from pinnedSearches and inserts back at top of recents")
+    func unpin_addsBackToRecentsAtTop() throws {
+        let (store, defaults, suiteName) = try makeStore()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
         store.pin("sprint")
         store.unpin("sprint")
-        XCTAssertTrue(store.pinnedSearches.isEmpty)
-        XCTAssertEqual(store.recentSearches.first, "sprint")
+        #expect(store.pinnedSearches.isEmpty)
+        #expect(store.recentSearches.first == "sprint")
     }
 
     // MARK: - displayedPinned / displayedRecent
 
-    func testDisplayedPinned_returnsUpToThree() {
+    @Test("displayedPinned returns up to three pinned entries")
+    func displayedPinned_returnsUpToThree() throws {
+        let (store, defaults, suiteName) = try makeStore()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
         store.pin("a"); store.pin("b"); store.pin("c")
-        XCTAssertEqual(store.displayedPinned.count, 3)
+        #expect(store.displayedPinned.count == 3)
     }
 
-    func testDisplayedRecent_excludesPinned() {
+    @Test("displayedRecent excludes pinned queries case-insensitively")
+    func displayedRecent_excludesPinned() throws {
+        let (store, defaults, suiteName) = try makeStore()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
         store.record(query: "alpha")
         store.record(query: "beta")
         store.pin("alpha")
-        XCTAssertEqual(store.displayedRecent, ["beta"])
+        #expect(store.displayedRecent == ["beta"])
     }
 
-    func testDisplayedRecent_clampsToThree() {
+    @Test("displayedRecent shows at most three entries")
+    func displayedRecent_clampsToThree() throws {
+        let (store, defaults, suiteName) = try makeStore()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
         for i in 1...5 { store.record(query: "q\(i)") }
-        XCTAssertEqual(store.displayedRecent.count, 3)
+        #expect(store.displayedRecent.count == 3)
     }
 
     // MARK: - deleteRecent
 
-    func testDeleteRecent_removesEntry() {
+    @Test("deleteRecent removes the specified entry")
+    func deleteRecent_removesEntry() throws {
+        let (store, defaults, suiteName) = try makeStore()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
         store.record(query: "alpha")
         store.record(query: "beta")
         store.deleteRecent("alpha")
-        XCTAssertFalse(store.recentSearches.contains("alpha"))
-        XCTAssertTrue(store.recentSearches.contains("beta"))
+        #expect(!store.recentSearches.contains("alpha"))
+        #expect(store.recentSearches.contains("beta"))
     }
 
-    func testDeleteRecent_caseInsensitive() {
+    @Test("deleteRecent matches case-insensitively")
+    func deleteRecent_caseInsensitive() throws {
+        let (store, defaults, suiteName) = try makeStore()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
         store.record(query: "Alpha")
         store.deleteRecent("ALPHA")
-        XCTAssertTrue(store.recentSearches.isEmpty)
+        #expect(store.recentSearches.isEmpty)
     }
 
-    func testRecord_persistsAcrossInstances() {
+    @Test("recorded queries persist across separate store instances using the same defaults")
+    func record_persistsAcrossInstances() throws {
+        let (store, defaults, suiteName) = try makeStore()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
         store.record(query: "persisted")
-        let store2 = QuickFindStore(defaults: testDefaults)
-        XCTAssertEqual(store2.recentSearches, ["persisted"])
+        let store2 = QuickFindStore(defaults: defaults)
+        #expect(store2.recentSearches == ["persisted"])
     }
 }

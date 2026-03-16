@@ -5,8 +5,8 @@ import Observation
 @Observable
 @MainActor
 final class QuickFindStore {
-    private let recentKey = "quickFind.recentSearches"
-    private let pinnedKey = "quickFind.pinnedSearches"
+    private static let recentKey = "quickFind.recentSearches"
+    private static let pinnedKey = "quickFind.pinnedSearches"
     private let defaults: UserDefaults
 
     private(set) var recentSearches: [String]
@@ -14,8 +14,8 @@ final class QuickFindStore {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        self.recentSearches = defaults.stringArray(forKey: "quickFind.recentSearches") ?? []
-        self.pinnedSearches = defaults.stringArray(forKey: "quickFind.pinnedSearches") ?? []
+        self.recentSearches = defaults.stringArray(forKey: Self.recentKey) ?? []
+        self.pinnedSearches = defaults.stringArray(forKey: Self.pinnedKey) ?? []
     }
 
     // MARK: - Computed display lists
@@ -64,7 +64,7 @@ final class QuickFindStore {
     // MARK: - Persistence
 
     private func persist() {
-        defaults.set(recentSearches, forKey: recentKey)
-        defaults.set(pinnedSearches, forKey: pinnedKey)
+        defaults.set(recentSearches, forKey: Self.recentKey)
+        defaults.set(pinnedSearches, forKey: Self.pinnedKey)
     }
 }
