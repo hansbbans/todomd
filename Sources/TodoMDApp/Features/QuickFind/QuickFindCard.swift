@@ -11,6 +11,22 @@ struct QuickFindCard<Results: View>: View {
     @FocusState private var isSearchFieldFocused: Bool
     private var normalizedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
 
+    private var cardBackground: Color {
+#if canImport(UIKit)
+        Color(uiColor: .secondarySystemGroupedBackground)
+#else
+        Color(nsColor: .controlBackgroundColor)
+#endif
+    }
+
+    private var pillBackground: Color {
+#if canImport(UIKit)
+        Color(uiColor: .tertiarySystemGroupedBackground)
+#else
+        Color(nsColor: .textBackgroundColor)
+#endif
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             searchFieldRow
@@ -18,7 +34,7 @@ struct QuickFindCard<Results: View>: View {
             cardContent
         }
         .frame(maxHeight: maxHeight, alignment: .top)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .background(cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .shadow(color: .black.opacity(0.18), radius: 16, y: 4)
         .onAppear {
@@ -44,7 +60,7 @@ struct QuickFindCard<Results: View>: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
-            .background(Color(uiColor: .tertiarySystemGroupedBackground))
+            .background(pillBackground)
             .clipShape(RoundedRectangle(cornerRadius: 10))
 
             Button {
