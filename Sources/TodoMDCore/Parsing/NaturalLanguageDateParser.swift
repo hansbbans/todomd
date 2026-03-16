@@ -73,8 +73,13 @@ public struct NaturalLanguageDateParser {
             "saturday": 7
         ]
 
-        let tokens = lowered.split(separator: " ").map(String.init)
+        var tokens = lowered.split(separator: " ").map(String.init)
         guard !tokens.isEmpty else { return nil }
+
+        // Accept redundant natural-language variants such as "this upcoming friday".
+        if tokens.count == 3, tokens[0] == "this", ["upcoming", "next"].contains(tokens[1]) {
+            tokens.removeFirst()
+        }
 
         let targetWeekday: Int
         let strictFuture: Bool

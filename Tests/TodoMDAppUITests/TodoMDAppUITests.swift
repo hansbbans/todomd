@@ -674,7 +674,7 @@ final class TodoMDAppUITests: XCTestCase {
         XCTAssertTrue(copiedTaskRow.waitForExistence(timeout: 10), "Duplicated project did not contain the copied task")
     }
 
-    func testPullDownPresentsSearchModalWithLiveResults() {
+    func testPullDownPresentsSearchModalWithStableInlineFieldAndLiveResults() {
         let storageOverride = makeStorageOverridePath()
         XCTAssertNoThrow(try seedMarkdownTask(rootPath: storageOverride, title: "search smoke"))
 
@@ -685,7 +685,7 @@ final class TodoMDAppUITests: XCTestCase {
 
         completeOnboarding(app: app)
 
-        let searchField = app.searchFields.firstMatch
+        let searchField = app.textFields["root.search.field"].firstMatch
 
         XCTAssertFalse(
             searchField.exists && searchField.isHittable,
@@ -703,7 +703,15 @@ final class TodoMDAppUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Search"].waitForExistence(timeout: 5), "Pulling down should present the search sheet")
         XCTAssertTrue(searchField.waitForExistence(timeout: 5), "Search field should be visible in the search sheet")
         XCTAssertTrue(searchField.isHittable, "Search field should be interactive after pull-down")
+
+        let initialMinY = searchField.frame.minY
         searchField.tap()
+        XCTAssertEqual(
+            searchField.frame.minY,
+            initialMinY,
+            accuracy: 12,
+            "Focusing the search field should not pull it to the top of the sheet"
+        )
         searchField.typeText("search smoke")
 
         let taskResult = app.buttons["root.search.taskResult.search smoke"].firstMatch

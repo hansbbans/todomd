@@ -1828,9 +1828,11 @@ final class AppContainer: ObservableObject {
 
     @discardableResult
     func updateTask(path: String, editState: TaskEditState) -> Bool {
-        let optimisticRecord = record(for: path).map { current in
+        let currentRecord = record(for: path)
+        let resolvedEditState = resolvedEditState(editState, for: currentRecord)
+        let optimisticRecord = currentRecord.map { current in
             var copy = current
-            apply(editState: editState, to: &copy.document)
+            apply(editState: resolvedEditState, to: &copy.document)
             return copy
         }
         if let optimisticRecord {
@@ -1843,7 +1845,7 @@ final class AppContainer: ObservableObject {
 
         do {
             let updated = try repository.update(path: path) { document in
-                apply(editState: editState, to: &document)
+                apply(editState: resolvedEditState, to: &document)
             }
 
             markSelfWrite(path: updated.identity.path)
@@ -1876,6 +1878,7 @@ final class AppContainer: ObservableObject {
                 document.frontmatter.defer = localDateFromDate(tomorrow)
                 document.frontmatter.modified = Date()
             }
+            upsertRecordInMemory(updated)
             markSelfWrite(path: updated.identity.path)
             refresh()
             return true
@@ -1896,6 +1899,7 @@ final class AppContainer: ObservableObject {
                 }
                 document.frontmatter.modified = Date()
             }
+            upsertRecordInMemory(updated)
             markSelfWrite(path: updated.identity.path)
             refresh()
             return true
@@ -1912,6 +1916,7 @@ final class AppContainer: ObservableObject {
                 document.frontmatter.priority = priority
                 document.frontmatter.modified = Date()
             }
+            upsertRecordInMemory(updated)
             markSelfWrite(path: updated.identity.path)
             refresh()
             return true
@@ -1934,6 +1939,7 @@ final class AppContainer: ObservableObject {
                 }
                 document.frontmatter.modified = Date()
             }
+            upsertRecordInMemory(updated)
             markSelfWrite(path: updated.identity.path)
             refresh()
             return true
@@ -1957,6 +1963,7 @@ final class AppContainer: ObservableObject {
                 document.frontmatter.recurrence = recurrence?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
                 document.frontmatter.modified = Date()
             }
+            upsertRecordInMemory(updated)
             markSelfWrite(path: updated.identity.path)
             refresh()
             return true
@@ -1974,6 +1981,7 @@ final class AppContainer: ObservableObject {
                 document.frontmatter.tags = normalizedTags
                 document.frontmatter.modified = Date()
             }
+            upsertRecordInMemory(updated)
             markSelfWrite(path: updated.identity.path)
             refresh()
             return true
@@ -2021,6 +2029,7 @@ final class AppContainer: ObservableObject {
                 document.frontmatter.dueTime = shouldPersistTime ? localTimeFromDate(shifted) : nil
                 document.frontmatter.modified = Date()
             }
+            upsertRecordInMemory(updated)
             markSelfWrite(path: updated.identity.path)
             refresh()
             return true
@@ -2102,6 +2111,7 @@ final class AppContainer: ObservableObject {
                 document.frontmatter.flagged.toggle()
                 document.frontmatter.modified = Date()
             }
+            upsertRecordInMemory(updated)
             markSelfWrite(path: updated.identity.path)
             refresh()
             return true
@@ -2118,6 +2128,7 @@ final class AppContainer: ObservableObject {
                 document.frontmatter.blockedBy = blockedBy
                 document.frontmatter.modified = Date()
             }
+            upsertRecordInMemory(updated)
             markSelfWrite(path: updated.identity.path)
             refresh()
             return true
@@ -2205,9 +2216,10 @@ final class AppContainer: ObservableObject {
             return false
         }
 
+        let trimmedInput = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let mergedTags = normalizeTags(parsed.tags + tags)
         createTask(
-            title: parsed.title,
+            title: (parsed.due != nil || parsed.dueTime != nil) ? trimmedInput : parsed.title,
             naturalDate: nil,
             tags: mergedTags,
             explicitDue: explicitDue ?? parsed.due,
@@ -3901,6 +3913,32 @@ final class AppContainer: ObservableObject {
             document.frontmatter.completed = nil
             document.frontmatter.completedBy = nil
         }
+    }
+
+    private func resolvedEditState(_ editState: TaskEditState, for currentRecord: TaskRecord?) -> TaskEditState {
+        var resolved = editState
+        let trimmedTitle = editState.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else { return resolved }
+
+        let existingTitle = currentRecord?.document.frontmatter.title
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard trimmedTitle != existingTitle,
+              let parsed = quickEntryParser.parse(trimmedTitle),
+              let due = parsed.due,
+              let dueDate = dateFromLocalDate(due) else {
+            return resolved
+        }
+
+        resolved.hasDue = true
+        resolved.dueDate = dueDate
+
+        if let dueTime = parsed.dueTime,
+           let dueTimeDate = dateFromLocalTime(dueTime) {
+            resolved.hasDueTime = true
+            resolved.dueTime = dueTimeDate
+        }
+
+        return resolved
     }
 
     private func locationReminder(from editState: TaskEditState) -> TaskLocationReminder? {
