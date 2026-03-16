@@ -4050,7 +4050,9 @@ struct RootView: View {
             quickFindStore.record(query: query)
         }
         universalSearchText = ""
-        isRootSearchPresented = false
+        withAnimation(.easeIn(duration: 0.18)) {
+            isRootSearchPresented = false
+        }
     }
 
     private func openSearchResult(_ view: ViewIdentifier) {
