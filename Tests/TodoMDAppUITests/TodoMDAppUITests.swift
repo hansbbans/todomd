@@ -687,11 +687,12 @@ final class TodoMDAppUITests: XCTestCase {
 
         completeOnboarding(app: app)
 
-        let searchField = app.textFields["root.search.field"].firstMatch
+        // Quick Find uses a floating overlay — no search field visible before opening
+        let searchField = app.textFields["quickFind.searchField"].firstMatch
 
         XCTAssertFalse(
             searchField.exists && searchField.isHittable,
-            "Search field should not be visibly pinned in the root list"
+            "Quick Find search field should not be visible before the modal is opened"
         )
 
         if app.collectionViews.firstMatch.exists {
@@ -702,8 +703,8 @@ final class TodoMDAppUITests: XCTestCase {
             app.swipeDown()
         }
 
-        XCTAssertTrue(app.navigationBars["Search"].waitForExistence(timeout: 5), "Pulling down should present the search sheet")
-        XCTAssertTrue(searchField.waitForExistence(timeout: 5), "Search field should be visible in the search sheet")
+        // Quick Find is a floating overlay — no navigation bar, just the search field
+        XCTAssertTrue(searchField.waitForExistence(timeout: 5), "Pulling down should present the Quick Find modal with a search field")
         XCTAssertTrue(searchField.isHittable, "Search field should be interactive after pull-down")
 
         let initialMinY = searchField.frame.minY
@@ -712,7 +713,7 @@ final class TodoMDAppUITests: XCTestCase {
             searchField.frame.minY,
             initialMinY,
             accuracy: 12,
-            "Focusing the search field should not pull it to the top of the sheet"
+            "Focusing the search field should not reposition it"
         )
         searchField.typeText("search smoke")
 
