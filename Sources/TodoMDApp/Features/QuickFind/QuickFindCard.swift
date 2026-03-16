@@ -68,9 +68,8 @@ struct QuickFindCard<Results: View>: View {
     }
 
     private var preQueryContent: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                if !store.displayedPinned.isEmpty {
+        VStack(alignment: .leading, spacing: 0) {
+            if !store.displayedPinned.isEmpty {
                     sectionHeader("Pinned")
                     ForEach(store.displayedPinned, id: \.self) { pinned in
                         pinnedRow(pinned)
@@ -82,12 +81,11 @@ struct QuickFindCard<Results: View>: View {
                         recentRow(recent)
                     }
                 }
-                Text("Quickly find tasks, lists, tags…")
-                    .font(.footnote)
-                    .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
-            }
+            Text("Quickly find tasks, lists, tags…")
+                .font(.footnote)
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
         }
     }
 
@@ -152,13 +150,7 @@ struct QuickFindCard<Results: View>: View {
         }
         .contextMenu {
             Button("Pin") {
-                if store.isPinFull {
-                    Task { @MainActor in
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    }
-                } else {
-                    store.pin(item)
-                }
+                store.pin(item)
             }
             .disabled(store.isPinFull)
             Button("Delete", role: .destructive) {
