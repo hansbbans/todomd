@@ -1307,7 +1307,7 @@ struct RootView: View {
         ToolbarItem(placement: .appTrailingAction) {
             if horizontalSizeClass != .compact {
                 NavigationLink {
-                    SettingsView()
+                    SettingsView(quickFindStore: quickFindStore)
                 } label: {
                     Image(systemName: "gearshape")
                 }
@@ -1428,7 +1428,7 @@ struct RootView: View {
         .toolbar {
             ToolbarItem(placement: .appTrailingAction) {
                 NavigationLink {
-                    SettingsView()
+                    SettingsView(quickFindStore: quickFindStore)
                 } label: {
                     Image(systemName: "gearshape")
                 }
@@ -2686,7 +2686,7 @@ struct RootView: View {
 
             Section {
                 NavigationLink {
-                    SettingsView()
+                    SettingsView(quickFindStore: quickFindStore)
                 } label: {
                     Label("Settings", systemImage: "gearshape")
                 }
