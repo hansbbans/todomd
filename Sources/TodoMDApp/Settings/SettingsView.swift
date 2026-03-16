@@ -83,6 +83,8 @@ private enum IntegrationAccessPrimer: String, Identifiable {
 }
 
 struct SettingsView: View {
+    @Bindable var quickFindStore: QuickFindStore   // injected from RootView
+
     @EnvironmentObject private var container: AppContainer
 
     @AppStorage("settings_notification_hour") private var notificationHour = 9
@@ -540,6 +542,10 @@ struct SettingsView: View {
 
     private var taskBehaviorSettingsView: some View {
         Form {
+            Section("Quick Find") {
+                Toggle("Include tasks in recents", isOn: $quickFindStore.recordTasks)
+            }
+
             Section {
                 Toggle("Archive completed", isOn: $archiveCompleted)
 

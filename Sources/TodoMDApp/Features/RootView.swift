@@ -733,6 +733,18 @@ struct RootView: View {
                                 store: quickFindStore,
                                 maxHeight: geo.size.height * 0.55,
                                 onDismiss: { dismissRootSearch() },
+                                onSelectRecent: { item in
+                                    switch item.destination {
+                                    case .view(let raw):
+                                        dismissRootSearch()
+                                        let view = ViewIdentifier(rawValue: raw)
+                                        guard container.selectedView != view else { return }
+                                        applyFilter(view)
+                                    case .task(let path):
+                                        dismissRootSearch()
+                                        DispatchQueue.main.async { openFullTaskEditor(path: path) }
+                                    }
+                                },
                                 resultsContent: { query in
                                     AnyView(rootSearchResultsContent(query: query))
                                 }
@@ -1295,7 +1307,7 @@ struct RootView: View {
         ToolbarItem(placement: .appTrailingAction) {
             if horizontalSizeClass != .compact {
                 NavigationLink {
-                    SettingsView()
+                    SettingsView(quickFindStore: quickFindStore)
                 } label: {
                     Image(systemName: "gearshape")
                 }
@@ -1416,7 +1428,7 @@ struct RootView: View {
         .toolbar {
             ToolbarItem(placement: .appTrailingAction) {
                 NavigationLink {
-                    SettingsView()
+                    SettingsView(quickFindStore: quickFindStore)
                 } label: {
                     Image(systemName: "gearshape")
                 }
@@ -2674,7 +2686,7 @@ struct RootView: View {
 
             Section {
                 NavigationLink {
-                    SettingsView()
+                    SettingsView(quickFindStore: quickFindStore)
                 } label: {
                     Label("Settings", systemImage: "gearshape")
                 }
@@ -3300,7 +3312,7 @@ struct RootView: View {
         let tint = color(forHex: tintHex) ?? theme.accentColor
         let resolvedFallback = fallbackIcon ?? (icon.isEmpty ? "questionmark.circle" : icon)
         return Button {
-            openSearchResult(view)
+            openSearchResult(view, label: label, icon: icon, tintHex: tintHex)
         } label: {
             HStack(spacing: 10) {
                 AppIconGlyph(
@@ -3362,7 +3374,7 @@ struct RootView: View {
         let tint = frontmatter.flagged ? theme.flaggedColor : theme.accentColor
 
         return Button {
-            openSearchTaskResult(path: record.identity.path)
+            openSearchTaskResult(path: record.identity.path, label: frontmatter.title)
         } label: {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 10) {
@@ -4041,23 +4053,28 @@ struct RootView: View {
     }
 
     private func dismissRootSearch() {
-        let query = universalSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !query.isEmpty {
-            quickFindStore.record(query: query)
-        }
         universalSearchText = ""
         withAnimation(.easeIn(duration: 0.18)) {
             isRootSearchPresented = false
         }
     }
 
-    private func openSearchResult(_ view: ViewIdentifier) {
+    private func openSearchResult(
+        _ view: ViewIdentifier,
+        label: String,
+        icon: String,
+        tintHex: String? = nil
+    ) {
+        let item = RecentItem(label: label, icon: icon, tintHex: tintHex, destination: .view(view.rawValue))
+        quickFindStore.record(item: item)
         dismissRootSearch()
         guard container.selectedView != view else { return }
         applyFilter(view)
     }
 
-    private func openSearchTaskResult(path: String) {
+    private func openSearchTaskResult(path: String, label: String) {
+        let item = RecentItem(label: label, icon: "doc.text", tintHex: nil, destination: .task(path))
+        quickFindStore.record(item: item)
         dismissRootSearch()
         DispatchQueue.main.async {
             openFullTaskEditor(path: path)
