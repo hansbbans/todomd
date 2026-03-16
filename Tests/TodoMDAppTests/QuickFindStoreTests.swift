@@ -119,6 +119,18 @@ struct QuickFindStoreTests {
         #expect(store.recentSearches.first == "sprint")
     }
 
+    @Test("unpin deduplicates and caps recents at 10")
+    func unpin_capsRecentsAtTen() throws {
+        let (store, defaults, suiteName) = try makeStore()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        for i in 1...10 { store.record(query: "q\(i)") }
+        store.pin("pinned")
+        store.unpin("pinned")
+        #expect(store.recentSearches.count == 10)
+        #expect(store.recentSearches.first == "pinned")
+    }
+
     // MARK: - displayedPinned / displayedRecent
 
     @Test("displayedPinned returns up to three pinned entries")

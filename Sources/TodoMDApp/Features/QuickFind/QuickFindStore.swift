@@ -52,7 +52,9 @@ final class QuickFindStore {
 
     func unpin(_ query: String) {
         pinnedSearches.removeAll { $0.lowercased() == query.lowercased() }
+        recentSearches.removeAll { $0.lowercased() == query.lowercased() }
         recentSearches.insert(query, at: 0)
+        if recentSearches.count > 10 { recentSearches = Array(recentSearches.prefix(10)) }
         persist()
     }
 

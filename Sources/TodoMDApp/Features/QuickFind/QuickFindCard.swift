@@ -139,9 +139,11 @@ struct QuickFindCard<Results: View>: View {
         .swipeActions(edge: .trailing) {
             Button("Pin") {
                 if store.isPinFull {
+#if canImport(UIKit)
                     Task { @MainActor in
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     }
+#endif
                 } else {
                     store.pin(item)
                 }

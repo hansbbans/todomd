@@ -725,18 +725,14 @@ struct RootView: View {
                     ZStack(alignment: .top) {
                         Color.black.opacity(0.35)
                             .ignoresSafeArea()
-                            .onTapGesture {
-                                withAnimation(.easeIn(duration: 0.18)) { dismissRootSearch() }
-                            }
+                            .onTapGesture { dismissRootSearch() }
 
                         GeometryReader { geo in
                             QuickFindCard(
                                 query: $universalSearchText,
                                 store: quickFindStore,
                                 maxHeight: geo.size.height * 0.55,
-                                onDismiss: {
-                                    withAnimation(.easeIn(duration: 0.18)) { dismissRootSearch() }
-                                },
+                                onDismiss: { dismissRootSearch() },
                                 resultsContent: { query in
                                     AnyView(rootSearchResultsContent(query: query))
                                 }
