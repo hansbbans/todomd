@@ -723,7 +723,7 @@ struct RootView: View {
             .overlay {
                 if isRootSearchPresented {
                     ZStack(alignment: .top) {
-                        Color.black.opacity(0.35)
+                        Color.clear
                             .ignoresSafeArea()
                             .onTapGesture { dismissRootSearch() }
 

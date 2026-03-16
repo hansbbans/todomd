@@ -18,7 +18,7 @@ struct QuickFindCard<Results: View>: View {
             cardContent
         }
         .frame(maxHeight: maxHeight, alignment: .top)
-        .background(.regularMaterial)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .shadow(color: .black.opacity(0.18), radius: 16, y: 4)
         .onAppear {
@@ -33,23 +33,31 @@ struct QuickFindCard<Results: View>: View {
 
     private var searchFieldRow: some View {
         HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-            TextField("Quick Find", text: $query)
-                .focused($isSearchFieldFocused)
-                .submitLabel(.search)
-                .autocorrectionDisabled()
-                .accessibilityIdentifier("quickFind.searchField")
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Quick Find", text: $query)
+                    .focused($isSearchFieldFocused)
+                    .submitLabel(.search)
+                    .autocorrectionDisabled()
+                    .accessibilityIdentifier("quickFind.searchField")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(Color(uiColor: .tertiarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+
             Button {
                 onDismiss()
             } label: {
                 Image(systemName: "xmark.circle.fill")
+                    .font(.title3)
                     .foregroundStyle(.secondary)
             }
             .accessibilityLabel("Close Quick Find")
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 13)
+        .padding(.vertical, 12)
     }
 
     // MARK: - Card body
@@ -84,10 +92,12 @@ struct QuickFindCard<Results: View>: View {
                     }
                 }
             Text("Quickly find tasks, lists, tags…")
-                .font(.footnote)
+                .font(.subheadline)
                 .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
                 .padding(.horizontal, 14)
-                .padding(.vertical, 12)
+                .padding(.vertical, 16)
         }
     }
 
@@ -166,12 +176,15 @@ struct QuickFindCard<Results: View>: View {
     // MARK: - Section header
 
     private func sectionHeader(_ title: String) -> some View {
-        Text(title)
-            .font(.footnote)
-            .fontWeight(.semibold)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 14)
-            .padding(.top, 12)
-            .padding(.bottom, 4)
+        VStack(alignment: .leading, spacing: 0) {
+            Text(title)
+                .font(.footnote)
+                .fontWeight(.semibold)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 14)
+                .padding(.top, 12)
+                .padding(.bottom, 6)
+            Divider()
+        }
     }
 }
