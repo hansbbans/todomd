@@ -374,47 +374,14 @@ private struct RootPullToSearchIndicator: View {
         let iconScale = 0.84 + (clampedProgress * 0.22)
         let panelOpacity = isVisible ? min(1, 0.12 + (activationProgress * 1.28)) : 0
         let verticalOffset = max(-18, 18 - (clampedProgress * 24))
-        let badgeTint = Color(red: 0.24, green: 0.74, blue: 0.98)
 
         VStack(spacing: 7) {
-            ZStack {
-                Circle()
-                    .fill(.ultraThinMaterial)
-
-                Circle()
-                    .strokeBorder(Color.white.opacity(isArmed ? 0.28 : 0.14), lineWidth: 1)
-
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                badgeTint.opacity(0.16 + (activationProgress * 0.14)),
-                                badgeTint.opacity(isArmed ? 0.34 : 0.08)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .padding(4)
-
-                RootPullToSearchMagnifyingGlass(
-                    progress: activationProgress,
-                    isArmed: isArmed
-                )
-                .padding(8)
-                .scaleEffect(iconScale)
-
-                Circle()
-                    .trim(from: 0, to: activationProgress)
-                    .stroke(
-                        badgeTint.opacity(isArmed ? 0.95 : 0.7),
-                        style: StrokeStyle(lineWidth: 2.6, lineCap: .round)
-                    )
-                    .rotationEffect(.degrees(-90))
-                    .padding(2.2)
-                    .opacity(activationProgress > 0.02 ? 1 : 0)
-            }
-            .frame(width: 44, height: 44)
+            RootPullToSearchMagnifyingGlass(
+                progress: activationProgress,
+                isArmed: isArmed
+            )
+            .frame(width: 28, height: 28)
+            .scaleEffect(iconScale)
 
             Text(isArmed ? "Release to search" : "Pull to search")
                 .font(.caption.weight(.semibold))
@@ -489,11 +456,6 @@ private struct RootPullToSearchMagnifyingGlass: View {
 
                     Circle()
                         .strokeBorder(Color.white.opacity(isArmed ? 0.98 : 0.72), lineWidth: lensStrokeWidth)
-
-                    Circle()
-                        .strokeBorder(tint.opacity(0.22 + (clampedProgress * 0.42)), lineWidth: lensStrokeWidth * 0.34)
-                        .padding(lensStrokeWidth * 1.15)
-                        .opacity(clampedProgress > 0.06 ? 1 : 0)
                 }
                 .frame(width: lensDiameter, height: lensDiameter)
 
@@ -690,6 +652,7 @@ struct RootView: View {
     @State private var inlineTaskDraft = InlineTaskDraft()
     @State private var expandedInlineTaskPanel: InlineTaskPanel?
     @State private var showingInlineTaskDateModal = false
+    @FocusState private var isRootSearchFieldFocused: Bool
     @State private var inlineComposerTransitionTask: Task<Void, Never>?
     @State private var showingProjectSettingsSheet = false
     @State private var editingProjectOriginalName = ""
@@ -3574,7 +3537,7 @@ struct RootView: View {
 
     private var rootSearchSheet: some View {
         List {
-            if universalSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if normalizedRootSearchQuery.isEmpty {
                 ContentUnavailableView(
                     "Search Everything",
                     systemImage: "magnifyingglass",
@@ -3588,13 +3551,16 @@ struct RootView: View {
                 .listRowSeparator(.hidden)
             } else {
                 rootSearchResultsContent(
-                    query: universalSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    query: normalizedRootSearchQuery
                 )
             }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(theme.backgroundColor)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            rootSearchFieldBar
+        }
         .navigationTitle("Search")
 #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -3607,19 +3573,65 @@ struct RootView: View {
             }
         }
 #if os(iOS)
-        .searchable(
-            text: $universalSearchText,
-            placement: .navigationBarDrawer(displayMode: .always),
-            prompt: "Tasks, projects, tags, perspectives"
-        )
         .presentationDetents(
             [.fraction(0.58), .large],
             selection: $rootSearchPresentationDetent
         )
         .presentationDragIndicator(.visible)
-#else
-        .searchable(text: $universalSearchText, prompt: "Tasks, projects, tags, perspectives")
 #endif
+        .onDisappear {
+            isRootSearchFieldFocused = false
+        }
+    }
+
+    private var normalizedRootSearchQuery: String {
+        universalSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var rootSearchFieldBar: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(theme.textSecondaryColor)
+
+                TextField("Tasks, projects, tags, perspectives", text: $universalSearchText)
+                    .modifier(RootViewNeverAutocapitalization())
+#if os(iOS)
+                    .autocorrectionDisabled()
+                    .submitLabel(.search)
+#endif
+                    .focused($isRootSearchFieldFocused)
+                    .foregroundStyle(theme.textPrimaryColor)
+                    .accessibilityIdentifier("root.search.field")
+
+                if !universalSearchText.isEmpty {
+                    Button {
+                        universalSearchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(theme.textSecondaryColor)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("root.search.clearButton")
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(theme.surfaceColor)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .strokeBorder(theme.textSecondaryColor.opacity(0.12), lineWidth: 1)
+                    )
+            )
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 10)
+        }
+        .background(theme.backgroundColor)
     }
 
     @ViewBuilder
@@ -4004,11 +4016,9 @@ struct RootView: View {
         }
 
         let currentTitle = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        let parsedTitle = parsed.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !parsedTitle.isEmpty, parsedTitle != currentTitle else { return }
+        guard !currentTitle.isEmpty else { return }
 
         inlineTaskTitleMutationInFlight = true
-        inlineTaskDraft.title = parsedTitle
         if let parsedProject = parsed.project {
             inlineTaskDraft.project = parsedProject
             inlineTaskDraft.area = nil
@@ -4251,6 +4261,7 @@ struct RootView: View {
         withAnimation(.easeInOut(duration: 0.18)) {
             container.selectedView = view
         }
+        isRootSearchFieldFocused = false
         universalSearchText = ""
         isRootSearchPresented = false
 #if canImport(UIKit)
@@ -4263,6 +4274,7 @@ struct RootView: View {
         if resetQuery {
             universalSearchText = ""
         }
+        isRootSearchFieldFocused = false
 #if os(iOS)
         rootSearchPresentationDetent = .fraction(0.58)
 #endif
@@ -4270,6 +4282,7 @@ struct RootView: View {
     }
 
     private func dismissRootSearch() {
+        isRootSearchFieldFocused = false
         universalSearchText = ""
 #if os(iOS)
         rootSearchPresentationDetent = .fraction(0.58)

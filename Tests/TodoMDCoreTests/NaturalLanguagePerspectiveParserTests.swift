@@ -94,9 +94,44 @@ final class NaturalLanguagePerspectiveParserTests: XCTestCase {
         XCTAssertFalse(result.requiresCloudFallback)
     }
 
+    func testDueThisUpcomingFridayParsesToConcreteDueRule() {
+        let result = parser.parse(
+            "in project TL due this upcoming Friday",
+            relativeTo: referenceDate
+        )
+        let rules = flattenedRules(result.rules)
+
+        XCTAssertEqual(result.rules.operator, .and)
+        XCTAssertTrue(rules.contains { $0.field == .project && $0.operator == .equals && $0.stringValue == "Tl" })
+        XCTAssertTrue(rules.contains { $0.field == .due && $0.operator == .on && $0.stringValue == "2026-03-06" })
+        XCTAssertEqual(result.confidence, 1)
+        XCTAssertFalse(result.requiresCloudFallback)
+    }
+
+    func testDueByUpcomingFridayParsesToOnOrBeforeRule() {
+        let result = parser.parse(
+            "in project TL due by upcoming Friday",
+            relativeTo: referenceDate
+        )
+        let rules = flattenedRules(result.rules)
+
+        XCTAssertEqual(result.rules.operator, .and)
+        XCTAssertTrue(rules.contains { $0.field == .project && $0.operator == .equals && $0.stringValue == "Tl" })
+        XCTAssertTrue(rules.contains { $0.field == .due && $0.operator == .onOrBefore && $0.stringValue == "2026-03-06" })
+        XCTAssertEqual(result.confidence, 1)
+        XCTAssertFalse(result.requiresCloudFallback)
+    }
+
     func testUpcomingWeekdayParsesInDateParser() {
         let dateParser = NaturalLanguageDateParser(calendar: Calendar(identifier: .gregorian))
         let parsed = dateParser.parse("upcoming friday", relativeTo: referenceDate)
+
+        XCTAssertEqual(parsed?.isoString, "2026-03-06")
+    }
+
+    func testThisUpcomingWeekdayParsesInDateParser() {
+        let dateParser = NaturalLanguageDateParser(calendar: Calendar(identifier: .gregorian))
+        let parsed = dateParser.parse("this upcoming friday", relativeTo: referenceDate)
 
         XCTAssertEqual(parsed?.isoString, "2026-03-06")
     }

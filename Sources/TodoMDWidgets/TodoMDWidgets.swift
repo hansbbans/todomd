@@ -4,6 +4,7 @@ import WidgetKit
 
 private let quickAddURL = URL(string: "todomd://quick-add")!
 private let todoMDWidgetKind = "TodoMDTasksWidget"
+private let todoMDTodayTomorrowWidgetKind = "TodoMDTodayTomorrowWidget"
 
 enum WidgetTaskSourceOption: String, AppEnum {
     case today
@@ -120,6 +121,7 @@ struct CompleteTaskFromWidgetIntent: AppIntent {
         }
 
         WidgetCenter.shared.reloadTimelines(ofKind: todoMDWidgetKind)
+        WidgetCenter.shared.reloadTimelines(ofKind: todoMDTodayTomorrowWidgetKind)
         return .result()
     }
 }
@@ -167,6 +169,14 @@ struct TodoMDWidgetEntry: TimelineEntry, Codable {
     let tasks: [WidgetTaskItem]
 }
 
+struct TodoMDTodayTomorrowWidgetEntry: TimelineEntry, Codable {
+    let date: Date
+    let todayCount: Int
+    let tomorrowCount: Int
+    let todayTasks: [WidgetTaskItem]
+    let tomorrowTasks: [WidgetTaskItem]
+}
+
 private struct WidgetEntryCache {
     private let defaults = TaskFolderPreferences.shared
     private let keyPrefix = "widget_entry_cache_v1"
@@ -200,6 +210,25 @@ private struct WidgetEntryCache {
             project,
             tag
         ].joined(separator: "|")
+    }
+}
+
+private struct TodayTomorrowWidgetEntryCache {
+    private let defaults = TaskFolderPreferences.shared
+    private let key = "widget_entry_cache_today_tomorrow_v1"
+
+    func load() -> TodoMDTodayTomorrowWidgetEntry? {
+        guard let data = defaults.data(forKey: key) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(TodoMDTodayTomorrowWidgetEntry.self, from: data)
+    }
+
+    func save(_ entry: TodoMDTodayTomorrowWidgetEntry) {
+        guard let data = try? JSONEncoder().encode(entry) else {
+            return
+        }
+        defaults.set(data, forKey: key)
     }
 }
 
@@ -264,6 +293,34 @@ private struct WidgetTaskLoader {
             viewRawValue: selection.viewRawValue,
             taskLimit: sanitizedLimit,
             tasks: Array(mapped)
+        )
+    }
+
+    func loadTodayTomorrow(maxTasksPerColumn: Int) throws -> TodoMDTodayTomorrowWidgetEntry {
+        let root = try locator.ensureFolderExists()
+        let repository = FileTaskRepository(rootURL: root)
+        let manualOrderService = ManualOrderService(rootURL: root)
+
+        let today = LocalDate.today(in: .current)
+        let tomorrow = offset(today, byDays: 1)
+        let records = try snapshotStore.hydrate(rootURL: root, repository: repository, mode: .optimistic).records
+
+        let todayIdentifier = ViewIdentifier.builtIn(.today)
+        let orderedToday = manualOrderService.ordered(
+            records: records.filter { queryEngine.matches($0, view: todayIdentifier, today: today) },
+            view: todayIdentifier
+        )
+        let orderedTomorrow = records
+            .filter { matchesTomorrow($0, tomorrow: tomorrow) }
+            .sorted { compareTomorrowRecords($0, $1, tomorrow: tomorrow) }
+
+        let sanitizedLimit = max(1, min(8, maxTasksPerColumn))
+        return TodoMDTodayTomorrowWidgetEntry(
+            date: Date(),
+            todayCount: orderedToday.count,
+            tomorrowCount: orderedTomorrow.count,
+            todayTasks: map(records: orderedToday, limit: sanitizedLimit),
+            tomorrowTasks: map(records: orderedTomorrow, limit: sanitizedLimit)
         )
     }
 
@@ -364,6 +421,18 @@ private struct WidgetTaskLoader {
         return ascending
     }
 
+    private func map(records: [TaskRecord], limit: Int) -> [WidgetTaskItem] {
+        records.prefix(limit).map { record in
+            WidgetTaskItem(
+                id: record.identity.path,
+                path: record.identity.path,
+                title: record.document.frontmatter.title,
+                status: record.document.frontmatter.status,
+                dueISODate: record.document.frontmatter.due?.isoString
+            )
+        }
+    }
+
     private func orderedByManualList(records: [TaskRecord], filenames: [String]?) -> [TaskRecord] {
         guard let filenames, !filenames.isEmpty else {
             return records.sorted { $0.document.frontmatter.created < $1.document.frontmatter.created }
@@ -413,6 +482,62 @@ private struct WidgetTaskLoader {
         case .none:
             return 1
         }
+    }
+
+    private func matchesTomorrow(_ record: TaskRecord, tomorrow: LocalDate) -> Bool {
+        guard queryEngine.isAnytime(record, today: tomorrow) else { return false }
+        let frontmatter = record.document.frontmatter
+        return frontmatter.due == tomorrow
+            || frontmatter.scheduled == tomorrow
+            || frontmatter.defer == tomorrow
+    }
+
+    private func compareTomorrowRecords(_ lhs: TaskRecord, _ rhs: TaskRecord, tomorrow: LocalDate) -> Bool {
+        let leftRank = tomorrowMatchRank(for: lhs, tomorrow: tomorrow)
+        let rightRank = tomorrowMatchRank(for: rhs, tomorrow: tomorrow)
+        if leftRank != rightRank {
+            return leftRank < rightRank
+        }
+
+        let leftPriority = priorityRank(lhs.document.frontmatter.priority)
+        let rightPriority = priorityRank(rhs.document.frontmatter.priority)
+        if leftPriority != rightPriority {
+            return leftPriority > rightPriority
+        }
+
+        return lhs.document.frontmatter.title.localizedCaseInsensitiveCompare(rhs.document.frontmatter.title) == .orderedAscending
+    }
+
+    private func tomorrowMatchRank(for record: TaskRecord, tomorrow: LocalDate) -> Int {
+        let frontmatter = record.document.frontmatter
+        if frontmatter.due == tomorrow {
+            return 0
+        }
+        if frontmatter.scheduled == tomorrow {
+            return 1
+        }
+        if frontmatter.defer == tomorrow {
+            return 2
+        }
+        return 3
+    }
+
+    private func offset(_ date: LocalDate, byDays days: Int) -> LocalDate {
+        var components = DateComponents()
+        components.year = date.year
+        components.month = date.month
+        components.day = date.day
+
+        let calendar = queryEngine.calendar
+        let baseDate = calendar.date(from: components) ?? Date()
+        let shifted = calendar.date(byAdding: .day, value: days, to: baseDate) ?? baseDate
+        let shiftedComponents = calendar.dateComponents([.year, .month, .day], from: shifted)
+
+        return (try? LocalDate(
+            year: shiftedComponents.year ?? date.year,
+            month: shiftedComponents.month ?? date.month,
+            day: shiftedComponents.day ?? date.day
+        )) ?? date
     }
 }
 
@@ -520,6 +645,76 @@ struct TodoMDTimelineProvider: AppIntentTimelineProvider {
     }
 }
 
+struct TodayTomorrowTimelineProvider: TimelineProvider {
+    private let entryCache = TodayTomorrowWidgetEntryCache()
+
+    func placeholder(in _: Context) -> TodoMDTodayTomorrowWidgetEntry {
+        placeholderEntry()
+    }
+
+    func getSnapshot(in context: Context, completion: @escaping (TodoMDTodayTomorrowWidgetEntry) -> Void) {
+        completion(resolveEntry(allowsPlaceholder: context.isPreview))
+    }
+
+    func getTimeline(in _: Context, completion: @escaping (Timeline<TodoMDTodayTomorrowWidgetEntry>) -> Void) {
+        let entry = resolveEntry(allowsPlaceholder: false)
+        let nextRefresh = Calendar.current.date(byAdding: .minute, value: 15, to: Date())
+            ?? Date().addingTimeInterval(15 * 60)
+        completion(Timeline(entries: [entry], policy: .after(nextRefresh)))
+    }
+
+    private func resolveEntry(allowsPlaceholder: Bool) -> TodoMDTodayTomorrowWidgetEntry {
+        do {
+            let loaded = try WidgetTaskLoader().loadTodayTomorrow(maxTasksPerColumn: 8)
+            entryCache.save(loaded)
+            TaskFolderPreferences.clearLastWidgetLoadError()
+            return loaded
+        } catch {
+            TaskFolderPreferences.saveLastWidgetLoadError(
+                error.localizedDescription,
+                context: widgetLoadContext()
+            )
+        }
+
+        if let cached = entryCache.load() {
+            return cached
+        }
+
+        if allowsPlaceholder {
+            return placeholderEntry()
+        }
+
+        return TodoMDTodayTomorrowWidgetEntry(
+            date: Date(),
+            todayCount: 0,
+            tomorrowCount: 0,
+            todayTasks: [],
+            tomorrowTasks: []
+        )
+    }
+
+    private func widgetLoadContext() -> String {
+        let selectedFolder = TaskFolderPreferences.selectedFolderURL()?.path ?? "<auto>"
+        return "source=today-tomorrow folder=\(selectedFolder)"
+    }
+
+    private func placeholderEntry() -> TodoMDTodayTomorrowWidgetEntry {
+        TodoMDTodayTomorrowWidgetEntry(
+            date: Date(),
+            todayCount: 2,
+            tomorrowCount: 2,
+            todayTasks: [
+                WidgetTaskItem(id: "today-1", path: "/tmp/today-1.md", title: "Ship widget polish", status: .todo, dueISODate: nil),
+                WidgetTaskItem(id: "today-2", path: "/tmp/today-2.md", title: "Review trip budget", status: .inProgress, dueISODate: nil)
+            ],
+            tomorrowTasks: [
+                WidgetTaskItem(id: "tomorrow-1", path: "/tmp/tomorrow-1.md", title: "Draft itinerary", status: .todo, dueISODate: "2026-03-17"),
+                WidgetTaskItem(id: "tomorrow-2", path: "/tmp/tomorrow-2.md", title: "Confirm hotel check-in", status: .todo, dueISODate: "2026-03-17")
+            ]
+        )
+    }
+}
+
 struct TodoMDTasksWidgetView: View {
     @Environment(\.widgetFamily) private var family
     @Environment(\.colorScheme) private var colorScheme
@@ -528,20 +723,33 @@ struct TodoMDTasksWidgetView: View {
 
     private let tokens = ThemeTokenStore().loadPreset(.classic)
 
+    private struct WidgetMetrics {
+        let headerFontSize: CGFloat
+        let countFontSize: CGFloat
+        let taskFontSize: CGFloat
+        let dueFontSize: CGFloat
+        let glyphFontSize: CGFloat
+        let quickAddDiameter: CGFloat
+        let quickAddGlyphSize: CGFloat
+        let contentSpacing: CGFloat
+        let rowSpacing: CGFloat
+        let padding: CGFloat
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: metrics.contentSpacing) {
             HStack {
                 Text(entry.viewTitle)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(widgetTitleFont)
                     .foregroundStyle(textPrimary)
                     .lineLimit(1)
                 Spacer(minLength: 8)
                 Text("\(displayedTasks.count)")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(widgetCountFont)
                     .foregroundStyle(textSecondary)
             }
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: metrics.rowSpacing) {
                 ForEach(displayedTasks) { task in
                     taskRow(task)
                 }
@@ -551,14 +759,10 @@ struct TodoMDTasksWidgetView: View {
 
             HStack {
                 Spacer()
-                Link(destination: quickAddURL) {
-                    Label("Add", systemImage: "plus.circle.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(accent)
-                }
+                quickAddButton
             }
         }
-        .padding(12)
+        .padding(metrics.padding)
         .containerBackground(for: .widget) {
             background
         }
@@ -585,12 +789,12 @@ struct TodoMDTasksWidgetView: View {
         HStack(spacing: 8) {
             if task.status == .done || task.status == .cancelled {
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(widgetTaskGlyphFont)
                     .foregroundStyle(textSecondary)
             } else {
                 Button(intent: CompleteTaskFromWidgetIntent(path: task.path)) {
                     Image(systemName: task.status == .inProgress ? "circle.dashed" : "circle")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(widgetTaskGlyphFont)
                         .foregroundStyle(accent)
                 }
                 .buttonStyle(.plain)
@@ -600,13 +804,13 @@ struct TodoMDTasksWidgetView: View {
                 Link(destination: taskURL) {
                     HStack(spacing: 6) {
                         Text(task.title)
-                            .font(.system(size: 13, weight: .regular))
+                            .font(widgetTaskTitleFont)
                             .foregroundStyle(textPrimary)
                             .lineLimit(1)
 
                         if let dueISODate = task.dueISODate {
                             Text(dueISODate)
-                                .font(.system(size: 11, weight: .medium))
+                                .font(widgetDueDateFont)
                                 .foregroundStyle(textSecondary)
                                 .lineLimit(1)
                         }
@@ -614,13 +818,357 @@ struct TodoMDTasksWidgetView: View {
                 }
             } else {
                 Text(task.title)
-                    .font(.system(size: 13, weight: .regular))
+                    .font(widgetTaskTitleFont)
                     .foregroundStyle(textPrimary)
                     .lineLimit(1)
             }
 
             Spacer(minLength: 0)
         }
+    }
+
+    private var quickAddButton: some View {
+        Link(destination: quickAddURL) {
+            ZStack {
+                Circle()
+                    .fill(accent)
+                    .overlay {
+                        Circle()
+                            .strokeBorder(.white.opacity(0.16), lineWidth: 1)
+                    }
+
+                Image(systemName: "plus")
+                    .font(widgetQuickAddGlyphFont)
+                    .foregroundStyle(quickAddGlyphColor)
+            }
+            .frame(width: metrics.quickAddDiameter, height: metrics.quickAddDiameter)
+            .shadow(color: accent.opacity(0.28), radius: 16, x: 0, y: 8)
+            .shadow(color: .black.opacity(0.18), radius: 10, x: 0, y: 4)
+        }
+        .accessibilityLabel("Add Task")
+    }
+
+    private var metrics: WidgetMetrics {
+        switch family {
+        case .systemSmall:
+            return WidgetMetrics(
+                headerFontSize: 15,
+                countFontSize: 14,
+                taskFontSize: 14,
+                dueFontSize: 11,
+                glyphFontSize: 14,
+                quickAddDiameter: 44,
+                quickAddGlyphSize: 22,
+                contentSpacing: 7,
+                rowSpacing: 5,
+                padding: 12
+            )
+        case .systemLarge:
+            return WidgetMetrics(
+                headerFontSize: 19,
+                countFontSize: 18,
+                taskFontSize: 17,
+                dueFontSize: 13,
+                glyphFontSize: 17,
+                quickAddDiameter: 56,
+                quickAddGlyphSize: 29,
+                contentSpacing: 9,
+                rowSpacing: 7,
+                padding: 14
+            )
+        case .systemMedium:
+            return WidgetMetrics(
+                headerFontSize: 18,
+                countFontSize: 17,
+                taskFontSize: 17,
+                dueFontSize: 13,
+                glyphFontSize: 17,
+                quickAddDiameter: 52,
+                quickAddGlyphSize: 27,
+                contentSpacing: 8,
+                rowSpacing: 6,
+                padding: 12
+            )
+        default:
+            return WidgetMetrics(
+                headerFontSize: 18,
+                countFontSize: 17,
+                taskFontSize: 17,
+                dueFontSize: 13,
+                glyphFontSize: 17,
+                quickAddDiameter: 52,
+                quickAddGlyphSize: 27,
+                contentSpacing: 8,
+                rowSpacing: 6,
+                padding: 12
+            )
+        }
+    }
+
+    private var widgetTitleFont: Font {
+        .system(size: metrics.headerFontSize, weight: .semibold)
+    }
+
+    private var widgetCountFont: Font {
+        .system(size: metrics.countFontSize, weight: .medium)
+    }
+
+    private var widgetTaskTitleFont: Font {
+        .system(size: metrics.taskFontSize, weight: .regular)
+    }
+
+    private var widgetTaskGlyphFont: Font {
+        .system(size: metrics.glyphFontSize, weight: .regular)
+    }
+
+    private var widgetDueDateFont: Font {
+        .system(size: metrics.dueFontSize, weight: .medium)
+    }
+
+    private var widgetQuickAddGlyphFont: Font {
+        .system(size: metrics.quickAddGlyphSize, weight: .light)
+    }
+
+    private var quickAddGlyphColor: Color {
+        colorScheme == .dark ? .black.opacity(0.78) : .black.opacity(0.72)
+    }
+
+    private var background: Color {
+        colorScheme == .dark ? Color(hex: tokens.colors.backgroundPrimaryDark) : Color(hex: tokens.colors.backgroundPrimaryLight)
+    }
+
+    private var textPrimary: Color {
+        colorScheme == .dark ? Color(hex: tokens.colors.textPrimaryDark) : Color(hex: tokens.colors.textPrimaryLight)
+    }
+
+    private var textSecondary: Color {
+        Color(hex: tokens.colors.textSecondary)
+    }
+
+    private var accent: Color {
+        colorScheme == .dark ? Color(hex: tokens.colors.accentDark) : Color(hex: tokens.colors.accentLight)
+    }
+
+    private func showViewURL(rawValue: String) -> URL? {
+        URL(string: "todomd://show/\(rawValue)")
+    }
+
+    private func taskURL(for path: String) -> URL? {
+        var components = URLComponents()
+        components.scheme = "todomd"
+        components.host = "task"
+        components.queryItems = [URLQueryItem(name: "path", value: path)]
+        return components.url
+    }
+}
+
+struct TodoMDTodayTomorrowWidgetView: View {
+    @Environment(\.widgetFamily) private var family
+    @Environment(\.colorScheme) private var colorScheme
+
+    let entry: TodoMDTodayTomorrowWidgetEntry
+
+    private let tokens = ThemeTokenStore().loadPreset(.classic)
+
+    private struct Metrics {
+        let headerFontSize: CGFloat
+        let countFontSize: CGFloat
+        let taskFontSize: CGFloat
+        let glyphFontSize: CGFloat
+        let quickAddDiameter: CGFloat
+        let quickAddGlyphSize: CGFloat
+        let columnSpacing: CGFloat
+        let sectionSpacing: CGFloat
+        let rowSpacing: CGFloat
+        let padding: CGFloat
+        let dividerOpacity: CGFloat
+        let emptyFontSize: CGFloat
+        let tasksPerColumn: Int
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: metrics.sectionSpacing) {
+            HStack(alignment: .top, spacing: metrics.columnSpacing) {
+                taskColumn(title: "Today", count: entry.todayCount, tasks: displayedTodayTasks)
+
+                Rectangle()
+                    .fill(textSecondary.opacity(metrics.dividerOpacity))
+                    .frame(width: 1)
+
+                taskColumn(title: "Tomorrow", count: entry.tomorrowCount, tasks: displayedTomorrowTasks)
+            }
+
+            Spacer(minLength: 0)
+
+            HStack {
+                Spacer()
+                quickAddButton
+            }
+        }
+        .padding(metrics.padding)
+        .containerBackground(for: .widget) {
+            background
+        }
+        .widgetURL(showViewURL(rawValue: BuiltInView.today.rawValue))
+    }
+
+    private var displayedTodayTasks: [WidgetTaskItem] {
+        Array(entry.todayTasks.prefix(metrics.tasksPerColumn))
+    }
+
+    private var displayedTomorrowTasks: [WidgetTaskItem] {
+        Array(entry.tomorrowTasks.prefix(metrics.tasksPerColumn))
+    }
+
+    @ViewBuilder
+    private func taskColumn(title: String, count: Int, tasks: [WidgetTaskItem]) -> some View {
+        VStack(alignment: .leading, spacing: metrics.sectionSpacing) {
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(titleFont)
+                    .foregroundStyle(textPrimary)
+                    .lineLimit(1)
+
+                Spacer(minLength: 4)
+
+                Text("\(count)")
+                    .font(countFont)
+                    .foregroundStyle(textSecondary)
+            }
+
+            if tasks.isEmpty {
+                Text("No tasks")
+                    .font(emptyStateFont)
+                    .foregroundStyle(textSecondary)
+                    .lineLimit(1)
+            } else {
+                VStack(alignment: .leading, spacing: metrics.rowSpacing) {
+                    ForEach(tasks) { task in
+                        taskRow(task)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func taskRow(_ task: WidgetTaskItem) -> some View {
+        HStack(spacing: 8) {
+            if task.status == .done || task.status == .cancelled {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(taskGlyphFont)
+                    .foregroundStyle(textSecondary)
+            } else {
+                Button(intent: CompleteTaskFromWidgetIntent(path: task.path)) {
+                    Image(systemName: task.status == .inProgress ? "circle.dashed" : "circle")
+                        .font(taskGlyphFont)
+                        .foregroundStyle(accent)
+                }
+                .buttonStyle(.plain)
+            }
+
+            if let taskURL = taskURL(for: task.path) {
+                Link(destination: taskURL) {
+                    Text(task.title)
+                        .font(taskTitleFont)
+                        .foregroundStyle(textPrimary)
+                        .lineLimit(1)
+                }
+            } else {
+                Text(task.title)
+                    .font(taskTitleFont)
+                    .foregroundStyle(textPrimary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var quickAddButton: some View {
+        Link(destination: quickAddURL) {
+            ZStack {
+                Circle()
+                    .fill(accent)
+                    .overlay {
+                        Circle()
+                            .strokeBorder(.white.opacity(0.16), lineWidth: 1)
+                    }
+
+                Image(systemName: "plus")
+                    .font(quickAddGlyphFont)
+                    .foregroundStyle(quickAddGlyphColor)
+            }
+            .frame(width: metrics.quickAddDiameter, height: metrics.quickAddDiameter)
+            .shadow(color: accent.opacity(0.28), radius: 16, x: 0, y: 8)
+            .shadow(color: .black.opacity(0.18), radius: 10, x: 0, y: 4)
+        }
+        .accessibilityLabel("Add Task")
+    }
+
+    private var metrics: Metrics {
+        switch family {
+        case .systemLarge:
+            return Metrics(
+                headerFontSize: 19,
+                countFontSize: 18,
+                taskFontSize: 17,
+                glyphFontSize: 17,
+                quickAddDiameter: 56,
+                quickAddGlyphSize: 29,
+                columnSpacing: 12,
+                sectionSpacing: 9,
+                rowSpacing: 7,
+                padding: 14,
+                dividerOpacity: 0.18,
+                emptyFontSize: 14,
+                tasksPerColumn: 6
+            )
+        default:
+            return Metrics(
+                headerFontSize: 18,
+                countFontSize: 17,
+                taskFontSize: 16,
+                glyphFontSize: 16,
+                quickAddDiameter: 52,
+                quickAddGlyphSize: 27,
+                columnSpacing: 10,
+                sectionSpacing: 8,
+                rowSpacing: 6,
+                padding: 12,
+                dividerOpacity: 0.14,
+                emptyFontSize: 13,
+                tasksPerColumn: 3
+            )
+        }
+    }
+
+    private var titleFont: Font {
+        .system(size: metrics.headerFontSize, weight: .semibold)
+    }
+
+    private var countFont: Font {
+        .system(size: metrics.countFontSize, weight: .medium)
+    }
+
+    private var taskTitleFont: Font {
+        .system(size: metrics.taskFontSize, weight: .regular)
+    }
+
+    private var taskGlyphFont: Font {
+        .system(size: metrics.glyphFontSize, weight: .regular)
+    }
+
+    private var emptyStateFont: Font {
+        .system(size: metrics.emptyFontSize, weight: .regular)
+    }
+
+    private var quickAddGlyphFont: Font {
+        .system(size: metrics.quickAddGlyphSize, weight: .light)
+    }
+
+    private var quickAddGlyphColor: Color {
+        colorScheme == .dark ? .black.opacity(0.78) : .black.opacity(0.72)
     }
 
     private var background: Color {
@@ -667,10 +1215,25 @@ struct TodoMDTasksWidget: Widget {
     }
 }
 
+struct TodoMDTodayTomorrowWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(
+            kind: todoMDTodayTomorrowWidgetKind,
+            provider: TodayTomorrowTimelineProvider()
+        ) { entry in
+            TodoMDTodayTomorrowWidgetView(entry: entry)
+        }
+        .configurationDisplayName("Today / Tomorrow")
+        .description("See the tasks that matter today next to what is coming tomorrow.")
+        .supportedFamilies([.systemMedium, .systemLarge])
+    }
+}
+
 @main
 struct TodoMDWidgetsBundle: WidgetBundle {
     var body: some Widget {
         TodoMDTasksWidget()
+        TodoMDTodayTomorrowWidget()
     }
 }
 

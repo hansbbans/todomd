@@ -110,8 +110,12 @@ public struct NaturalLanguageTaskParser {
             guard connectors.contains(token) else { continue }
             let phrase = tokens[(index + 1)...].joined(separator: " ")
             if let parsed = parseDatePhrase(phrase, relativeTo: referenceDate) {
-                let title = tokens[..<index].joined(separator: " ")
-                let recognizedPhrase = normalizeWhitespace("\(tokens[index]) \(phrase)")
+                let usesDuePrefix = index > 0
+                    && normalizedToken(tokens[index - 1]) == "due"
+                    && ["by", "on", "at"].contains(token)
+                let connectorStartIndex = usesDuePrefix ? index - 1 : index
+                let title = tokens[..<connectorStartIndex].joined(separator: " ")
+                let recognizedPhrase = normalizeWhitespace(tokens[connectorStartIndex...].joined(separator: " "))
                 return (title, parsed.due, parsed.dueTime, recognizedPhrase)
             }
         }
@@ -484,6 +488,16 @@ public struct NaturalLanguagePerspectiveParser {
             conditions.append(.rule(PerspectiveRule(field: .due, operator: .before, jsonValue: dateValue)))
         }
 
+        if let phrase = firstMatch(pattern: #"due by ([a-z0-9\-\s]+)"#, in: query),
+           let dateValue = resolvedDateValue(from: phrase, referenceDate: referenceDate) {
+            conditions.append(.rule(PerspectiveRule(field: .due, operator: .onOrBefore, jsonValue: dateValue)))
+        }
+
+        if let phrase = parseConcreteDuePhrase(query),
+           let dateValue = resolvedDateValue(from: phrase, referenceDate: referenceDate) {
+            conditions.append(.rule(PerspectiveRule(field: .due, operator: .on, jsonValue: dateValue)))
+        }
+
         if query.contains("overdue") {
             conditions.append(.rule(PerspectiveRule(field: .due, operator: .before, value: "today")))
         }
@@ -665,6 +679,26 @@ public struct NaturalLanguagePerspectiveParser {
             return value
         }
         return firstMatch(pattern: #"under ([0-9]+) minutes?"#, in: query).flatMap(Int.init)
+    }
+
+    private func parseConcreteDuePhrase(_ query: String) -> String? {
+        guard var phrase = scopedPhrase(in: query, after: "due ") else { return nil }
+        phrase = phrase.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if phrase == "today" || phrase == "tomorrow" || phrase == "this week" || phrase == "no due date" {
+            return nil
+        }
+
+        if phrase.hasPrefix("before ") || phrase.hasSuffix(" or earlier") {
+            return nil
+        }
+
+        if phrase.hasPrefix("on ") {
+            phrase.removeFirst(3)
+        }
+
+        phrase = phrase.trimmingCharacters(in: .whitespacesAndNewlines)
+        return phrase.isEmpty ? nil : phrase
     }
 
     private func normalize(_ query: String) -> String {
