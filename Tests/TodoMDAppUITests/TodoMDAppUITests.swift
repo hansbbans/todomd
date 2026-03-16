@@ -428,19 +428,21 @@ final class TodoMDAppUITests: XCTestCase {
         let projectMenuButton = app.buttons["inlineTask.projectMenuButton"].firstMatch
         let tagsButton = app.buttons["inlineTask.tagsButton"].firstMatch
         let flagButton = app.buttons["inlineTask.flagButton"].firstMatch
+        let submitButton = app.buttons["inlineTask.submitButton"].firstMatch
 
         XCTAssertTrue(dateButton.waitForExistence(timeout: 10), "Date icon button was not visible")
         XCTAssertTrue(projectMenuButton.waitForExistence(timeout: 10), "Project menu icon was not visible")
         XCTAssertTrue(tagsButton.waitForExistence(timeout: 10), "Tags icon button was not visible")
         XCTAssertTrue(flagButton.waitForExistence(timeout: 10), "Flag icon button was not visible")
+        XCTAssertFalse(submitButton.exists, "Inline task entry should no longer show a footer submit button")
 
         XCTAssertTrue(
             waitForCondition(timeout: 3, pollInterval: 0.1) {
-                dateButton.frame.maxX < projectMenuButton.frame.minX
-                    && projectMenuButton.frame.minX < tagsButton.frame.minX
-                    && tagsButton.frame.minX < flagButton.frame.minX
+                dateButton.frame.minX < tagsButton.frame.minX
+                    && tagsButton.frame.minX < projectMenuButton.frame.minX
+                    && projectMenuButton.frame.minX < flagButton.frame.minX
             },
-            "Toolbar should place the date icon on the left and the other controls on the right"
+            "Toolbar should use the new trailing icon order: date, tags, list, flag"
         )
 
         projectMenuButton.tap()

@@ -1264,10 +1264,11 @@ struct RootView: View {
                 Button {
                     triggerInlineTaskComposer()
                 } label: {
-                    Image(systemName: "plus")
+                    Image(systemName: isCreatingTask ? "xmark" : "plus")
                         .font(.title3.weight(.regular))
                 }
                 .keyboardShortcut("n", modifiers: .command)
+                .accessibilityLabel(isCreatingTask ? "Close Task Entry" : "Add Task")
                 .accessibilityIdentifier("root.inlineAddButton")
             }
         }
@@ -1758,12 +1759,6 @@ struct RootView: View {
                 if let expandedInlineTaskPanel {
                     inlineTaskExpandedPanel(expandedInlineTaskPanel)
                 }
-
-                Rectangle()
-                    .fill(inlineTaskComposerDividerColor)
-                    .frame(height: 1)
-
-                inlineTaskComposerFooterBar
             }
             .padding(.leading, 34)
         }
@@ -1883,84 +1878,12 @@ struct RootView: View {
         colorScheme == .dark ? Color.white.opacity(0.06) : theme.textSecondaryColor.opacity(0.16)
     }
 
-    private var inlineTaskComposerDividerColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.06) : theme.textSecondaryColor.opacity(0.09)
-    }
-
     private var inlineTaskComposerNoteTextColor: Color {
         colorScheme == .dark ? Color.white.opacity(0.82) : theme.textSecondaryColor
     }
 
     private var inlineTaskComposerNotePlaceholderColor: Color {
         colorScheme == .dark ? Color.white.opacity(0.3) : theme.textSecondaryColor.opacity(0.7)
-    }
-
-    private var inlineTaskComposerFooterBar: some View {
-        HStack(spacing: 0) {
-            ExpandedTaskFooterButton(
-                title: "Cancel",
-                systemImage: "xmark",
-                tint: inlineTaskComposerFooterTextColor,
-                action: cancelInlineTaskComposer
-            )
-
-            Rectangle()
-                .fill(inlineTaskComposerFooterDividerColor)
-                .frame(width: 1, height: 22)
-                .padding(.vertical, 6)
-
-            ExpandedTaskFooterButton(
-                title: "Add",
-                systemImage: "plus",
-                tint: canCommitInlineTask ? theme.accentColor : theme.textSecondaryColor,
-                action: commitInlineTaskComposer
-            )
-            .disabled(!canCommitInlineTask)
-            .accessibilityIdentifier("inlineTask.submitButton")
-        }
-        .padding(4)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(inlineTaskComposerFooterGradient)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(inlineTaskComposerFooterBorderColor, lineWidth: 1)
-        )
-    }
-
-    private var inlineTaskComposerFooterTextColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.92) : theme.textPrimaryColor
-    }
-
-    private var inlineTaskComposerFooterGradient: LinearGradient {
-        if colorScheme == .dark {
-            return LinearGradient(
-                colors: [
-                    Color.white.opacity(0.055),
-                    Color.white.opacity(0.03)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        }
-
-        return LinearGradient(
-            colors: [
-                theme.surfaceColor.opacity(0.92),
-                theme.backgroundColor.opacity(0.88)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-    }
-
-    private var inlineTaskComposerFooterBorderColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.07) : theme.textSecondaryColor.opacity(0.12)
-    }
-
-    private var inlineTaskComposerFooterDividerColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.08) : theme.textSecondaryColor.opacity(0.12)
     }
 
     private var compactInlineTaskComposerOverlay: some View {
@@ -2036,8 +1959,6 @@ struct RootView: View {
                     inlineTaskExpandedPanel(expandedInlineTaskPanel)
                         .padding(.top, 2)
                 }
-
-                compactInlineTaskFooterBar
             }
             .frame(maxWidth: .infinity, minHeight: expandedInlineTaskPanel == nil ? 134 : nil, alignment: .topLeading)
             .padding(.horizontal, 18)
@@ -2107,26 +2028,18 @@ struct RootView: View {
         colorScheme == .dark ? Color.white.opacity(0.72) : theme.textSecondaryColor
     }
 
-    private var inlineTaskAccessoryBorderColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.08) : theme.textSecondaryColor.opacity(0.12)
-    }
-
     private func inlineTaskAccessoryBarLayout(
         dateActiveTint: Color,
         activeTint: Color,
         inactiveTint: Color,
         flagTint: Color
     ) -> some View {
-        HStack(spacing: 12) {
-            inlineTaskDateAccessoryButton(activeTint: dateActiveTint, inactiveTint: inactiveTint)
-
+        HStack(spacing: 18) {
             Spacer(minLength: 0)
-
-            HStack(spacing: 8) {
-                inlineTaskProjectAccessoryMenu(activeTint: activeTint, inactiveTint: inactiveTint)
-                inlineTaskTagsAccessoryButton(activeTint: activeTint, inactiveTint: inactiveTint)
-                inlineTaskFlagAccessoryButton(activeTint: flagTint, inactiveTint: inactiveTint)
-            }
+            inlineTaskDateAccessoryButton(activeTint: dateActiveTint, inactiveTint: inactiveTint)
+            inlineTaskTagsAccessoryButton(activeTint: activeTint, inactiveTint: inactiveTint)
+            inlineTaskProjectAccessoryMenu(activeTint: activeTint, inactiveTint: inactiveTint)
+            inlineTaskFlagAccessoryButton(activeTint: flagTint, inactiveTint: inactiveTint)
         }
     }
 
@@ -2140,9 +2053,7 @@ struct RootView: View {
         } label: {
             InlineTaskAccessoryIconLabel(
                 systemImage: "calendar",
-                tint: isActive ? activeTint : inactiveTint,
-                fill: inlineTaskAccessoryFillColor(tint: activeTint, isActive: isActive),
-                border: inlineTaskAccessoryStrokeColor(tint: activeTint, isActive: isActive)
+                tint: isActive ? activeTint : inactiveTint
             )
         }
         .buttonStyle(.plain)
@@ -2160,10 +2071,8 @@ struct RootView: View {
             inlineTaskProjectMenuContent
         } label: {
             InlineTaskAccessoryIconLabel(
-                systemImage: "folder",
-                tint: isActive ? activeTint : inactiveTint,
-                fill: inlineTaskAccessoryFillColor(tint: activeTint, isActive: isActive),
-                border: inlineTaskAccessoryStrokeColor(tint: activeTint, isActive: isActive)
+                systemImage: "list.bullet",
+                tint: isActive ? activeTint : inactiveTint
             )
         }
         .menuIndicator(.hidden)
@@ -2181,10 +2090,8 @@ struct RootView: View {
             toggleInlineTaskPanel(.tags)
         } label: {
             InlineTaskAccessoryIconLabel(
-                systemImage: "tag",
-                tint: isActive ? activeTint : inactiveTint,
-                fill: inlineTaskAccessoryFillColor(tint: activeTint, isActive: isActive),
-                border: inlineTaskAccessoryStrokeColor(tint: activeTint, isActive: isActive)
+                systemImage: isActive ? "tag.fill" : "tag",
+                tint: isActive ? activeTint : inactiveTint
             )
         }
         .buttonStyle(.plain)
@@ -2202,30 +2109,14 @@ struct RootView: View {
             inlineTaskDraft.flagged.toggle()
         } label: {
             InlineTaskAccessoryIconLabel(
-                systemImage: "flag",
-                tint: isActive ? activeTint : inactiveTint,
-                fill: inlineTaskAccessoryFillColor(tint: activeTint, isActive: isActive),
-                border: inlineTaskAccessoryStrokeColor(tint: activeTint, isActive: isActive)
+                systemImage: isActive ? "flag.fill" : "flag",
+                tint: isActive ? activeTint : inactiveTint
             )
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("inlineTask.flagButton")
         .accessibilityLabel("Flag")
         .accessibilityValue(isActive ? "On" : "Off")
-    }
-
-    private func inlineTaskAccessoryFillColor(tint: Color, isActive: Bool) -> Color {
-        if isActive {
-            return tint.opacity(colorScheme == .dark ? 0.22 : 0.14)
-        }
-        return colorScheme == .dark ? Color.white.opacity(0.04) : theme.surfaceColor
-    }
-
-    private func inlineTaskAccessoryStrokeColor(tint: Color, isActive: Bool) -> Color {
-        if isActive {
-            return tint.opacity(colorScheme == .dark ? 0.34 : 0.18)
-        }
-        return inlineTaskAccessoryBorderColor
     }
 
     private var compactInlineDueTint: Color {
@@ -2317,54 +2208,6 @@ struct RootView: View {
                     inlineTaskSuggestionPanel(context)
                 }
             }
-        }
-    }
-
-    private var compactInlineTaskFooterBar: some View {
-        HStack(spacing: 12) {
-            Text(inlineTaskDestinationLabel)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(compactComposerSecondaryTextColor)
-                .lineLimit(1)
-
-            Spacer(minLength: 0)
-
-            Button {
-                showingInlineVoiceRamble = true
-            } label: {
-                Image(systemName: "waveform")
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundStyle(compactComposerPrimaryTextColor)
-                    .frame(width: 42, height: 42)
-                    .background(
-                        Circle()
-                            .fill(Color.white.opacity(0.08))
-                    )
-                    .overlay(
-                        Circle()
-                            .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
-                    )
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("inlineTask.voiceRambleButton")
-            .accessibilityLabel("Voice ramble")
-
-            Button {
-                commitInlineTaskComposer()
-            } label: {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 48, height: 48)
-                    .background(
-                        Circle()
-                            .fill(canCommitInlineTask ? theme.accentColor : Color.white.opacity(0.16))
-                    )
-            }
-            .buttonStyle(.plain)
-            .disabled(!canCommitInlineTask)
-            .accessibilityIdentifier("inlineTask.submitButton")
-            .accessibilityLabel("Add task")
         }
     }
 
@@ -3947,7 +3790,7 @@ struct RootView: View {
         inlineComposerTransitionTask?.cancel()
         inlineComposerTransitionTask = nil
         if isCreatingTask {
-            inlineTaskFocused = true
+            cancelInlineTaskComposer()
             return
         }
 
@@ -6339,22 +6182,14 @@ private struct CompactQuickAddIconButton: View {
 private struct InlineTaskAccessoryIconLabel: View {
     let systemImage: String
     let tint: Color
-    let fill: Color
-    let border: Color
 
     var body: some View {
         Image(systemName: systemImage)
             .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(tint)
-            .frame(width: 38, height: 38)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(fill)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(border, lineWidth: 1)
-            )
+            .frame(width: 28, height: 28)
+            .padding(4)
+            .contentShape(Rectangle())
     }
 }
 
