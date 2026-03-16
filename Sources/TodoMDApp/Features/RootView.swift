@@ -639,9 +639,7 @@ struct RootView: View {
     @State private var compactSelectedTab: CompactRootTab = .inbox
     @State private var universalSearchText = ""
     @State private var isRootSearchPresented = false
-#if os(iOS)
-    @State private var rootSearchPresentationDetent: PresentationDetent = .fraction(0.58)
-#endif
+    @State private var quickFindStore = QuickFindStore()
     @State private var activeProjectSheetMode: ProjectSheetMode?
     @State private var newProjectName = ""
     @State private var newProjectColorHex = "1E88E5"
@@ -652,7 +650,6 @@ struct RootView: View {
     @State private var inlineTaskDraft = InlineTaskDraft()
     @State private var expandedInlineTaskPanel: InlineTaskPanel?
     @State private var showingInlineTaskDateModal = false
-    @FocusState private var isRootSearchFieldFocused: Bool
     @State private var inlineComposerTransitionTask: Task<Void, Never>?
     @State private var showingProjectSettingsSheet = false
     @State private var editingProjectOriginalName = ""
@@ -723,12 +720,38 @@ struct RootView: View {
             .sheet(isPresented: $showingQuickEntry) {
                 QuickEntrySheet()
             }
-            .sheet(
-                isPresented: $isRootSearchPresented,
-                onDismiss: { universalSearchText = "" }
-            ) {
-                NavigationStack {
-                    rootSearchSheet
+            .overlay {
+                if isRootSearchPresented {
+                    ZStack(alignment: .top) {
+                        Color.black.opacity(0.35)
+                            .ignoresSafeArea()
+                            .onTapGesture {
+                                withAnimation(.easeIn(duration: 0.18)) { dismissRootSearch() }
+                            }
+
+                        GeometryReader { geo in
+                            QuickFindCard(
+                                query: $universalSearchText,
+                                store: quickFindStore,
+                                maxHeight: geo.size.height * 0.55,
+                                onDismiss: {
+                                    withAnimation(.easeIn(duration: 0.18)) { dismissRootSearch() }
+                                },
+                                resultsContent: { query in
+                                    AnyView(rootSearchResultsContent(query: query))
+                                }
+                            )
+                            .padding(.horizontal, 16)
+                            .padding(.top, 60)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        }
+                    }
+                    .transition(
+                        .asymmetric(
+                            insertion: .offset(y: -12).combined(with: .opacity),
+                            removal: .offset(y: -12).combined(with: .opacity)
+                        )
+                    )
                 }
             }
             .sheet(isPresented: $showingInlineVoiceRamble) {
@@ -3378,105 +3401,6 @@ struct RootView: View {
         .accessibilityIdentifier("root.search.taskResult.\(frontmatter.title)")
     }
 
-    private var rootSearchSheet: some View {
-        List {
-            if normalizedRootSearchQuery.isEmpty {
-                ContentUnavailableView(
-                    "Search Everything",
-                    systemImage: "magnifyingglass",
-                    description: Text("Start typing to find tasks, sections, projects, workflows, tags, and perspectives.")
-                )
-                .frame(maxWidth: .infinity)
-                .padding(.top, 32)
-                .padding(.bottom, 48)
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-            } else {
-                rootSearchResultsContent(
-                    query: normalizedRootSearchQuery
-                )
-            }
-        }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .background(theme.backgroundColor)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            rootSearchFieldBar
-        }
-        .navigationTitle("Search")
-#if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-#endif
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Done") {
-                    dismissRootSearch()
-                }
-            }
-        }
-#if os(iOS)
-        .presentationDetents(
-            [.fraction(0.58), .large],
-            selection: $rootSearchPresentationDetent
-        )
-        .presentationDragIndicator(.visible)
-#endif
-        .onDisappear {
-            isRootSearchFieldFocused = false
-        }
-    }
-
-    private var normalizedRootSearchQuery: String {
-        universalSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var rootSearchFieldBar: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(theme.textSecondaryColor)
-
-                TextField("Tasks, projects, tags, perspectives", text: $universalSearchText)
-                    .modifier(RootViewNeverAutocapitalization())
-#if os(iOS)
-                    .autocorrectionDisabled()
-                    .submitLabel(.search)
-#endif
-                    .focused($isRootSearchFieldFocused)
-                    .foregroundStyle(theme.textPrimaryColor)
-                    .accessibilityIdentifier("root.search.field")
-
-                if !universalSearchText.isEmpty {
-                    Button {
-                        universalSearchText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(theme.textSecondaryColor)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("root.search.clearButton")
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(theme.surfaceColor)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .strokeBorder(theme.textSecondaryColor.opacity(0.12), lineWidth: 1)
-                    )
-            )
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .padding(.bottom, 10)
-        }
-        .background(theme.backgroundColor)
-    }
-
     @ViewBuilder
     private func detailContent(for compactTab: CompactRootTab?) -> some View {
         if let compactTab, compactRootTab(for: container.selectedView) != compactTab {
@@ -4101,12 +4025,12 @@ struct RootView: View {
     }
 
     private func applyFilter(_ view: ViewIdentifier) {
+        if isRootSearchPresented {
+            dismissRootSearch()
+        }
         withAnimation(.easeInOut(duration: 0.18)) {
             container.selectedView = view
         }
-        isRootSearchFieldFocused = false
-        universalSearchText = ""
-        isRootSearchPresented = false
 #if canImport(UIKit)
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
 #endif
@@ -4114,22 +4038,18 @@ struct RootView: View {
 
     @MainActor
     private func presentRootSearch(resetQuery: Bool = true) {
-        if resetQuery {
-            universalSearchText = ""
+        if resetQuery { universalSearchText = "" }
+        withAnimation(.easeOut(duration: 0.22)) {
+            isRootSearchPresented = true
         }
-        isRootSearchFieldFocused = false
-#if os(iOS)
-        rootSearchPresentationDetent = .fraction(0.58)
-#endif
-        isRootSearchPresented = true
     }
 
     private func dismissRootSearch() {
-        isRootSearchFieldFocused = false
+        let query = universalSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !query.isEmpty {
+            quickFindStore.record(query: query)
+        }
         universalSearchText = ""
-#if os(iOS)
-        rootSearchPresentationDetent = .fraction(0.58)
-#endif
         isRootSearchPresented = false
     }
 
