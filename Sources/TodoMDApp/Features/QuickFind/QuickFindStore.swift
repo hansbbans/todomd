@@ -134,7 +134,4 @@ final class QuickFindStore {
         return decoded
     }
 
-    // TEMPORARY SHIM — remove in Task 4
-    @available(*, deprecated, message: "Migrate callers to record(item:)")
-    func record(query: String) {}
 }
