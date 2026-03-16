@@ -5,10 +5,6 @@ import XCTest
 @MainActor
 final class QuickFindStoreTests: XCTestCase {
     private var store: QuickFindStore!
-    private let recentKey = "quickFind.recentSearches"
-    private let pinnedKey = "quickFind.pinnedSearches"
-    private let defaults = UserDefaults.standard
-
     // Use an isolated UserDefaults suite to prevent cross-test contamination
     private var testDefaults: UserDefaults!
     private var testSuiteName: String!
