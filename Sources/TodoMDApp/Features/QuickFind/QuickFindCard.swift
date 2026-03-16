@@ -6,6 +6,7 @@ struct QuickFindCard<Results: View>: View {
     var store: QuickFindStore
     var maxHeight: CGFloat
     var onDismiss: () -> Void
+    var onSelectRecent: (RecentItem) -> Void
     @ViewBuilder var resultsContent: (String) -> Results
 
     @FocusState private var isSearchFieldFocused: Bool
@@ -79,7 +80,7 @@ struct QuickFindCard<Results: View>: View {
     // MARK: - Card body
 
     // Note: rootSearchResultsContent already renders ContentUnavailableView("No Results", ...)
-    // when query matches nothing (verified at RootView.swift:2873). No wrapper needed here.
+    // when query matches nothing. No wrapper needed here.
     @ViewBuilder
     private var cardContent: some View {
         if normalizedQuery.isEmpty {
@@ -96,17 +97,17 @@ struct QuickFindCard<Results: View>: View {
     private var preQueryContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             if !store.displayedPinned.isEmpty {
-                    sectionHeader("Pinned")
-                    ForEach(store.displayedPinned, id: \.self) { pinned in
-                        pinnedRow(pinned)
-                    }
+                sectionHeader("Pinned")
+                ForEach(store.displayedPinned, id: \.destination) { pinned in
+                    pinnedRow(pinned)
                 }
-                if !store.displayedRecent.isEmpty {
-                    sectionHeader("Recent")
-                    ForEach(store.displayedRecent, id: \.self) { recent in
-                        recentRow(recent)
-                    }
+            }
+            if !store.displayedRecent.isEmpty {
+                sectionHeader("Recent")
+                ForEach(store.displayedRecent, id: \.destination) { recent in
+                    recentRow(recent)
                 }
+            }
             Text("Quickly find tasks, lists, tags…")
                 .font(.subheadline)
                 .foregroundStyle(.tertiary)
@@ -119,15 +120,19 @@ struct QuickFindCard<Results: View>: View {
 
     // MARK: - Rows
 
-    private func pinnedRow(_ item: String) -> some View {
+    private func pinnedRow(_ item: RecentItem) -> some View {
         Button {
-            query = item
+            onSelectRecent(item)
         } label: {
             HStack {
-                Image(systemName: "pin.fill")
-                    .foregroundStyle(.secondary)
-                    .font(.footnote)
-                Text(item)
+                AppIconGlyph(
+                    icon: item.icon,
+                    fallbackSymbol: "magnifyingglass",
+                    pointSize: 16,
+                    weight: .regular,
+                    tint: color(forHex: item.tintHex)
+                )
+                Text(item.label)
                     .foregroundStyle(.primary)
                 Spacer()
             }
@@ -147,15 +152,19 @@ struct QuickFindCard<Results: View>: View {
         }
     }
 
-    private func recentRow(_ item: String) -> some View {
+    private func recentRow(_ item: RecentItem) -> some View {
         Button {
-            query = item
+            onSelectRecent(item)
         } label: {
             HStack {
-                Image(systemName: "clock")
-                    .foregroundStyle(.secondary)
-                    .font(.footnote)
-                Text(item)
+                AppIconGlyph(
+                    icon: item.icon,
+                    fallbackSymbol: "magnifyingglass",
+                    pointSize: 16,
+                    weight: .regular,
+                    tint: color(forHex: item.tintHex)
+                )
+                Text(item.label)
                     .foregroundStyle(.primary)
                 Spacer()
             }
@@ -202,5 +211,18 @@ struct QuickFindCard<Results: View>: View {
                 .padding(.bottom, 6)
             Divider()
         }
+    }
+
+    // MARK: - Color helper
+
+    private func color(forHex hex: String?) -> Color? {
+        guard let hex else { return nil }
+        let cleaned = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#")).uppercased()
+        guard cleaned.count == 6, let value = Int(cleaned, radix: 16) else { return nil }
+        return Color(
+            red: Double((value & 0xFF0000) >> 16) / 255.0,
+            green: Double((value & 0x00FF00) >> 8) / 255.0,
+            blue: Double(value & 0x0000FF) / 255.0
+        )
     }
 }
