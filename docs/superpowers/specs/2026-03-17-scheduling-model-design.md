@@ -43,8 +43,8 @@ var scheduledTime: LocalTime?   // frontmatter key: "scheduled_time", format: "H
 var eveningStartTime: LocalTime {
     get {
         guard let s = defaults.string(forKey: "taskBehavior.eveningStartTime"),
-              let t = try? LocalTime(string: s) else {
-            return try! LocalTime(string: "18:00")   // safe: hardcoded valid value
+              let t = try? LocalTime(isoTime: s) else {
+            return try! LocalTime(isoTime: "18:00")   // safe: hardcoded valid value
         }
         return t
     }
@@ -61,7 +61,7 @@ var eveningStartDate: Date {
     }
     set {
         let comps = Calendar.current.dateComponents([.hour, .minute], from: newValue)
-        eveningStartTime = (try? LocalTime(string: String(format: "%02d:%02d", comps.hour ?? 18, comps.minute ?? 0))) ?? (try! LocalTime(string: "18:00"))
+        eveningStartTime = (try? LocalTime(isoTime: String(format: "%02d:%02d", comps.hour ?? 18, comps.minute ?? 0))) ?? (try! LocalTime(isoTime: "18:00"))
     }
 }
 ```
@@ -98,15 +98,19 @@ public func todayGroup(
 ) -> TodayGroup?
 ```
 
-**`isToday` and `matches` cascade:** `isToday(record:today:)` currently delegates to `todayGroup`. It must also gain an `eveningStart` parameter:
+**`isToday` and `matches` cascade:** Both `isToday` and `matches` delegate to `todayGroup` and must gain an `eveningStart` parameter. Updated signatures:
 
 ```swift
 public func isToday(_ record: TaskRecord, today: LocalDate, eveningStart: LocalTime) -> Bool {
     todayGroup(for: record, today: today, eveningStart: eveningStart) != nil
 }
+
+public func matches(_ view: ViewIdentifier, record: TaskRecord, today: LocalDate, eveningStart: LocalTime) -> Bool {
+    // existing switch, passing eveningStart through to isToday / todayGroup calls
+}
 ```
 
-All call sites in `AppContainer` (and anywhere `matches(.today, ...)` is called) must be updated to pass `container.eveningStartTime`. Search for `isToday` and `matches` call sites and add the parameter. A default-value overload is NOT added — callers must be explicit.
+All call sites of `isToday` and `matches` throughout `AppContainer` must be updated to pass `container.eveningStartTime`. Search for both function names. A default-value overload is NOT added — callers must be explicit.
 
 ### Updated evaluation order
 
@@ -226,7 +230,7 @@ The inline composer and `QuickEntrySheet` currently have a single date chip. Rep
 
 ### Natural language parsing
 
-Existing NLP parsing populates `scheduled` (the "When" field) only. No change.
+Existing NLP date parsing currently populates `due` (the deadline field). **This spec does not change NLP behavior** — `due` remains the NLP target. The "When" (`scheduled`) field is set only via the explicit "When" chip or the star icon. Redirecting NLP output to `scheduled` is a future consideration, out of scope here.
 
 ---
 
@@ -266,8 +270,8 @@ Section("Scheduling") {
 | `Sources/TodoMDCore/Contracts/TaskFrontmatterV1.swift` | Add `scheduledTime: LocalTime?` field |
 | `Sources/TodoMDCore/Parsing/TaskMarkdownCodec.swift` | Parse/serialize `scheduled_time` |
 | `Sources/TodoMDCore/Contracts/TaskValidation.swift` | Throw on `scheduled_time` without `scheduled` |
-| `Sources/TodoMDCore/Domain/TaskQueryEngine.swift` | Add `.scheduledEvening` to `TodayGroup`, update `todayGroup` and `isToday` signatures, update `groupOrder` |
-| `Sources/TodoMDApp/App/AppContainer.swift` | Add `eveningStartTime: LocalTime` + `eveningStartDate: Date` with UserDefaults persistence; update all `isToday`/`matches` call sites to pass `eveningStartTime` |
+| `Sources/TodoMDCore/Domain/TaskQueryEngine.swift` | Add `.scheduledEvening` to `TodayGroup`, update `todayGroup`, `isToday`, and `matches` signatures with `eveningStart` parameter |
+| `Sources/TodoMDApp/App/AppContainer.swift` | Add `eveningStartTime: LocalTime` + `eveningStartDate: Date` with UserDefaults persistence; update `groupOrder` array to include `.scheduledEvening` at the end; update all `isToday`/`matches` call sites to pass `eveningStartTime` |
 | `Sources/TodoMDApp/Features/RootView.swift` | Update `groupOrder`, add "This Evening" section header, star icon in active task rows, deadline badge in metadata line |
 | `Sources/TodoMDApp/Features/QuickEntrySheet.swift` | Split date chip into "When" + "Deadline" chips |
 | `Sources/TodoMDApp/Detail/TaskDetailView.swift` | Rename "Due Date" → "Deadline", add "When" field above it |
