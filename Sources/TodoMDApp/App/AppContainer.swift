@@ -960,17 +960,17 @@ final class AppContainer: ObservableObject {
 
     func todaySections(today: LocalDate = LocalDate.today(in: .current)) -> [TodaySection] {
         let todayRecords = allIndexedRecords.filter {
-            queryEngine.matches($0, view: .builtIn(.today), today: today)
+            queryEngine.matches($0, view: .builtIn(.today), today: today, eveningStart: (try? LocalTime(isoTime: "18:00")) ?? .midnight)
         }
         let ordered = manualOrderService.ordered(records: todayRecords, view: .builtIn(.today))
         var grouped: [TodayGroup: [TaskRecord]] = [:]
 
         for record in ordered {
-            guard let group = queryEngine.todayGroup(for: record, today: today) else { continue }
+            guard let group = queryEngine.todayGroup(for: record, today: today, eveningStart: (try? LocalTime(isoTime: "18:00")) ?? .midnight) else { continue }
             grouped[group, default: []].append(record)
         }
 
-        let groupOrder: [TodayGroup] = [.overdue, .scheduled, .dueToday, .deferredNowAvailable]
+        let groupOrder: [TodayGroup] = [.overdue, .scheduled, .scheduledEvening, .dueToday, .deferredNowAvailable]
         return groupOrder.compactMap { group in
             guard let records = grouped[group], !records.isEmpty else { return nil }
             return TodaySection(group: group, records: records)
@@ -979,7 +979,7 @@ final class AppContainer: ObservableObject {
 
     func upcomingSections(today: LocalDate = LocalDate.today(in: .current)) -> [UpcomingSection] {
         let upcoming = allIndexedRecords.filter {
-            queryEngine.matches($0, view: .builtIn(.upcoming), today: today)
+            queryEngine.matches($0, view: .builtIn(.upcoming), today: today, eveningStart: (try? LocalTime(isoTime: "18:00")) ?? .midnight)
         }
         var grouped: [LocalDate: [TaskRecord]] = [:]
 
@@ -3346,7 +3346,7 @@ final class AppContainer: ObservableObject {
             filtered = candidateRecords.filter { perspectiveQueryEngine.matches($0, perspective: perspective, today: today) }
             orderedRecords = order(records: filtered, for: perspective, today: today)
         } else {
-            filtered = allIndexedRecords.filter { queryEngine.matches($0, view: selectedView, today: today) }
+            filtered = allIndexedRecords.filter { queryEngine.matches($0, view: selectedView, today: today, eveningStart: (try? LocalTime(isoTime: "18:00")) ?? .midnight) }
             if selectedView == .builtIn(.logbook) {
                 orderedRecords = orderedLogbookRecords(filtered)
             } else {

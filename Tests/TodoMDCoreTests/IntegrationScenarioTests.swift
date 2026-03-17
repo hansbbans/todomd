@@ -33,7 +33,7 @@ final class IntegrationScenarioTests: XCTestCase {
             }
             return false
         })
-        XCTAssertTrue(records.contains { query.matches($0, view: .builtIn(.today), today: today) })
+        XCTAssertTrue(records.contains { query.matches($0, view: .builtIn(.today), today: today, eveningStart: try! LocalTime(isoTime: "18:00")) })
     }
 
     func testExternalDeleteIsReflectedInWatcherSummary() throws {

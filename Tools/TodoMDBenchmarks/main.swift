@@ -116,7 +116,7 @@ private enum BenchmarkRunner {
 
         let today = LocalDate.today(in: .current)
         let queryMilliseconds = try measureMilliseconds {
-            let matches = coldRecords.filter { queryEngine.matches($0, view: .builtIn(.today), today: today) }
+            let matches = coldRecords.filter { queryEngine.matches($0, view: .builtIn(.today), today: today, eveningStart: (try? LocalTime(isoTime: "18:00")) ?? .midnight) }
             _ = matches.count
         }
 
