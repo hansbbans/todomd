@@ -15,7 +15,7 @@ public struct TaskMarkdownCodec {
 
         let knownKeys: Set<String> = [
             "ref",
-            "title", "status", "due", "due_time", "persistent_reminder", "defer", "scheduled", "priority", "flagged", "area", "project", "tags",
+            "title", "status", "due", "due_time", "persistent_reminder", "defer", "scheduled", "scheduled_time", "priority", "flagged", "area", "project", "tags",
             "recurrence", "estimated_minutes", "description",
             "location_name", "location_latitude", "location_longitude", "location_radius_meters", "location_trigger",
             "created", "modified", "completed", "assignee", "completed_by", "blocked_by", "source"
@@ -50,6 +50,7 @@ public struct TaskMarkdownCodec {
         if let persistentReminder = document.frontmatter.persistentReminder { object["persistent_reminder"] = persistentReminder }
         if let deferDate = document.frontmatter.defer { object["defer"] = deferDate.isoString }
         if let scheduled = document.frontmatter.scheduled { object["scheduled"] = scheduled.isoString }
+        if let scheduledTime = document.frontmatter.scheduledTime { object["scheduled_time"] = scheduledTime.isoString }
         if let area = document.frontmatter.area { object["area"] = area }
         if let project = document.frontmatter.project { object["project"] = project }
         if !document.frontmatter.tags.isEmpty { object["tags"] = document.frontmatter.tags }
@@ -202,6 +203,7 @@ public struct TaskMarkdownCodec {
         let persistentReminder = try optionalBool("persistent_reminder", in: object)
         let deferDate = try optionalDate("defer", in: object)
         let scheduled = try optionalDate("scheduled", in: object)
+        let scheduledTime = try optionalTime("scheduled_time", in: object)
 
         let priorityRaw = try optionalString("priority", in: object) ?? TaskPriority.none.rawValue
         let priority = parsePriority(priorityRaw)
@@ -254,6 +256,7 @@ public struct TaskMarkdownCodec {
             persistentReminder: persistentReminder,
             defer: deferDate,
             scheduled: scheduled,
+            scheduledTime: scheduledTime,
             priority: priority,
             flagged: flagged,
             area: area,

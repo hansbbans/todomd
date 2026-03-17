@@ -117,6 +117,9 @@ public enum TaskValidation {
         if frontmatter.due == nil, frontmatter.dueTime != nil {
             throw TaskValidationError.invalidFieldValue(field: "due_time", value: "due_time requires due date")
         }
+        if frontmatter.scheduled == nil, frontmatter.scheduledTime != nil {
+            throw TaskValidationError.invalidFieldValue(field: "scheduled_time", value: "scheduled_time requires scheduled date")
+        }
         if frontmatter.persistentReminder == true, (frontmatter.due == nil || frontmatter.dueTime == nil) {
             throw TaskValidationError.invalidFieldValue(
                 field: "persistent_reminder",
