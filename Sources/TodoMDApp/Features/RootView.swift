@@ -997,6 +997,9 @@ struct RootView: View {
                     presentQuickEntryFromCurrentContext()
                     container.clearQuickEntryRequest()
                 }
+                if ProcessInfo.processInfo.arguments.contains("-ui-testing-show-quick-entry") {
+                    showingQuickEntry = true
+                }
             }
             .onDisappear {
                 cancelInlineTaskComposer()
@@ -5016,9 +5019,7 @@ private struct ExpandedTaskRow: View {
         .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .zIndex(isExpanded ? 1 : 0)
         .onTapGesture {
-            if !isExpanded {
-                onExpand()
-            }
+            onExpand()
         }
         .onChange(of: isExpanded) { _, expanded in
             if expanded {

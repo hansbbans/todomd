@@ -466,6 +466,62 @@ final class TodoMDAppUITests: XCTestCase {
         )
     }
 
+    func testTappingExpandedTaskRowCollapsesIt() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = makeStorageOverridePath()
+        app.launch()
+
+        completeOnboarding(app: app)
+        createTask(app: app, title: "collapse on retap")
+
+        let taskRow = app.descendants(matching: .any)["taskRow.collapse on retap"].firstMatch
+        XCTAssertTrue(taskRow.waitForExistence(timeout: 10), "Task row was not visible")
+
+        taskRow.tap()
+        XCTAssertTrue(
+            waitForCondition(timeout: 5, pollInterval: 0.1) {
+                (taskRow.value as? String) == "expanded"
+            },
+            "Task did not expand on first tap"
+        )
+
+        taskRow.tap()
+        XCTAssertTrue(
+            waitForCondition(timeout: 5, pollInterval: 0.1) {
+                (taskRow.value as? String) == "collapsed"
+            },
+            "Task did not collapse when tapped again while expanded"
+        )
+    }
+
+    func testQuickEntryKeyboardDoneCreatesTask() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding", "-ui-testing-show-quick-entry"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = makeStorageOverridePath()
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let titleField = app.textFields["quickEntry.titleField"].firstMatch
+        XCTAssertTrue(titleField.waitForExistence(timeout: 10), "QuickEntry sheet did not appear")
+        titleField.tap()
+        titleField.typeText("keyboard done test")
+
+        if app.keyboards.buttons["Done"].waitForExistence(timeout: 3) {
+            app.keyboards.buttons["Done"].tap()
+        } else {
+            app.typeText("\n")
+        }
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 5, pollInterval: 0.1) {
+                !titleField.exists
+            },
+            "QuickEntry sheet did not dismiss after pressing keyboard Done"
+        )
+    }
+
     func testSwitchingExpandedTasksCollapsesThePreviousCardWithoutShowingKeyboard() {
         let storageOverride = makeStorageOverridePath()
 
