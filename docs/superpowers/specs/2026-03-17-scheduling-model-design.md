@@ -20,11 +20,11 @@ Added to `TaskFrontmatterV1`:
 var scheduledTime: LocalTime?   // frontmatter key: "scheduled_time", format: "HH:MM"
 ```
 
-**Validation** (in `TaskValidation`): `scheduled_time` requires `scheduled` to be set. If `scheduled` is nil and `scheduled_time` is non-nil, emit a validation warning and ignore `scheduled_time` (same pattern as `due_time` requires `due`).
+**Validation** (in `TaskValidation`): `scheduled_time` requires `scheduled` to be set. If `scheduled` is nil and `scheduled_time` is non-nil, throw `TaskValidationError.invalidFieldValue` — matching the existing behaviour of `due_time` requiring `due` (see `TaskValidation.swift` lines 117–119).
 
-**Serialization** (in `TaskMarkdownCodec`): written as `scheduled_time: "HH:MM"`, omitted when nil. Accepted key aliases: none (no legacy aliases needed).
+**Serialization** (in `TaskMarkdownCodec`): written as `scheduled_time: "HH:MM"`, omitted when nil. Accepted key aliases: none.
 
-**Recurring task advancement** (in `TaskLifecycleService`): `scheduled_time` is preserved unchanged when creating the next occurrence, exactly as `due_time` is today.
+**Recurring task advancement** (in `TaskLifecycleService`): No explicit code is needed. `scheduled_time` is implicitly preserved because `var next = document` copies all fields and `scheduledTime` is never overwritten — the same mechanism that preserves `dueTime` today.
 
 **Unknown key preservation**: existing `unknownFrontmatter` passthrough is unaffected.
 
@@ -36,16 +36,37 @@ var scheduledTime: LocalTime?   // frontmatter key: "scheduled_time", format: "H
 **Type:** `String` in `"HH:MM"` format
 **Default:** `"18:00"`
 
-Exposed via `AppContainer` (or a dedicated settings store) as:
+`AppContainer` exposes two properties:
 
 ```swift
+// Internal storage — LocalTime
 var eveningStartTime: LocalTime {
-    get { /* read from UserDefaults, fallback to LocalTime(hour: 18, minute: 0) */ }
-    set { /* write to UserDefaults */ }
+    get {
+        guard let s = defaults.string(forKey: "taskBehavior.eveningStartTime"),
+              let t = try? LocalTime(string: s) else {
+            return try! LocalTime(string: "18:00")   // safe: hardcoded valid value
+        }
+        return t
+    }
+    set { defaults.set(newValue.isoString, forKey: "taskBehavior.eveningStartTime") }
+}
+
+// Bridging property for SwiftUI DatePicker (Binding<Date>)
+var eveningStartDate: Date {
+    get {
+        var comps = DateComponents()
+        comps.hour = eveningStartTime.hour
+        comps.minute = eveningStartTime.minute
+        return Calendar.current.date(from: comps) ?? Date()
+    }
+    set {
+        let comps = Calendar.current.dateComponents([.hour, .minute], from: newValue)
+        eveningStartTime = (try? LocalTime(string: String(format: "%02d:%02d", comps.hour ?? 18, comps.minute ?? 0))) ?? (try! LocalTime(string: "18:00"))
+    }
 }
 ```
 
-`LocalTime` is the existing `ScalarTypes.LocalTime` struct (`hour: Int, minute: Int`). Comparison is by `(hour * 60 + minute)`.
+`LocalTime` is the existing `ScalarTypes.LocalTime` struct. Comparison uses `(hour * 60 + minute)` — check whether `LocalTime` already implements `Comparable`; if not, add a `>=` operator or compare via `totalMinutes` in the call site.
 
 ---
 
@@ -56,16 +77,18 @@ var eveningStartTime: LocalTime {
 ```swift
 public enum TodayGroup: String, Sendable {
     case overdue               = "Overdue"
-    case scheduledEvening      = "This Evening"   // NEW
     case scheduled             = "Scheduled"
+    case scheduledEvening      = "This Evening"   // NEW — placed after scheduled in enum
     case dueToday              = "Due Today"
-    case deferredNowAvailable  = "Deferred"
+    case deferredNowAvailable  = "Deferred-now-available"  // raw value unchanged
 }
 ```
 
-### Updated `todayGroup(for:today:eveningStart:)` signature
+The enum declaration order does not control section display order (the app layer uses an explicit `groupOrder` array). The raw value `"Deferred-now-available"` is preserved exactly as-is.
 
-The function gains an `eveningStart: LocalTime` parameter (passed in by callers from `AppContainer.eveningStartTime`):
+### Updated `todayGroup` signature
+
+The function gains an `eveningStart: LocalTime` parameter, passed in from `AppContainer.eveningStartTime`:
 
 ```swift
 public func todayGroup(
@@ -75,7 +98,15 @@ public func todayGroup(
 ) -> TodayGroup?
 ```
 
-The existing `todayGroup(for:today:)` overload (no `eveningStart`) is removed or kept as a convenience defaulting to `LocalTime(hour: 18, minute: 0)` for backward compatibility with tests.
+**`isToday` and `matches` cascade:** `isToday(record:today:)` currently delegates to `todayGroup`. It must also gain an `eveningStart` parameter:
+
+```swift
+public func isToday(_ record: TaskRecord, today: LocalDate, eveningStart: LocalTime) -> Bool {
+    todayGroup(for: record, today: today, eveningStart: eveningStart) != nil
+}
+```
+
+All call sites in `AppContainer` (and anywhere `matches(.today, ...)` is called) must be updated to pass `container.eveningStartTime`. Search for `isToday` and `matches` call sites and add the parameter. A default-value overload is NOT added — callers must be explicit.
 
 ### Updated evaluation order
 
@@ -110,7 +141,7 @@ if let d = f.defer, d <= today { return .deferredNowAvailable }
 return nil
 ```
 
-`isToday` delegates to `todayGroup` as before (non-nil = in Today).
+**Time-of-day note:** The grouping is based solely on `scheduled_time` value, not the current wall-clock time. A task in "This Evening" stays there all day regardless of whether evening has started.
 
 ---
 
@@ -118,13 +149,15 @@ return nil
 
 ### Section ordering
 
-Sections render in this order, each only if non-empty:
+The app layer's explicit `groupOrder` array is updated to:
 
-1. **Overdue** — existing red header
-2. **Scheduled** — existing header
-3. **Due Today** — existing header
-4. **Deferred** — existing header
-5. **This Evening** — new section, header uses `moon.stars` SF Symbol + "This Evening" label
+1. **Overdue**
+2. **Scheduled**
+3. **Due Today**
+4. **Deferred**
+5. **This Evening** — new, always last
+
+Each section renders only if non-empty.
 
 ### "This Evening" section header
 
@@ -134,7 +167,7 @@ Label("This Evening", systemImage: "moon.stars")
     .foregroundStyle(.secondary)
 ```
 
-Style matches existing section headers (same `.caption.weight(.semibold)`, `.textCase(nil)`, secondary color).
+Style matches existing section headers (`.caption.weight(.semibold)`, `.textCase(nil)`, secondary color).
 
 ---
 
@@ -142,58 +175,58 @@ Style matches existing section headers (same `.caption.weight(.semibold)`, `.tex
 
 ### Star icon (collapsed row)
 
-A `star.fill` / `star` icon is added as the **trailing tap target** in every collapsed task row:
+A `star.fill` / `star` icon is added as the **trailing tap target** in collapsed task rows for **active tasks only** (status `.todo` or `.inProgress`). The icon is not shown for completed or cancelled tasks.
 
 - `star.fill` in `.systemYellow` when `scheduled == today` (regardless of `scheduled_time`)
-- `star` in `.tertiaryLabel` / `.tertiary` when not scheduled today
+- `star` in `.tertiaryLabel` color when not scheduled today
 - Tap action:
   - If `scheduled != today`: set `scheduled = today`, clear `scheduled_time`
   - If `scheduled == today`: set `scheduled = nil`, clear `scheduled_time`
-- The icon is placed after the flag icon (if flagged) on the trailing edge
-- Hit target: minimum 44×44pt (use `.contentShape` padding if needed)
-- Accessibility label: "Schedule for Today" / "Remove from Today"
+- Placed after the flag icon (if present) on the trailing edge
+- Hit target: minimum 44×44pt (pad with `.contentShape` if needed)
+- Accessibility label: `"Schedule for Today"` when unscheduled, `"Remove from Today"` when scheduled today
 
 ### Deadline proximity badge `◆`
 
-Added to the metadata line (the `.footnote` line below the title in collapsed rows):
+Added to the metadata line (`.footnote` line below the title in collapsed rows):
 
-- **Yellow `◆`** when `due` is 1, 2, or 3 days from today (inclusive): `today < due <= today+3`
-- **Red `◆`** when `due == today` or `due < today` (today or overdue)
-- Rendered as `Image(systemName: "diamond.fill")` or the Unicode `◆` character in a `Text`, colored `.systemOrange` (yellow) or `.systemRed`
-- Followed by "Deadline [date]" in the same color, replacing the plain date text when `due` is set
-- Only shown when `due` is non-nil; `.scheduled` date has no badge
-- If the task is already in the `.overdue` TodayGroup section, the red badge is still shown in the row for clarity
+- **Orange `◆`** (`diamond.fill`, `.systemOrange`) when `due` is 1–3 days away: `today < due <= today+3`
+- **Red `◆`** (`diamond.fill`, `.systemRed`) when `due == today` or `due < today`
+- Followed by "Deadline [formatted date]" in the same color, replacing any plain due-date text in the metadata line
+- Only shown when `due` is non-nil; the `scheduled` date has no badge
+- Shown in all views including the `.overdue` section (redundant but consistent)
 
 ---
 
 ## Composer Changes
 
-The inline composer and `QuickEntrySheet` currently have a single date chip. This is split into two chips:
+The inline composer and `QuickEntrySheet` currently have a single date chip. Replace it with two independent chips:
 
 ### "When" chip
 
 - Icon: `calendar` SF Symbol
 - Label: "When" when unset; formatted date when set (e.g. "Mar 17", "Tomorrow", "Mar 17, Evening")
 - "Evening" suffix shown when `scheduled_time >= eveningStartTime`
-- Tapping opens a `When` picker sheet with shortcuts:
+- Tapping opens a picker with shortcuts:
   - **Today** — sets `scheduled = today`, clears `scheduled_time`
   - **This Evening** — sets `scheduled = today`, sets `scheduled_time = eveningStartTime`
   - **Tomorrow** — sets `scheduled = tomorrow`, clears `scheduled_time`
-  - **Date picker** — arbitrary date; after picking, offer "Morning" / "Evening" toggle
+  - **Date picker** — arbitrary date; after picking, show "Morning / Evening" toggle
+    - **Morning** = clear `scheduled_time` (nil — task goes to regular Scheduled section)
+    - **Evening** = set `scheduled_time = eveningStartTime`
 - Maps to `scheduled` + `scheduled_time` frontmatter fields
 
 ### "Deadline" chip
 
-- Icon: `diamond.fill` SF Symbol (matches the badge)
+- Icon: `diamond.fill` SF Symbol
 - Label: "Deadline" when unset; date in warning color when set
-- Styled with `.systemOrange` tint when set (not yet overdue) or `.systemRed` (overdue/today)
-- Tapping opens a simple date picker — no time component, no shortcuts
-- Maps to `due` frontmatter field
-- **Does not affect `scheduled`** — the two chips are fully independent
+- `.systemOrange` tint when set and not yet overdue; `.systemRed` when today or past
+- Tapping opens a simple date picker — no time, no shortcuts
+- Maps to `due` frontmatter field only — **does not affect `scheduled`**
 
 ### Natural language parsing
 
-Existing NLP date parsing (triggered by typing dates in the title) continues to populate `scheduled` (the "When" field). It does not populate `due`. This is unchanged behavior.
+Existing NLP parsing populates `scheduled` (the "When" field) only. No change.
 
 ---
 
@@ -201,28 +234,28 @@ Existing NLP date parsing (triggered by typing dates in the title) continues to 
 
 In `TaskDetailView` (the full-screen editor):
 
-- The existing "Due Date" field is renamed **"Deadline"** — same data (`due`), different label
-- A new **"When"** field is added above "Deadline", editing `scheduled` + `scheduled_time`
-- "When" field shows a time component picker when a date is selected (same "Morning" / "Evening" shortcuts as composer, plus a time picker)
-- Field ordering: When → Deadline → Reminder (existing fields below are unchanged)
+- The existing "Due Date" field label is renamed **"Deadline"** — same `due` field, different label only
+- A new **"When"** field is added **above** "Deadline", editing `scheduled` + `scheduled_time`
+- "When" field: tapping opens the same picker as the composer (Today / This Evening / Tomorrow / date picker with Morning/Evening toggle)
+- Field ordering: **When → Deadline** → Reminder → (existing fields unchanged below)
 
 ---
 
 ## Settings Changes
 
-In `SettingsView`, within the existing **Task Behavior** section, add:
+In `SettingsView`, add a new **Scheduling** section within Task Behavior:
 
 ```swift
 Section("Scheduling") {
     DatePicker(
         "Evening starts at",
-        selection: $container.eveningStartTime,
+        selection: $container.eveningStartDate,   // Binding<Date> bridging property
         displayedComponents: .hourAndMinute
     )
 }
 ```
 
-`$container.eveningStartTime` is a `Binding<Date>` that bridges to the `LocalTime` stored value (converting `Date` → `LocalTime` via calendar components and back). Default: 6:00 PM.
+`$container.eveningStartDate` is the `Binding<Date>` bridging property defined in `AppContainer` above. Default: 6:00 PM.
 
 ---
 
@@ -232,16 +265,16 @@ Section("Scheduling") {
 |------|--------|
 | `Sources/TodoMDCore/Contracts/TaskFrontmatterV1.swift` | Add `scheduledTime: LocalTime?` field |
 | `Sources/TodoMDCore/Parsing/TaskMarkdownCodec.swift` | Parse/serialize `scheduled_time` |
-| `Sources/TodoMDCore/Contracts/TaskValidation.swift` | Validate `scheduled_time` requires `scheduled` |
-| `Sources/TodoMDCore/Domain/TaskQueryEngine.swift` | Add `.scheduledEvening` to `TodayGroup`, update `todayGroup` logic |
-| `Sources/TodoMDCore/Domain/TaskLifecycleService.swift` | Preserve `scheduled_time` on recurring advancement |
-| `Sources/TodoMDApp/App/AppContainer.swift` | Add `eveningStartTime: LocalTime` property with UserDefaults persistence |
-| `Sources/TodoMDApp/Features/RootView.swift` | Today view section ordering, "This Evening" header, star icon in task rows, deadline badge in metadata line, update `todayGroup` call sites to pass `eveningStart` |
+| `Sources/TodoMDCore/Contracts/TaskValidation.swift` | Throw on `scheduled_time` without `scheduled` |
+| `Sources/TodoMDCore/Domain/TaskQueryEngine.swift` | Add `.scheduledEvening` to `TodayGroup`, update `todayGroup` and `isToday` signatures, update `groupOrder` |
+| `Sources/TodoMDApp/App/AppContainer.swift` | Add `eveningStartTime: LocalTime` + `eveningStartDate: Date` with UserDefaults persistence; update all `isToday`/`matches` call sites to pass `eveningStartTime` |
+| `Sources/TodoMDApp/Features/RootView.swift` | Update `groupOrder`, add "This Evening" section header, star icon in active task rows, deadline badge in metadata line |
 | `Sources/TodoMDApp/Features/QuickEntrySheet.swift` | Split date chip into "When" + "Deadline" chips |
-| `Sources/TodoMDApp/Detail/TaskDetailView.swift` | Rename "Due Date" → "Deadline", add "When" field with time picker |
-| `Sources/TodoMDApp/Settings/SettingsView.swift` | Add "Evening starts at" time picker |
-| `Tests/TodoMDCoreTests/TaskQueryEngineTests.swift` | Tests for `scheduledEvening` group |
-| `Tests/TodoMDCoreTests/TaskMarkdownCodecTests.swift` | Tests for `scheduled_time` parse/serialize |
+| `Sources/TodoMDApp/Detail/TaskDetailView.swift` | Rename "Due Date" → "Deadline", add "When" field above it |
+| `Sources/TodoMDApp/Settings/SettingsView.swift` | Add "Evening starts at" `DatePicker` in new Scheduling section |
+| `Tests/TodoMDCoreTests/TaskQueryEngineTests.swift` | New tests for `scheduledEvening` group and `isToday` integration |
+| `Tests/TodoMDCoreTests/TaskMarkdownCodecTests.swift` | New tests for `scheduled_time` parse/serialize/validation |
+| `Tests/TodoMDCoreTests/TaskLifecycleServiceTests.swift` | Test that `scheduled_time` survives `completeRepeating` |
 
 ---
 
@@ -252,17 +285,28 @@ Section("Scheduling") {
 | Test | What it verifies |
 |------|-----------------|
 | `todayGroup_scheduledEvening_atEveningStart` | `scheduled = today`, `scheduled_time = 18:00`, `eveningStart = 18:00` → `.scheduledEvening` |
-| `todayGroup_scheduledEvening_afterEveningStart` | `scheduled_time = 21:00` → `.scheduledEvening` |
-| `todayGroup_scheduledDay_beforeEveningStart` | `scheduled_time = 10:00` → `.scheduled` |
-| `todayGroup_scheduledDay_noTime` | `scheduled_time = nil` → `.scheduled` |
+| `todayGroup_scheduledEvening_afterEveningStart` | `scheduled_time = 21:00`, `eveningStart = 18:00` → `.scheduledEvening` |
+| `todayGroup_scheduledDay_beforeEveningStart` | `scheduled_time = 10:00`, `eveningStart = 18:00` → `.scheduled` |
+| `todayGroup_scheduledDay_noTime` | `scheduled = today`, `scheduled_time = nil` → `.scheduled` |
 | `todayGroup_eveningFuture_notInToday` | `scheduled = tomorrow`, `scheduled_time = 20:00` → `nil` (not in Today) |
-| `todayGroup_overdue_takesPrecdence` | `due < today`, `scheduled = today`, `scheduled_time = 20:00` → `.overdue` |
+| `todayGroup_overdue_takesPrecedence` | `due < today`, `scheduled = today`, `scheduled_time = 20:00` → `.overdue` |
+| `isToday_includesScheduledEveningTasks` | `scheduled = today`, `scheduled_time = 20:00`, `eveningStart = 18:00` → `isToday == true` |
 
 ### `TaskMarkdownCodecTests`
 
 | Test | What it verifies |
 |------|-----------------|
 | `roundtrip_scheduledTime` | `scheduled_time: "20:30"` survives encode → decode |
-| `scheduledTime_requiresScheduled_validation` | `scheduled_time` without `scheduled` → validation warning, field ignored |
 | `scheduledTime_nil_omittedFromOutput` | `scheduledTime = nil` → key absent in serialized YAML |
-| `scheduledTime_preserved_onRecurringAdvance` | Recurring advancement copies `scheduled_time` to next occurrence |
+
+### `TaskValidationTests`
+
+| Test | What it verifies |
+|------|-----------------|
+| `scheduledTime_requiresScheduled_throwsWithoutIt` | `scheduled_time` set, `scheduled = nil` → throws `TaskValidationError.invalidFieldValue` |
+
+### `TaskLifecycleServiceTests`
+
+| Test | What it verifies |
+|------|-----------------|
+| `completeRepeating_preserves_scheduledTime` | `completeRepeating` on a task with `scheduled_time = 20:00` produces a next occurrence with `scheduledTime == 20:00` |
