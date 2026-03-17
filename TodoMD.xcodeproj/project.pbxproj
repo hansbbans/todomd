@@ -225,7 +225,6 @@
 		AAD88A27BCD437AA7775FCB8 /* RuntimeLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1536030049BF3A64978D79E /* RuntimeLogger.swift */; };
 		ABC7EC79BCE8F18B84F3728C /* TodoMDAppUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 016F4E437E77C3A7C04F9ABF /* TodoMDAppUITests.swift */; };
 		AC48C658E01E53BD4A6786A5 /* FileWatcherEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BBAD8557DA5615431D5712B /* FileWatcherEvent.swift */; };
-		ACA1265FBCDD1556799702AF /* .RootView.swift.swp in Resources */ = {isa = PBXBuildFile; fileRef = 1C9DF7B4C499FDD62D14C00D /* .RootView.swift.swp */; };
 		AD47977A4D3FB13B90D1328C /* PerspectivesRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06E2805CDE88DB33A6DAA7BA /* PerspectivesRepository.swift */; };
 		AD586B45099B318D0FC07632 /* NaturalLanguageTaskParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70E4735EAF172C5DD227F11E /* NaturalLanguageTaskParser.swift */; };
 		ADF5069A24DA9EED7D1155C8 /* PerspectivesDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0895B0414A63242E2DC65BD5 /* PerspectivesDocument.swift */; };
@@ -246,7 +245,6 @@
 		B6E13C139024F1AF12754586 /* TaskQueryEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7175ADE65B44A53A9FAC9720 /* TaskQueryEngineTests.swift */; };
 		B6F7B0C5735B822BF7CA4735 /* ScalarTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AAFC3FB3859DBCEAF071F29 /* ScalarTypes.swift */; };
 		B78A94BEA7770BB048613446 /* UserNotificationSchedulerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC1579F964253FEB1B41FCB9 /* UserNotificationSchedulerTests.swift */; };
-		B7ADD33F012E6B9513F757B0 /* .RootView.swift.swp in Resources */ = {isa = PBXBuildFile; fileRef = 1C9DF7B4C499FDD62D14C00D /* .RootView.swift.swp */; };
 		B7F7877658E54260D6308C93 /* TaskFolderPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = A87CAC8E29A08C57E594D0B3 /* TaskFolderPreferences.swift */; };
 		B8822E6EA51D0065945D03E9 /* TaskFolderPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = A87CAC8E29A08C57E594D0B3 /* TaskFolderPreferences.swift */; };
 		BA7B255864FFD40C7A8199A8 /* TaskRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = B39B155FF663EFDF12B1E158 /* TaskRecord.swift */; };
@@ -400,7 +398,6 @@
 		1B8F45D517B09A5D5AFA1EC4 /* JSONValue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONValue.swift; sourceTree = "<group>"; };
 		1BBAD8557DA5615431D5712B /* FileWatcherEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileWatcherEvent.swift; sourceTree = "<group>"; };
 		1C2FCD93D0262EF77053DD9A /* TodoMDApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoMDApp.swift; sourceTree = "<group>"; };
-		1C9DF7B4C499FDD62D14C00D /* .RootView.swift.swp */ = {isa = PBXFileReference; path = .RootView.swift.swp; sourceTree = "<group>"; };
 		1D7D9F3BCA10233A7D7B1198 /* NotificationPlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPlannerTests.swift; sourceTree = "<group>"; };
 		1DFA6040C7117C0994975696 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		1FF77E6D6A02B490F11AE564 /* FileWatcherService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileWatcherService.swift; sourceTree = "<group>"; };
@@ -632,8 +629,7 @@
 		1A0A5E692E592D4A3389F29B /* Features */ = {
 			isa = PBXGroup;
 			children = (
-				1C9DF7B4C499FDD62D14C00D /* .RootView.swift.swp */,
-				F387E447C994E4A5B9425DD3 /* BuiltInView+Display.swift */,
+					F387E447C994E4A5B9425DD3 /* BuiltInView+Display.swift */,
 				B7E52DEF3F32A7ABED000AF8 /* CalendarPanels.swift */,
 				26DC654BE22CCC66514C29D8 /* ExpandedTaskConfiguration.swift */,
 				4DE9BABA81B2FF42E317B82F /* InboxRemindersImportPanel.swift */,
@@ -1133,7 +1129,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				ACA1265FBCDD1556799702AF /* .RootView.swift.swp in Resources */,
 				552C8178471ED179BD7F6F5C /* Assets.xcassets in Resources */,
 				65FE489B738D6B34BD54FF33 /* LaunchScreen.storyboard in Resources */,
 				425224027BC5CC8FF681D2AB /* TODO-widget-shared-storage.md in Resources */,
@@ -1144,7 +1139,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				B7ADD33F012E6B9513F757B0 /* .RootView.swift.swp in Resources */,
 				EABAF993078E6003D76DD693 /* Assets.xcassets in Resources */,
 				BB2C9E984E81D11AE28099A4 /* TODO-widget-shared-storage.md in Resources */,
 			);

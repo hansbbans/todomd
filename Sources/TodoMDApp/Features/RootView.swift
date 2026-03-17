@@ -277,15 +277,22 @@ private struct InlineTaskDraft: Equatable {
 private struct SectionHeaderView: View {
     let title: String
     let count: Int?
+    let systemImage: String?
     @EnvironmentObject private var theme: ThemeManager
 
-    init(_ title: String, count: Int? = nil) {
+    init(_ title: String, count: Int? = nil, systemImage: String? = nil) {
         self.title = title
         self.count = count
+        self.systemImage = systemImage
     }
 
     var body: some View {
         HStack {
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.textSecondaryColor)
+            }
             Text(displayText)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(theme.textSecondaryColor)
@@ -1645,7 +1652,11 @@ struct RootView: View {
                                 taskRowItem(record)
                             }
                         } header: {
-                            SectionHeaderView(section.group.rawValue, count: section.records.count)
+                            SectionHeaderView(
+                                section.group.rawValue,
+                                count: section.records.count,
+                                systemImage: section.group == .scheduledEvening ? "moon.stars" : nil
+                            )
                         }
                     }
 
@@ -4880,6 +4891,7 @@ private struct ExpandedTaskRow: View {
     let onDelete: () -> Void
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var theme: ThemeManager
+    @EnvironmentObject private var container: AppContainer
     @FocusState private var focusedField: Field?
     @State private var titleDraft: String
     @State private var notesDraft: String
@@ -4947,6 +4959,28 @@ private struct ExpandedTaskRow: View {
                         .font(.footnote)
                         .foregroundStyle(theme.flaggedColor)
                         .padding(.top, 2)
+                }
+
+                // Star icon — active tasks only
+                if !isExpanded,
+                   frontmatter.status == .todo || frontmatter.status == .inProgress {
+                    let isScheduledToday = frontmatter.scheduled == LocalDate.today(in: .current)
+                    Button {
+                        if isScheduledToday {
+                            _ = container.setScheduled(path: record.identity.path, date: nil)
+                        } else {
+                            _ = container.setScheduled(path: record.identity.path,
+                                                       date: LocalDate.today(in: .current))
+                        }
+                    } label: {
+                        Image(systemName: isScheduledToday ? "star.fill" : "star")
+                            .foregroundStyle(isScheduledToday ? Color.yellow : Color.secondary)
+                            .font(.system(size: 16))
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(isScheduledToday ? "Remove from Today" : "Schedule for Today")
                 }
             }
 
@@ -5335,11 +5369,8 @@ private struct ExpandedTaskRow: View {
             segments.append(MetadataSegment(text: area, color: theme.textSecondaryColor))
         }
 
-        if let dueText = dueDisplayText(for: frontmatter) {
-            segments.append(MetadataSegment(
-                text: dueText,
-                color: isOverdue(frontmatter) ? theme.overdueColor : theme.textSecondaryColor
-            ))
+        if let segment = deadlineSegment(for: frontmatter) {
+            segments.append(segment)
         }
 
         if let completionText = completionDisplayText(for: frontmatter) {
@@ -5354,6 +5385,38 @@ private struct ExpandedTaskRow: View {
             MetadataSegment(text: "#\($0)", color: theme.textSecondaryColor)
         })
         return segments
+    }
+
+    private func deadlineSegment(for frontmatter: TaskFrontmatterV1) -> MetadataSegment? {
+        guard let due = frontmatter.due else { return nil }
+        guard let dueDate = date(from: due, time: nil) else {
+            return MetadataSegment(text: due.isoString, color: theme.textSecondaryColor)
+        }
+
+        let today = Calendar.current.startOfDay(for: Date())
+        let dueDayStart = Calendar.current.startOfDay(for: dueDate)
+        let days = Calendar.current.dateComponents([.day], from: today, to: dueDayStart).day ?? 0
+
+        let dateLabel: String
+        if Calendar.current.isDateInToday(dueDate) {
+            dateLabel = "today"
+        } else {
+            dateLabel = dueDisplayText(for: frontmatter) ?? due.isoString
+        }
+
+        if days <= 0 {
+            // Due today or overdue
+            return MetadataSegment(text: "◆ Deadline \(dateLabel)",
+                                   color: Color(red: 1.0, green: 0.23, blue: 0.19))
+        } else if days <= 3 {
+            // 1–3 days away
+            return MetadataSegment(text: "◆ Deadline \(dateLabel)",
+                                   color: Color(red: 1.0, green: 0.62, blue: 0.04))
+        } else {
+            // Far future — plain due text
+            return MetadataSegment(text: dueDisplayText(for: frontmatter) ?? due.isoString,
+                                   color: isOverdue(frontmatter) ? theme.overdueColor : theme.textSecondaryColor)
+        }
     }
 
     private func dueDisplayText(for frontmatter: TaskFrontmatterV1) -> String? {
