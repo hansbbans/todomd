@@ -1,10 +1,11 @@
 import Foundation
 
 public enum TodayGroup: String, Sendable {
-    case overdue = "Overdue"
-    case scheduled = "Scheduled"
-    case dueToday = "Due Today"
-    case deferredNowAvailable = "Deferred-now-available"
+    case overdue               = "Overdue"
+    case scheduled             = "Scheduled"
+    case scheduledEvening      = "This Evening"
+    case dueToday              = "Due Today"
+    case deferredNowAvailable  = "Deferred-now-available"
 }
 
 public struct TaskQueryEngine {
@@ -14,7 +15,7 @@ public struct TaskQueryEngine {
         self.calendar = calendar
     }
 
-    public func matches(_ record: TaskRecord, view: ViewIdentifier, today: LocalDate) -> Bool {
+    public func matches(_ record: TaskRecord, view: ViewIdentifier, today: LocalDate, eveningStart: LocalTime) -> Bool {
         switch view {
         case .builtIn(let builtIn):
             switch builtIn {
@@ -25,7 +26,7 @@ public struct TaskQueryEngine {
             case .delegated:
                 return isDelegated(record)
             case .today:
-                return isToday(record, today: today)
+                return isToday(record, today: today, eveningStart: eveningStart)
             case .upcoming:
                 return isUpcoming(record, today: today)
             case .logbook:
@@ -61,33 +62,28 @@ public struct TaskQueryEngine {
         }
     }
 
-    public func todayGroup(for record: TaskRecord, today: LocalDate) -> TodayGroup? {
+    public func todayGroup(for record: TaskRecord, today: LocalDate, eveningStart: LocalTime) -> TodayGroup? {
         guard isActive(record), isAvailableByDefer(record, today: today), isAssignedToUser(record) else { return nil }
 
         let frontmatter = record.document.frontmatter
 
         if frontmatter.isBlocked {
-            if let due = frontmatter.due, due < today {
-                return .overdue
-            }
+            if let due = frontmatter.due, due < today { return .overdue }
             return nil
         }
 
-        if let due = frontmatter.due, due < today {
-            return .overdue
+        if let due = frontmatter.due, due < today { return .overdue }
+
+        // Scheduled this evening (before generic .scheduled check)
+        if frontmatter.scheduled == today,
+           let st = frontmatter.scheduledTime,
+           st >= eveningStart {
+            return .scheduledEvening
         }
 
-        if frontmatter.scheduled == today {
-            return .scheduled
-        }
-
-        if frontmatter.due == today {
-            return .dueToday
-        }
-
-        if let deferDate = frontmatter.defer, deferDate <= today {
-            return .deferredNowAvailable
-        }
+        if frontmatter.scheduled == today { return .scheduled }
+        if frontmatter.due == today { return .dueToday }
+        if let deferDate = frontmatter.defer, deferDate <= today { return .deferredNowAvailable }
 
         return nil
     }
@@ -107,8 +103,8 @@ public struct TaskQueryEngine {
         return isDelegatedTask(record)
     }
 
-    public func isToday(_ record: TaskRecord, today: LocalDate) -> Bool {
-        todayGroup(for: record, today: today) != nil
+    public func isToday(_ record: TaskRecord, today: LocalDate, eveningStart: LocalTime) -> Bool {
+        todayGroup(for: record, today: today, eveningStart: eveningStart) != nil
     }
 
     public func isUpcoming(_ record: TaskRecord, today: LocalDate) -> Bool {

@@ -210,7 +210,33 @@ struct TaskDetailView: View {
             .buttonStyle(.plain)
             Divider().padding(.leading, 52)
 
-            // Due
+            // When (Scheduled)
+            Button {
+                showingScheduledDateEditor = true
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "calendar.badge.clock")
+                        .frame(width: 20)
+                        .foregroundStyle(.secondary)
+                    Text("When")
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Text(editState.map { scheduledDateText($0) } ?? "")
+                        .foregroundStyle((editState.map { scheduledDateText($0) } ?? "").isEmpty ? .tertiary : .secondary)
+                        .lineLimit(1)
+                }
+                .contentShape(Rectangle())
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+            }
+            .buttonStyle(.plain)
+            .taskDetailAccessibilityIdentifier("taskDetail.row.when")
+            .sheet(isPresented: $showingScheduledDateEditor) {
+                scheduledDateEditorSheet
+            }
+            Divider().padding(.leading, 52)
+
+            // Deadline (Due)
             Button {
                 showingDueDateEditor = true
             } label: {
@@ -218,7 +244,7 @@ struct TaskDetailView: View {
                     Image(systemName: "calendar")
                         .frame(width: 20)
                         .foregroundStyle(.secondary)
-                    Text("Due")
+                    Text("Deadline")
                         .foregroundStyle(.primary)
                     Spacer()
                     Text(editState.map { dueDateText($0) } ?? "")
@@ -233,32 +259,6 @@ struct TaskDetailView: View {
             .taskDetailAccessibilityIdentifier("taskDetail.row.due")
             .sheet(isPresented: $showingDueDateEditor) {
                 dueDateEditorSheet
-            }
-            Divider().padding(.leading, 52)
-
-            // Scheduled
-            Button {
-                showingScheduledDateEditor = true
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "calendar.badge.clock")
-                        .frame(width: 20)
-                        .foregroundStyle(.secondary)
-                    Text("Scheduled")
-                        .foregroundStyle(.primary)
-                    Spacer()
-                    Text(editState.map { scheduledDateText($0) } ?? "")
-                        .foregroundStyle((editState.map { scheduledDateText($0) } ?? "").isEmpty ? .tertiary : .secondary)
-                        .lineLimit(1)
-                }
-                .contentShape(Rectangle())
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-            }
-            .buttonStyle(.plain)
-            .taskDetailAccessibilityIdentifier("taskDetail.row.scheduled")
-            .sheet(isPresented: $showingScheduledDateEditor) {
-                scheduledDateEditorSheet
             }
             Divider().padding(.leading, 52)
 
@@ -454,7 +454,7 @@ struct TaskDetailView: View {
                 )
                 .padding(16)
             }
-            .navigationTitle("Due")
+            .navigationTitle("Deadline")
             .background(theme.backgroundColor.ignoresSafeArea())
 #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -470,17 +470,50 @@ struct TaskDetailView: View {
     private var scheduledDateEditorSheet: some View {
         NavigationStack {
             ScrollView {
-                DateChooserView(
-                    context: .scheduled,
-                    timeMode: .hidden,
-                    hasDate: binding(\.hasScheduled),
-                    date: binding(\.scheduledDate),
-                    hasTime: constantFalseBinding,
-                    time: constantDateBinding
-                )
-                .padding(16)
+                VStack(spacing: 0) {
+                    DateChooserView(
+                        context: .scheduled,
+                        timeMode: .optional,
+                        hasDate: binding(\.hasScheduled),
+                        date: binding(\.scheduledDate),
+                        hasTime: binding(\.hasScheduledTime),
+                        time: binding(\.scheduledTime)
+                    )
+                    .padding(16)
+
+                    // Morning / Evening quick-select (shown only when date is set)
+                    if editState?.hasScheduled == true {
+                        VStack(spacing: 0) {
+                            Divider()
+                            HStack(spacing: 12) {
+                                Button("Morning") {
+                                    withAnimation {
+                                        editState?.hasScheduledTime = false
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+
+                                Button("Evening") {
+                                    withAnimation {
+                                        editState?.hasScheduledTime = true
+                                        let eveningComps = Calendar.current.dateComponents(
+                                            [.hour, .minute],
+                                            from: container.eveningStartDate
+                                        )
+                                        var comps = DateComponents()
+                                        comps.hour = eveningComps.hour ?? 18
+                                        comps.minute = eveningComps.minute ?? 0
+                                        editState?.scheduledTime = Calendar.current.date(from: comps) ?? Date()
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                            .padding()
+                        }
+                    }
+                }
             }
-            .navigationTitle("Scheduled")
+            .navigationTitle("When")
             .background(theme.backgroundColor.ignoresSafeArea())
 #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -599,7 +632,16 @@ struct TaskDetailView: View {
         guard s.hasScheduled else { return "" }
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
-        return formatter.string(from: s.scheduledDate)
+        formatter.timeStyle = .none
+        var text = formatter.string(from: s.scheduledDate)
+        if s.hasScheduledTime {
+            let comps = Calendar.current.dateComponents([.hour, .minute], from: s.scheduledTime)
+            if let t = try? LocalTime(isoTime: String(format: "%02d:%02d", comps.hour ?? 0, comps.minute ?? 0)),
+               t >= container.eveningStartTime {
+                text += ", Evening"
+            }
+        }
+        return text
     }
 
     private func currentTags() -> [String] {

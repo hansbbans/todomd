@@ -325,4 +325,57 @@ final class TaskMarkdownCodecTests: XCTestCase {
         let parsed = try codec.parse(markdown: raw)
         XCTAssertEqual(parsed.frontmatter.blockedBy, .manual)
     }
+
+    func testRoundtrip_scheduledTime() throws {
+        let raw = """
+        ---
+        title: "Read chapter 4"
+        status: "todo"
+        scheduled: "2026-03-17"
+        scheduled_time: "20:30"
+        created: "2026-03-17T10:00:00Z"
+        source: "user"
+        ---
+        """
+        let codec = TaskMarkdownCodec()
+        let parsed = try codec.parse(markdown: raw)
+        let time = try XCTUnwrap(parsed.frontmatter.scheduledTime)
+        XCTAssertEqual(time.hour, 20)
+        XCTAssertEqual(time.minute, 30)
+
+        let serialized = try codec.serialize(document: parsed)
+        XCTAssertTrue(serialized.contains("scheduled_time") && serialized.contains("20:30"),
+                      "serialized output: \(serialized)")
+        let reparsed = try codec.parse(markdown: serialized)
+        XCTAssertEqual(reparsed.frontmatter.scheduledTime, parsed.frontmatter.scheduledTime)
+    }
+
+    func testScheduledTime_nil_omittedFromOutput() throws {
+        let fm = TestSupport.sampleFrontmatter()
+        let doc = TaskDocument(frontmatter: fm, body: "")
+        let codec = TaskMarkdownCodec()
+        let serialized = try codec.serialize(document: doc)
+        XCTAssertFalse(serialized.contains("scheduled_time"),
+                       "nil scheduledTime should not appear in serialized output")
+    }
+
+    func testScheduledTime_requiresScheduled_throwsWithoutIt() throws {
+        let raw = """
+        ---
+        title: "Missing scheduled"
+        status: "todo"
+        scheduled_time: "20:30"
+        created: "2026-03-17T10:00:00Z"
+        source: "user"
+        ---
+        """
+        let codec = TaskMarkdownCodec()
+        XCTAssertThrowsError(try codec.parse(markdown: raw)) { error in
+            guard case TaskValidationError.invalidFieldValue(let field, _) = error else {
+                XCTFail("Expected invalidFieldValue, got \(error)")
+                return
+            }
+            XCTAssertEqual(field, "scheduled_time")
+        }
+    }
 }

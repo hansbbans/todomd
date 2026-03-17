@@ -50,6 +50,7 @@ public struct TaskFrontmatterV1: Equatable, Sendable {
     public var persistentReminder: Bool?
     public var `defer`: LocalDate?
     public var scheduled: LocalDate?
+    public var scheduledTime: LocalTime?
     public var priority: TaskPriority
     public var flagged: Bool
     public var area: String?
@@ -76,6 +77,7 @@ public struct TaskFrontmatterV1: Equatable, Sendable {
         persistentReminder: Bool? = nil,
         defer: LocalDate? = nil,
         scheduled: LocalDate? = nil,
+        scheduledTime: LocalTime? = nil,
         priority: TaskPriority = .none,
         flagged: Bool = false,
         area: String? = nil,
@@ -101,6 +103,7 @@ public struct TaskFrontmatterV1: Equatable, Sendable {
         self.persistentReminder = persistentReminder
         self.defer = `defer`
         self.scheduled = scheduled
+        self.scheduledTime = scheduledTime
         self.priority = priority
         self.flagged = flagged
         self.area = area

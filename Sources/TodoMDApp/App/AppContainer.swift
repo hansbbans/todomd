@@ -48,6 +48,8 @@ struct TaskEditState: Equatable {
     var deferDate: Date
     var hasScheduled: Bool
     var scheduledDate: Date
+    var hasScheduledTime: Bool
+    var scheduledTime: Date
 
     var hasEstimatedMinutes: Bool
     var estimatedMinutes: Int
@@ -291,7 +293,34 @@ final class AppContainer: ObservableObject {
     private static let settingsProjectsKey = "settings_projects_v1"
     private static let settingsProjectColorsKey = "settings_project_colors_v1"
     private static let settingsProjectIconsKey = "settings_project_icons_v1"
+    private static let settingsEveningStartTimeKey = "taskBehavior.eveningStartTime"
     private static let hashtagRegex = try? NSRegularExpression(pattern: "#([A-Za-z0-9_-]+)")
+
+    var eveningStartTime: LocalTime {
+        get {
+            guard let s = UserDefaults.standard.string(forKey: Self.settingsEveningStartTimeKey),
+                  let t = try? LocalTime(isoTime: s) else {
+                return try! LocalTime(isoTime: "18:00")
+            }
+            return t
+        }
+        set {
+            UserDefaults.standard.set(newValue.isoString, forKey: Self.settingsEveningStartTimeKey)
+        }
+    }
+
+    var eveningStartDate: Date {
+        get {
+            var comps = DateComponents()
+            comps.hour = eveningStartTime.hour
+            comps.minute = eveningStartTime.minute
+            return Calendar.current.date(from: comps) ?? Date()
+        }
+        set {
+            let comps = Calendar.current.dateComponents([.hour, .minute], from: newValue)
+            eveningStartTime = (try? LocalTime(isoTime: String(format: "%02d:%02d", comps.hour ?? 18, comps.minute ?? 0))) ?? (try! LocalTime(isoTime: "18:00"))
+        }
+    }
 
     init(logger: RuntimeLogging = ConsoleRuntimeLogger()) {
         self.logger = logger
@@ -960,17 +989,17 @@ final class AppContainer: ObservableObject {
 
     func todaySections(today: LocalDate = LocalDate.today(in: .current)) -> [TodaySection] {
         let todayRecords = allIndexedRecords.filter {
-            queryEngine.matches($0, view: .builtIn(.today), today: today)
+            queryEngine.matches($0, view: .builtIn(.today), today: today, eveningStart: eveningStartTime)
         }
         let ordered = manualOrderService.ordered(records: todayRecords, view: .builtIn(.today))
         var grouped: [TodayGroup: [TaskRecord]] = [:]
 
         for record in ordered {
-            guard let group = queryEngine.todayGroup(for: record, today: today) else { continue }
+            guard let group = queryEngine.todayGroup(for: record, today: today, eveningStart: eveningStartTime) else { continue }
             grouped[group, default: []].append(record)
         }
 
-        let groupOrder: [TodayGroup] = [.overdue, .scheduled, .dueToday, .deferredNowAvailable]
+        let groupOrder: [TodayGroup] = [.overdue, .scheduled, .dueToday, .deferredNowAvailable, .scheduledEvening]
         return groupOrder.compactMap { group in
             guard let records = grouped[group], !records.isEmpty else { return nil }
             return TodaySection(group: group, records: records)
@@ -979,7 +1008,7 @@ final class AppContainer: ObservableObject {
 
     func upcomingSections(today: LocalDate = LocalDate.today(in: .current)) -> [UpcomingSection] {
         let upcoming = allIndexedRecords.filter {
-            queryEngine.matches($0, view: .builtIn(.upcoming), today: today)
+            queryEngine.matches($0, view: .builtIn(.upcoming), today: today, eveningStart: eveningStartTime)
         }
         var grouped: [LocalDate: [TaskRecord]] = [:]
 
@@ -1806,6 +1835,14 @@ final class AppContainer: ObservableObject {
             deferDate: dateFromLocalDate(frontmatter.defer) ?? Date(),
             hasScheduled: frontmatter.scheduled != nil,
             scheduledDate: dateFromLocalDate(frontmatter.scheduled) ?? Date(),
+            hasScheduledTime: frontmatter.scheduledTime != nil,
+            scheduledTime: {
+                guard let st = frontmatter.scheduledTime else { return Date() }
+                var comps = DateComponents()
+                comps.hour = st.hour
+                comps.minute = st.minute
+                return Calendar.current.date(from: comps) ?? Date()
+            }(),
             hasEstimatedMinutes: frontmatter.estimatedMinutes != nil,
             estimatedMinutes: frontmatter.estimatedMinutes ?? 15,
             area: frontmatter.area ?? "",
@@ -1905,6 +1942,24 @@ final class AppContainer: ObservableObject {
             return true
         } catch {
             logger.error("Set defer failed", metadata: ["path": path, "error": error.localizedDescription])
+            return false
+        }
+    }
+
+    @discardableResult
+    func setScheduled(path: String, date: LocalDate?, scheduledTime: LocalTime? = nil) -> Bool {
+        do {
+            let updated = try repository.update(path: path) { document in
+                document.frontmatter.scheduled = date
+                document.frontmatter.scheduledTime = date == nil ? nil : scheduledTime
+                document.frontmatter.modified = Date()
+            }
+            upsertRecordInMemory(updated)
+            markSelfWrite(path: updated.identity.path)
+            refresh()
+            return true
+        } catch {
+            logger.error("Set scheduled failed", metadata: ["path": path, "error": error.localizedDescription])
             return false
         }
     }
@@ -2145,6 +2200,8 @@ final class AppContainer: ObservableObject {
         explicitDue: LocalDate? = nil,
         explicitDueTime: LocalTime? = nil,
         explicitRecurrence: String? = nil,
+        explicitScheduled: LocalDate? = nil,
+        explicitScheduledTime: LocalTime? = nil,
         priorityOverride: TaskPriority? = nil,
         flagged: Bool = false,
         area: String? = nil,
@@ -2181,6 +2238,8 @@ final class AppContainer: ObservableObject {
             status: .todo,
             due: due,
             dueTime: due == nil ? nil : explicitDueTime,
+            scheduled: explicitScheduled,
+            scheduledTime: explicitScheduled == nil ? nil : explicitScheduledTime,
             priority: resolvedPriority,
             flagged: flagged,
             area: resolvedArea,
@@ -2204,6 +2263,8 @@ final class AppContainer: ObservableObject {
         explicitDue: LocalDate? = nil,
         explicitDueTime: LocalTime? = nil,
         explicitRecurrence: String? = nil,
+        explicitScheduled: LocalDate? = nil,
+        explicitScheduledTime: LocalTime? = nil,
         priority: TaskPriority? = nil,
         flagged: Bool = false,
         tags: [String] = [],
@@ -2225,6 +2286,8 @@ final class AppContainer: ObservableObject {
             explicitDue: explicitDue ?? parsed.due,
             explicitDueTime: explicitDueTime ?? parsed.dueTime,
             explicitRecurrence: explicitRecurrence,
+            explicitScheduled: explicitScheduled,
+            explicitScheduledTime: explicitScheduledTime,
             priorityOverride: priority,
             flagged: flagged,
             area: area,
@@ -3346,7 +3409,7 @@ final class AppContainer: ObservableObject {
             filtered = candidateRecords.filter { perspectiveQueryEngine.matches($0, perspective: perspective, today: today) }
             orderedRecords = order(records: filtered, for: perspective, today: today)
         } else {
-            filtered = allIndexedRecords.filter { queryEngine.matches($0, view: selectedView, today: today) }
+            filtered = allIndexedRecords.filter { queryEngine.matches($0, view: selectedView, today: today, eveningStart: eveningStartTime) }
             if selectedView == .builtIn(.logbook) {
                 orderedRecords = orderedLogbookRecords(filtered)
             } else {
@@ -3889,6 +3952,9 @@ final class AppContainer: ObservableObject {
         document.frontmatter.persistentReminder = editState.persistentReminderEnabled && editState.hasDue && editState.hasDueTime
         document.frontmatter.defer = editState.hasDefer ? localDateFromDate(editState.deferDate) : nil
         document.frontmatter.scheduled = editState.hasScheduled ? localDateFromDate(editState.scheduledDate) : nil
+        document.frontmatter.scheduledTime = (editState.hasScheduled && editState.hasScheduledTime)
+            ? localTimeFromDate(editState.scheduledTime)
+            : nil
 
         document.frontmatter.estimatedMinutes = editState.hasEstimatedMinutes ? max(0, editState.estimatedMinutes) : nil
 

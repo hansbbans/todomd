@@ -254,7 +254,7 @@ private struct WidgetTaskLoader {
         switch selection {
         case .builtIn(let view):
             let identifier = ViewIdentifier.builtIn(view)
-            records = records.filter { queryEngine.matches($0, view: identifier, today: today) }
+            records = records.filter { queryEngine.matches($0, view: identifier, today: today, eveningStart: (try? LocalTime(isoTime: "18:00")) ?? .midnight) }
             records = manualOrderService.ordered(records: records, view: identifier)
         case .perspective(let perspective):
             records = records.filter { perspectiveQueryEngine.matches($0, perspective: perspective, today: today) }
@@ -307,7 +307,7 @@ private struct WidgetTaskLoader {
 
         let todayIdentifier = ViewIdentifier.builtIn(.today)
         let orderedToday = manualOrderService.ordered(
-            records: records.filter { queryEngine.matches($0, view: todayIdentifier, today: today) },
+            records: records.filter { queryEngine.matches($0, view: todayIdentifier, today: today, eveningStart: (try? LocalTime(isoTime: "18:00")) ?? .midnight) },
             view: todayIdentifier
         )
         let orderedTomorrow = records

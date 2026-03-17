@@ -179,7 +179,7 @@ struct GetTasksIntent: AppIntent {
         let today = LocalDate.today(in: .current)
 
         let tasks = try services.loadRecords()
-            .filter { services.query.matches($0, view: viewIdentifier, today: today) }
+            .filter { services.query.matches($0, view: viewIdentifier, today: today, eveningStart: (try? LocalTime(isoTime: "18:00")) ?? .midnight) }
             .filter { record in
                 let trimmed = area.trimmingCharacters(in: .whitespacesAndNewlines)
                 if trimmed.isEmpty { return true }
@@ -209,7 +209,7 @@ struct GetOverdueTasksIntent: AppIntent {
         let today = LocalDate.today(in: .current)
 
         let overdue = try services.loadRecords()
-            .filter { services.query.todayGroup(for: $0, today: today) == .overdue }
+            .filter { services.query.todayGroup(for: $0, today: today, eveningStart: (try? LocalTime(isoTime: "18:00")) ?? .midnight) == .overdue }
             .map(services.makeIntentEntity(from:))
 
         return .result(value: overdue)
