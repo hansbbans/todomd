@@ -546,6 +546,17 @@ struct SettingsView: View {
                 Toggle("Include tasks in recents", isOn: $quickFindStore.recordTasks)
             }
 
+            Section("Scheduling") {
+                DatePicker(
+                    "Evening starts at",
+                    selection: Binding(
+                        get: { container.eveningStartDate },
+                        set: { container.eveningStartDate = $0 }
+                    ),
+                    displayedComponents: .hourAndMinute
+                )
+            }
+
             Section {
                 Toggle("Archive completed", isOn: $archiveCompleted)
 
