@@ -19,6 +19,11 @@ struct QuickEntrySheet: View {
     @State private var tagsText = ""
     @State private var selectedArea: String?
     @State private var selectedProject: String?
+    @State private var hasScheduledDate = false
+    @State private var scheduledDate = Date()
+    @State private var hasScheduledTime = false
+    @State private var scheduledTime = Date()
+    @State private var showingScheduledDateEditor = false
     @State private var showingDueDateEditor = false
     @State private var showingReminderEditor = false
     @State private var showingTagsEditor = false
@@ -57,13 +62,39 @@ struct QuickEntrySheet: View {
         !quickEntryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private var dateChipTitle: String {
-        guard hasDueDate else { return "No Date" }
+    private var whenChipTitle: String {
+        guard hasScheduledDate else { return "When" }
+        let calendar = Calendar.current
+        var text: String
+        if calendar.isDateInToday(scheduledDate) {
+            text = "Today"
+        } else if calendar.isDateInTomorrow(scheduledDate) {
+            text = "Tomorrow"
+        } else {
+            text = scheduledDate.formatted(date: .abbreviated, time: .omitted)
+        }
+        if hasScheduledTime {
+            let comps = calendar.dateComponents([.hour, .minute], from: scheduledTime)
+            if let t = try? LocalTime(isoTime: String(format: "%02d:%02d", comps.hour ?? 0, comps.minute ?? 0)),
+               t >= container.eveningStartTime {
+                text += ", Evening"
+            }
+        }
+        return text
+    }
+
+    private var deadlineChipTitle: String {
+        guard hasDueDate else { return "Deadline" }
         let calendar = Calendar.current
         if calendar.isDateInToday(dueDate) {
             return "Today"
         }
         return dueDate.formatted(date: .abbreviated, time: .omitted)
+    }
+
+    private var isDeadlineOverdue: Bool {
+        guard hasDueDate else { return false }
+        return Calendar.current.startOfDay(for: dueDate) <= Calendar.current.startOfDay(for: Date())
     }
 
     private var reminderChipTitle: String {
@@ -214,14 +245,28 @@ struct QuickEntrySheet: View {
     @ViewBuilder
     private func fieldChip(_ field: QuickEntryField) -> some View {
         switch field {
+        case .scheduledDate:
+            Button {
+                showingScheduledDateEditor = true
+            } label: {
+                chipLabel(
+                    title: whenChipTitle,
+                    systemImage: field.systemImage,
+                    isActive: hasScheduledDate
+                )
+            }
+            .buttonStyle(.plain)
+            .sheet(isPresented: $showingScheduledDateEditor) {
+                whenDateEditorView
+            }
         case .dueDate:
             Button {
                 showingDueDateEditor = true
             } label: {
-                chipLabel(
-                    title: dateChipTitle,
-                    systemImage: field.systemImage,
-                    isActive: hasDueDate
+                chipLabelDeadline(
+                    title: deadlineChipTitle,
+                    isActive: hasDueDate,
+                    isOverdue: isDeadlineOverdue
                 )
             }
             .buttonStyle(.plain)
@@ -408,6 +453,113 @@ struct QuickEntrySheet: View {
         )
     }
 
+    private func chipLabelDeadline(title: String, isActive: Bool, isOverdue: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "diamond.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(isActive ? (isOverdue ? Color.red : Color.orange) : theme.textPrimaryColor)
+            Text(title)
+                .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                .lineLimit(1)
+                .foregroundStyle(isActive ? (isOverdue ? Color.red : Color.orange) : theme.textPrimaryColor)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            Capsule(style: .continuous)
+                .fill(theme.surfaceColor.opacity(0.94))
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(isActive ? (isOverdue ? Color.red.opacity(0.45) : Color.orange.opacity(0.45)) : theme.textSecondaryColor.opacity(0.32), lineWidth: 1)
+        )
+    }
+
+    private var whenDateEditorView: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 16) {
+                    VStack(spacing: 0) {
+                        Button("Today") {
+                            hasScheduledDate = true
+                            scheduledDate = Date()
+                            hasScheduledTime = false
+                            showingScheduledDateEditor = false
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                        Divider()
+                        Button("This Evening") {
+                            hasScheduledDate = true
+                            scheduledDate = Date()
+                            hasScheduledTime = true
+                            scheduledTime = container.eveningStartDate
+                            showingScheduledDateEditor = false
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                        Divider()
+                        Button("Tomorrow") {
+                            hasScheduledDate = true
+                            scheduledDate = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
+                            hasScheduledTime = false
+                            showingScheduledDateEditor = false
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                        if hasScheduledDate {
+                            Divider()
+                            Button("Clear") {
+                                hasScheduledDate = false
+                                hasScheduledTime = false
+                                showingScheduledDateEditor = false
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding()
+                            .foregroundStyle(.red)
+                        }
+                    }
+                    .background(Color.secondary.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .padding(.horizontal)
+
+                    DatePicker("Date", selection: $scheduledDate, displayedComponents: .date)
+                        .datePickerStyle(.graphical)
+                        .onChange(of: scheduledDate) { _, _ in hasScheduledDate = true }
+                        .padding(.horizontal)
+
+                    if hasScheduledDate {
+                        HStack(spacing: 12) {
+                            Button("Morning") {
+                                hasScheduledTime = false
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(hasScheduledTime ? .secondary : .accentColor)
+
+                            Button("Evening") {
+                                hasScheduledTime = true
+                                scheduledTime = container.eveningStartDate
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(hasScheduledTime ? .accentColor : .secondary)
+                        }
+                        .padding(.horizontal)
+                    }
+                }
+                .padding(.vertical)
+            }
+            .navigationTitle("When")
+#if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+#endif
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { showingScheduledDateEditor = false }
+                }
+            }
+        }
+    }
+
     private var dueDateEditor: some View {
         NavigationStack {
             ScrollView {
@@ -537,12 +689,16 @@ struct QuickEntrySheet: View {
             let trimmed = recurrence.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
         }()
+        let explicitScheduled = hasScheduledDate ? localDate(from: scheduledDate) : nil
+        let explicitScheduledTime = (hasScheduledDate && hasScheduledTime) ? localTime(from: scheduledTime) : nil
         let activeFields = activeFieldSet
         let created = container.createTask(
             fromQuickEntryText: trimmedEntry,
             explicitDue: explicitDue,
             explicitDueTime: explicitDueTime,
             explicitRecurrence: explicitRecurrence,
+            explicitScheduled: explicitScheduled,
+            explicitScheduledTime: explicitScheduledTime,
             priority: activeFields.contains(.priority) ? priorityOverride : nil,
             flagged: activeFields.contains(.flag) ? flagged : false,
             tags: activeFields.contains(.tags) ? parsedTags(from: tagsText) : [],

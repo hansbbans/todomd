@@ -1,6 +1,7 @@
 import Foundation
 
 enum QuickEntryField: String, CaseIterable, Identifiable {
+    case scheduledDate = "scheduledDate"
     case dueDate = "due_date"
     case priority = "priority"
     case reminder = "reminder"
@@ -8,12 +9,14 @@ enum QuickEntryField: String, CaseIterable, Identifiable {
     case tags = "tags"
     case project = "project"
 
-    static let defaults: [QuickEntryField] = [.dueDate, .priority, .reminder]
+    static let defaults: [QuickEntryField] = [.scheduledDate, .dueDate, .priority, .reminder]
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
+        case .scheduledDate:
+            return "When"
         case .dueDate:
             return "Date"
         case .priority:
@@ -31,8 +34,10 @@ enum QuickEntryField: String, CaseIterable, Identifiable {
 
     var systemImage: String {
         switch self {
-        case .dueDate:
+        case .scheduledDate:
             return "calendar"
+        case .dueDate:
+            return "diamond.fill"
         case .priority:
             return "flag"
         case .reminder:
