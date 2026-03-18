@@ -325,6 +325,27 @@ private enum RootPullToSearchCoordinateSpace {
     static let name = "rootPullToSearchScrollArea"
 }
 
+private struct RootListContentMaxYPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = .zero
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+private struct RootListContentBoundaryReporter: ViewModifier {
+    func body(content: Content) -> some View {
+        content.background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: RootListContentMaxYPreferenceKey.self,
+                    value: proxy.frame(in: .named(RootPullToSearchCoordinateSpace.name)).maxY
+                )
+            }
+        }
+    }
+}
+
 private struct RootPullToSearchTopOffsetPreferenceKey: PreferenceKey {
     static let defaultValue: CGFloat? = nil
 
@@ -686,6 +707,8 @@ struct RootView: View {
     @State private var inlineAutoDatePhrase: String?
     @State private var inlineTaskTitleMutationInFlight = false
     @State private var showingInlineVoiceRamble = false
+    @State private var inlineTaskFocusTask: Task<Void, Never>?
+    @State private var taskListContentMaxY: CGFloat = .zero
     @FocusState private var inlineTaskFocused: Bool
     @Namespace private var compactQuickAddNamespace
     @AppStorage(CompactTabSettings.leadingViewKey) private var compactPrimaryTabRawValue = CompactTabSettings.defaultLeadingView.rawValue
@@ -1006,6 +1029,8 @@ struct RootView: View {
                 expandedTaskPath = nil
                 inlineComposerTransitionTask?.cancel()
                 inlineComposerTransitionTask = nil
+                inlineTaskFocusTask?.cancel()
+                inlineTaskFocusTask = nil
                 completionAnimationTasks.values.forEach { $0.cancel() }
                 completionAnimationTasks.removeAll()
             }
@@ -1324,6 +1349,23 @@ struct RootView: View {
                 .accessibilityIdentifier("root.settingsButton")
             }
         }
+
+#if os(iOS)
+        ToolbarItemGroup(placement: .keyboard) {
+            if isCreatingTask {
+                Spacer()
+                Button {
+                    commitInlineTaskComposer()
+                } label: {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.title3)
+                }
+                .disabled(!canCommitInlineTask)
+                .accessibilityLabel("Add task")
+                .accessibilityIdentifier("inlineTask.keyboardCommitButton")
+            }
+        }
+#endif
     }
 
     private var sidebar: some View {
@@ -1519,6 +1561,9 @@ struct RootView: View {
 
             if container.selectedView == .builtIn(.inbox) {
                 InboxRemindersImportPanel()
+#if os(iOS)
+                    .modifier(RootListContentBoundaryReporter())
+#endif
             }
             if container.selectedView == .builtIn(.today) {
                 if container.isCalendarConnected {
@@ -1530,6 +1575,27 @@ struct RootView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(theme.backgroundColor)
+        .modifier(
+            RootPullToSearchGestureModifier(
+                isEnabled: shouldAllowPullToSearchGesture,
+                onTrigger: {
+                    Task { @MainActor in
+                        presentRootSearch()
+                    }
+                }
+            )
+        )
+#if os(iOS)
+        .onPreferenceChange(RootListContentMaxYPreferenceKey.self) { maxY in
+            taskListContentMaxY = maxY
+        }
+        .simultaneousGesture(
+            SpatialTapGesture()
+                .onEnded { value in
+                    handleTaskListBlankSpaceTap(at: value.location)
+                }
+        )
+#endif
     }
 
     private func emptyStateMainContent() -> AnyView {
@@ -1564,6 +1630,9 @@ struct RootView: View {
             .frame(maxWidth: .infinity)
             .padding(.top, container.isCalendarConnected ? 10 : 24)
             .padding(.bottom, 40)
+#if os(iOS)
+            .modifier(RootListContentBoundaryReporter())
+#endif
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
@@ -1574,6 +1643,9 @@ struct RootView: View {
         taskList(id: "\(container.selectedView.rawValue)-empty") {
             mainHeroListRow
             InboxRemindersImportPanel()
+#if os(iOS)
+                .modifier(RootListContentBoundaryReporter())
+#endif
 
             VStack(spacing: 12) {
                 IllustratedEmptyState(
@@ -1587,6 +1659,9 @@ struct RootView: View {
             .frame(maxWidth: .infinity)
             .padding(.top, 20)
             .padding(.bottom, 40)
+#if os(iOS)
+            .modifier(RootListContentBoundaryReporter())
+#endif
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
@@ -1609,6 +1684,9 @@ struct RootView: View {
             .frame(maxWidth: .infinity)
             .padding(.top, 20)
             .padding(.bottom, 40)
+#if os(iOS)
+            .modifier(RootListContentBoundaryReporter())
+#endif
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
@@ -1708,6 +1786,7 @@ struct RootView: View {
             .padding(.bottom, mainHeroBottomPadding)
 #if os(iOS)
             .modifier(RootPullToSearchTopMarker())
+            .modifier(RootListContentBoundaryReporter())
 #endif
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
@@ -1779,6 +1858,9 @@ struct RootView: View {
             .padding(.horizontal, 24)
             .padding(.top, 2)
             .padding(.bottom, 14)
+#if os(iOS)
+            .modifier(RootListContentBoundaryReporter())
+#endif
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
@@ -1851,6 +1933,9 @@ struct RootView: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("inlineTask.row")
         .accessibilityValue("expanded")
+#if os(iOS)
+        .modifier(RootListContentBoundaryReporter())
+#endif
         .transition(.asymmetric(
             insertion: .push(from: .top).combined(with: .opacity),
             removal: .opacity
@@ -1866,15 +1951,18 @@ struct RootView: View {
                     .padding(.top, 1)
             }
 
-            TextField("", text: $inlineTaskDraft.title, axis: .vertical)
+            TextField("", text: $inlineTaskDraft.title)
                 .modifier(RootViewWordsAutocapitalization())
                 .textFieldStyle(.plain)
                 .font(.system(size: 16, weight: .regular))
                 .foregroundStyle(theme.textPrimaryColor)
                 .focused($inlineTaskFocused)
-                .lineLimit(1...3)
+                .lineLimit(1)
                 .submitLabel(.done)
                 .accessibilityIdentifier("inlineTask.titleField")
+                .onAppear {
+                    scheduleInlineTaskFocus(after: 40_000_000)
+                }
                 .onChange(of: inlineTaskDraft.title) { _, newValue in
                     handleInlineTaskTitleChanged(newValue)
                 }
@@ -1989,6 +2077,9 @@ struct RootView: View {
                             .focused($inlineTaskFocused)
                             .submitLabel(.done)
                             .accessibilityIdentifier("inlineTask.titleField")
+                            .onAppear {
+                                scheduleInlineTaskFocus(after: 140_000_000)
+                            }
                             .onChange(of: inlineTaskDraft.title) { _, newValue in
                                 handleInlineTaskTitleChanged(newValue)
                             }
@@ -2086,19 +2177,7 @@ struct RootView: View {
         inactiveTint: Color,
         flagTint: Color
     ) -> some View {
-        let canCommit = !inlineTaskDraft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         return HStack(spacing: 18) {
-            Button {
-                commitInlineTaskComposer()
-            } label: {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.body)
-                    .foregroundStyle(canCommit ? activeTint : inactiveTint)
-            }
-            .buttonStyle(.plain)
-            .disabled(!canCommit)
-            .accessibilityLabel("Add task")
-            .accessibilityIdentifier("inlineTask.commitButton")
             Spacer(minLength: 0)
             inlineTaskDateAccessoryButton(activeTint: dateActiveTint, inactiveTint: inactiveTint)
             inlineTaskTagsAccessoryButton(activeTint: activeTint, inactiveTint: inactiveTint)
@@ -3688,6 +3767,17 @@ struct RootView: View {
                     }
                 )
             )
+#if os(iOS)
+            .onPreferenceChange(RootListContentMaxYPreferenceKey.self) { maxY in
+                taskListContentMaxY = maxY
+            }
+            .simultaneousGesture(
+                SpatialTapGesture()
+                    .onEnded { value in
+                        handleTaskListBlankSpaceTap(at: value.location)
+                    }
+            )
+#endif
             .onChange(of: expandedTaskPath) { _, path in
                 expandedTaskScrollTask?.cancel()
                 guard let path else { return }
@@ -3796,12 +3886,11 @@ struct RootView: View {
                 withAnimation(.easeOut(duration: 0.18)) {
                     compactComposerContentVisible = true
                 }
+                scheduleInlineTaskFocus(after: 140_000_000)
                 inlineComposerTransitionTask = nil
             }
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.09) {
-            inlineTaskFocused = isCreatingTask
+        } else {
+            scheduleInlineTaskFocus(after: 50_000_000)
         }
     }
 
@@ -3809,6 +3898,8 @@ struct RootView: View {
         guard isCreatingTask else { return }
         inlineComposerTransitionTask?.cancel()
         inlineComposerTransitionTask = nil
+        inlineTaskFocusTask?.cancel()
+        inlineTaskFocusTask = nil
         showingInlineVoiceRamble = false
         showingInlineTaskDateModal = false
         if horizontalSizeClass == .compact {
@@ -3833,6 +3924,43 @@ struct RootView: View {
         }
         inlineTaskFocused = false
         expandedInlineTaskPanel = nil
+    }
+
+    private func scheduleInlineTaskFocus(after delayNanoseconds: UInt64) {
+        inlineTaskFocusTask?.cancel()
+        inlineTaskFocusTask = Task { @MainActor in
+            if delayNanoseconds > 0 {
+                try? await Task.sleep(nanoseconds: delayNanoseconds)
+            }
+
+            guard !Task.isCancelled, isCreatingTask, shouldRenderInlineTaskComposer else { return }
+            inlineTaskFocused = true
+
+            let retryDelay: UInt64 = horizontalSizeClass == .compact ? 180_000_000 : 90_000_000
+            try? await Task.sleep(nanoseconds: retryDelay)
+
+            guard !Task.isCancelled, isCreatingTask, shouldRenderInlineTaskComposer, !inlineTaskFocused else {
+                inlineTaskFocusTask = nil
+                return
+            }
+
+            inlineTaskFocused = true
+            inlineTaskFocusTask = nil
+        }
+    }
+
+    private func handleTaskListBlankSpaceTap(at location: CGPoint) {
+        guard location.y > taskListContentMaxY + 8 else { return }
+
+        if isCreatingTask {
+            cancelInlineTaskComposer()
+            return
+        }
+
+        guard expandedTaskPath != nil else { return }
+        withAnimation(expandedTaskCloseAnimation) {
+            expandedTaskPath = nil
+        }
     }
 
     private func handleInlineTaskTitleChanged(_ value: String) {
@@ -4485,6 +4613,9 @@ struct RootView: View {
             }
         )
         .id(path)
+#if os(iOS)
+        .modifier(RootListContentBoundaryReporter())
+#endif
         .accessibilityIdentifier("taskRow.\(record.document.frontmatter.title)")
         .accessibilityValue(expandedTaskPath == path ? "expanded" : "collapsed")
         .accessibilityHint("Tap to expand. Swipe right for quick actions. Swipe left to complete. Long press for more options.")
@@ -4893,6 +5024,9 @@ extension RootView {
             .padding(.vertical, 13)
         }
         .buttonStyle(.plain)
+#if os(iOS)
+        .modifier(RootListContentBoundaryReporter())
+#endif
         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
