@@ -82,6 +82,50 @@ private enum IntegrationAccessPrimer: String, Identifiable {
     }
 }
 
+private enum CompactTabSlot: String, Identifiable {
+    case primary
+    case secondary
+
+    var id: String {
+        rawValue
+    }
+
+    var pickerTitle: String {
+        switch self {
+        case .primary:
+            "Fourth tab"
+        case .secondary:
+            "Fifth tab"
+        }
+    }
+
+    var displayNameTitle: String {
+        switch self {
+        case .primary:
+            "Fourth-tab label"
+        case .secondary:
+            "Fifth-tab label"
+        }
+    }
+}
+
+private struct CompactTabSelectionSnapshot {
+    let primaryView: ViewIdentifier
+    let secondaryView: ViewIdentifier
+    let primaryDisplayName: String
+    let secondaryDisplayName: String
+}
+
+private struct CompactTabDisplayNameEditor: Identifiable {
+    let slot: CompactTabSlot
+    let perspectiveName: String
+    let snapshot: CompactTabSelectionSnapshot
+
+    var id: String {
+        "\(slot.rawValue)-\(perspectiveName)"
+    }
+}
+
 struct SettingsView: View {
     @Bindable var quickFindStore: QuickFindStore   // injected from RootView
 
@@ -103,6 +147,8 @@ struct SettingsView: View {
         .defaultLeadingView.rawValue
     @AppStorage(CompactTabSettings.trailingViewKey) private var compactSecondaryTabRawValue = CompactTabSettings
         .defaultTrailingView.rawValue
+    @AppStorage(CompactTabSettings.leadingDisplayNameKey) private var compactPrimaryTabDisplayName = ""
+    @AppStorage(CompactTabSettings.trailingDisplayNameKey) private var compactSecondaryTabDisplayName = ""
     @AppStorage("settings_quick_entry_default_view") private var quickEntryDefaultView = BuiltInView.inbox.rawValue
     @AppStorage(QuickEntrySettings.fieldsKey) private var quickEntryFieldsRawValue = QuickEntrySettings
         .defaultFieldsRawValue
@@ -121,6 +167,8 @@ struct SettingsView: View {
     @State private var folderSelectionErrorMessage: String?
     @State private var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
     @State private var pendingAccessPrimer: IntegrationAccessPrimer?
+    @State private var compactTabDisplayNameEditor: CompactTabDisplayNameEditor?
+    @State private var compactTabDisplayNameDraft = ""
 
     var body: some View {
         List {
@@ -199,6 +247,12 @@ struct SettingsView: View {
             }
         } message: {
             Text(folderSelectionErrorMessage ?? "")
+        }
+        .onChange(of: compactTabDisplayNameDraft) { _, newValue in
+            let normalized = String(newValue.prefix(CompactTabSettings.maxPerspectiveDisplayNameLength))
+            if normalized != newValue {
+                compactTabDisplayNameDraft = normalized
+            }
         }
     }
 
@@ -406,7 +460,7 @@ struct SettingsView: View {
             }
 
             Section("Compact Tab Bar") {
-                Picker("Fourth tab", selection: compactPrimaryTabBinding) {
+                Picker(CompactTabSlot.primary.pickerTitle, selection: compactPrimaryTabBinding) {
                     ForEach(compactPrimaryTabChoices) { choice in
                         CompactTabChoiceLabel(choice: choice)
                             .tag(choice.view.rawValue)
@@ -414,7 +468,21 @@ struct SettingsView: View {
                 }
                 .accessibilityIdentifier("settings.appearance.compactPrimaryTabPicker")
 
-                Picker("Fifth tab", selection: compactSecondaryTabBinding) {
+                if CompactTabSettings.isPerspectiveCustomView(compactCustomTabSelection.primary) {
+                    Button {
+                        presentCompactTabDisplayNameEditor(for: .primary)
+                    } label: {
+                        HStack {
+                            Text(CompactTabSlot.primary.displayNameTitle)
+                            Spacer()
+                            Text(compactTabDisplayNameText(for: .primary))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("settings.appearance.compactPrimaryDisplayNameButton")
+                }
+
+                Picker(CompactTabSlot.secondary.pickerTitle, selection: compactSecondaryTabBinding) {
                     ForEach(compactSecondaryTabChoices) { choice in
                         CompactTabChoiceLabel(choice: choice)
                             .tag(choice.view.rawValue)
@@ -422,14 +490,57 @@ struct SettingsView: View {
                 }
                 .accessibilityIdentifier("settings.appearance.compactSecondaryTabPicker")
 
+                if CompactTabSettings.isPerspectiveCustomView(compactCustomTabSelection.secondary) {
+                    Button {
+                        presentCompactTabDisplayNameEditor(for: .secondary)
+                    } label: {
+                        HStack {
+                            Text(CompactTabSlot.secondary.displayNameTitle)
+                            Spacer()
+                            Text(compactTabDisplayNameText(for: .secondary))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("settings.appearance.compactSecondaryDisplayNameButton")
+                }
+
                 Text(
                     "Inbox, Today, and Areas stay pinned in slots 1-3. Choose which two extra lists appear in slots 4 and 5 on the iPhone tab bar."
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+                Text("Perspective tabs use a short custom label so they fit cleanly in the bottom bar.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .navigationTitle(SettingsSection.appearance.title)
+        .alert(
+            compactTabDisplayNameEditor?.slot.displayNameTitle ?? "Tab label",
+            isPresented: Binding(
+                get: { compactTabDisplayNameEditor != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        compactTabDisplayNameEditor = nil
+                    }
+                }
+            )
+        ) {
+            TextField("Display name", text: $compactTabDisplayNameDraft)
+            Button("Cancel", role: .cancel) {
+                cancelCompactTabDisplayNameEdit()
+            }
+            Button("Save") {
+                saveCompactTabDisplayNameEdit()
+            }
+        } message: {
+            if let editor = compactTabDisplayNameEditor {
+                Text(
+                    "Choose a short label for '\(editor.perspectiveName)'. Up to \(CompactTabSettings.maxPerspectiveDisplayNameLength) characters."
+                )
+            }
+        }
     }
 
     private var notificationsSettingsView: some View {
@@ -768,14 +879,7 @@ struct SettingsView: View {
                 compactCustomTabSelection.primary.rawValue
             },
             set: { newValue in
-                let normalized = CompactTabSettings.normalizedCustomViews(
-                    leadingRawValue: newValue,
-                    trailingRawValue: compactSecondaryTabRawValue,
-                    pomodoroEnabled: pomodoroEnabled,
-                    additionalViews: compactPerspectiveViews
-                )
-                compactPrimaryTabRawValue = normalized.primary.rawValue
-                compactSecondaryTabRawValue = normalized.secondary.rawValue
+                updateCompactTabSelection(slot: .primary, newValue: newValue)
             }
         )
     }
@@ -786,16 +890,157 @@ struct SettingsView: View {
                 compactCustomTabSelection.secondary.rawValue
             },
             set: { newValue in
-                let normalized = CompactTabSettings.normalizedCustomViews(
-                    leadingRawValue: compactPrimaryTabRawValue,
-                    trailingRawValue: newValue,
-                    pomodoroEnabled: pomodoroEnabled,
-                    additionalViews: compactPerspectiveViews
-                )
-                compactPrimaryTabRawValue = normalized.primary.rawValue
-                compactSecondaryTabRawValue = normalized.secondary.rawValue
+                updateCompactTabSelection(slot: .secondary, newValue: newValue)
             }
         )
+    }
+
+    private func updateCompactTabSelection(slot: CompactTabSlot, newValue: String) {
+        let previousSelection = compactCustomTabSelection
+        let snapshot = CompactTabSelectionSnapshot(
+            primaryView: previousSelection.primary,
+            secondaryView: previousSelection.secondary,
+            primaryDisplayName: compactPrimaryTabDisplayName,
+            secondaryDisplayName: compactSecondaryTabDisplayName
+        )
+        let normalized = CompactTabSettings.normalizedCustomViews(
+            leadingRawValue: slot == .primary ? newValue : compactPrimaryTabRawValue,
+            trailingRawValue: slot == .secondary ? newValue : compactSecondaryTabRawValue,
+            pomodoroEnabled: pomodoroEnabled,
+            additionalViews: compactPerspectiveViews
+        )
+        compactPrimaryTabRawValue = normalized.primary.rawValue
+        compactSecondaryTabRawValue = normalized.secondary.rawValue
+
+        syncCompactTabDisplayName(for: .primary, previousView: snapshot.primaryView, newView: normalized.primary)
+        syncCompactTabDisplayName(
+            for: .secondary,
+            previousView: snapshot.secondaryView,
+            newView: normalized.secondary
+        )
+
+        let selectedView = slot == .primary ? normalized.primary : normalized.secondary
+        let previousView = slot == .primary ? snapshot.primaryView : snapshot.secondaryView
+        guard CompactTabSettings.isPerspectiveCustomView(selectedView),
+              selectedView != previousView
+        else {
+            return
+        }
+
+        presentCompactTabDisplayNameEditor(for: slot, snapshot: snapshot)
+    }
+
+    private func syncCompactTabDisplayName(
+        for slot: CompactTabSlot,
+        previousView: ViewIdentifier,
+        newView: ViewIdentifier
+    ) {
+        guard CompactTabSettings.isPerspectiveCustomView(newView),
+              let perspectiveName = compactPerspectiveName(for: newView)
+        else {
+            setCompactTabDisplayName("", for: slot)
+            return
+        }
+
+        if previousView != newView {
+            setCompactTabDisplayName(
+                CompactTabSettings.defaultPerspectiveDisplayName(perspectiveName),
+                for: slot
+            )
+            return
+        }
+
+        setCompactTabDisplayName(
+            CompactTabSettings.normalizedPerspectiveDisplayName(
+                compactTabStoredDisplayName(for: slot),
+                perspectiveName: perspectiveName
+            ),
+            for: slot
+        )
+    }
+
+    private func presentCompactTabDisplayNameEditor(
+        for slot: CompactTabSlot,
+        snapshot: CompactTabSelectionSnapshot? = nil
+    ) {
+        let selection = compactCustomTabSelection
+        let selectedView = slot == .primary ? selection.primary : selection.secondary
+        guard CompactTabSettings.isPerspectiveCustomView(selectedView),
+              let perspectiveName = compactPerspectiveName(for: selectedView)
+        else {
+            return
+        }
+
+        let editorSnapshot = snapshot ?? CompactTabSelectionSnapshot(
+            primaryView: selection.primary,
+            secondaryView: selection.secondary,
+            primaryDisplayName: compactPrimaryTabDisplayName,
+            secondaryDisplayName: compactSecondaryTabDisplayName
+        )
+
+        compactTabDisplayNameDraft = compactTabDisplayNameText(for: slot)
+        compactTabDisplayNameEditor = CompactTabDisplayNameEditor(
+            slot: slot,
+            perspectiveName: perspectiveName,
+            snapshot: editorSnapshot
+        )
+    }
+
+    private func saveCompactTabDisplayNameEdit() {
+        guard let editor = compactTabDisplayNameEditor else { return }
+        setCompactTabDisplayName(
+            CompactTabSettings.normalizedPerspectiveDisplayName(
+                compactTabDisplayNameDraft,
+                perspectiveName: editor.perspectiveName
+            ),
+            for: editor.slot
+        )
+        compactTabDisplayNameEditor = nil
+    }
+
+    private func cancelCompactTabDisplayNameEdit() {
+        guard let editor = compactTabDisplayNameEditor else { return }
+        compactPrimaryTabRawValue = editor.snapshot.primaryView.rawValue
+        compactSecondaryTabRawValue = editor.snapshot.secondaryView.rawValue
+        compactPrimaryTabDisplayName = editor.snapshot.primaryDisplayName
+        compactSecondaryTabDisplayName = editor.snapshot.secondaryDisplayName
+        compactTabDisplayNameEditor = nil
+    }
+
+    private func compactTabDisplayNameText(for slot: CompactTabSlot) -> String {
+        let view = slot == .primary ? compactCustomTabSelection.primary : compactCustomTabSelection.secondary
+        guard let perspectiveName = compactPerspectiveName(for: view) else { return "" }
+        return CompactTabSettings.normalizedPerspectiveDisplayName(
+            compactTabStoredDisplayName(for: slot),
+            perspectiveName: perspectiveName
+        )
+    }
+
+    private func compactTabStoredDisplayName(for slot: CompactTabSlot) -> String {
+        switch slot {
+        case .primary:
+            compactPrimaryTabDisplayName
+        case .secondary:
+            compactSecondaryTabDisplayName
+        }
+    }
+
+    private func setCompactTabDisplayName(_ value: String, for slot: CompactTabSlot) {
+        switch slot {
+        case .primary:
+            compactPrimaryTabDisplayName = value
+        case .secondary:
+            compactSecondaryTabDisplayName = value
+        }
+    }
+
+    private func compactPerspectiveName(for view: ViewIdentifier) -> String? {
+        guard case .custom(let rawValue) = view else { return nil }
+        let prefix = "perspective:"
+        guard rawValue.hasPrefix(prefix) else { return nil }
+        let id = String(rawValue.dropFirst(prefix.count))
+        guard !id.isEmpty else { return nil }
+        return container.perspectives.first(where: { $0.id == id })?.name
     }
 
     private func quickEntryFieldBinding(_ field: QuickEntryField) -> Binding<Bool> {

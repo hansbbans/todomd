@@ -713,6 +713,8 @@ struct RootView: View {
     @Namespace private var compactQuickAddNamespace
     @AppStorage(CompactTabSettings.leadingViewKey) private var compactPrimaryTabRawValue = CompactTabSettings.defaultLeadingView.rawValue
     @AppStorage(CompactTabSettings.trailingViewKey) private var compactSecondaryTabRawValue = CompactTabSettings.defaultTrailingView.rawValue
+    @AppStorage(CompactTabSettings.leadingDisplayNameKey) private var compactPrimaryTabDisplayName = ""
+    @AppStorage(CompactTabSettings.trailingDisplayNameKey) private var compactSecondaryTabDisplayName = ""
     @AppStorage("settings_pomodoro_enabled") private var pomodoroEnabled = false
 
     private var rootScaffold: some View {
@@ -1147,22 +1149,11 @@ struct RootView: View {
         ForEach(CompactRootTab.allCases) { tab in
             let choice = compactTabChoice(for: tab)
 
-            if choice.iconToken.isEmoji {
-                Tab(value: tab) {
-                    compactTabContent(for: tab)
-                        .accessibilityIdentifier(choice.accessibilityIdentifier)
-                } label: {
-                    compactTabItemLabel(choice: choice)
-                }
-            } else {
-                Tab(
-                    choice.title,
-                    systemImage: CompactTabChoiceCatalog.compactTabBarSymbolName(for: choice),
-                    value: tab
-                ) {
-                    compactTabContent(for: tab)
-                        .accessibilityIdentifier(choice.accessibilityIdentifier)
-                }
+            Tab(value: tab) {
+                compactTabContent(for: tab)
+                    .accessibilityIdentifier(choice.accessibilityIdentifier)
+            } label: {
+                compactTabItemLabel(choice: choice)
             }
         }
     }
@@ -1202,7 +1193,10 @@ struct RootView: View {
             compactSecondaryView
         }
 
-        return CompactTabChoiceCatalog.choice(for: view, perspectives: container.perspectives)
+        let choice = CompactTabChoiceCatalog.choice(for: view, perspectives: container.perspectives)
+        let displayName = compactTabDisplayName(for: tab, view: view)
+        guard displayName != choice.title else { return choice }
+        return CompactTabChoice(view: choice.view, title: displayName, iconToken: choice.iconToken)
     }
 
     private func compactTabScene(_ tab: CompactRootTab) -> AnyView {
@@ -1228,13 +1222,41 @@ struct RootView: View {
         if choice.iconToken.isEmoji {
             Label {
                 Text(choice.title)
+                    .lineLimit(1)
             } icon: {
                 Text(choice.iconToken.storageValue)
             }
             .accessibilityLabel(choice.title)
         } else {
-            Label(choice.title, systemImage: CompactTabChoiceCatalog.compactTabBarSymbolName(for: choice))
+            Label {
+                Text(choice.title)
+                    .lineLimit(1)
+            } icon: {
+                Image(systemName: CompactTabChoiceCatalog.compactTabBarSymbolName(for: choice))
+            }
         }
+    }
+
+    private func compactTabDisplayName(for tab: CompactRootTab, view: ViewIdentifier) -> String {
+        guard CompactTabSettings.isPerspectiveCustomView(view),
+              let perspectiveName = perspectiveName(for: view)
+        else {
+            return CompactTabChoiceCatalog.choice(for: view, perspectives: container.perspectives).title
+        }
+
+        let storedName: String = switch tab {
+        case .customPrimary:
+            compactPrimaryTabDisplayName
+        case .customSecondary:
+            compactSecondaryTabDisplayName
+        case .inbox, .today, .areas:
+            ""
+        }
+
+        return CompactTabSettings.normalizedPerspectiveDisplayName(
+            storedName,
+            perspectiveName: perspectiveName
+        )
     }
 
     private var activeCompactTab: CompactRootTab {
@@ -4880,6 +4902,42 @@ struct RootView: View {
         if compactSecondaryTabRawValue != normalized.secondary.rawValue {
             compactSecondaryTabRawValue = normalized.secondary.rawValue
         }
+
+        let normalizedPrimaryDisplayName = normalizedCompactTabDisplayName(
+            storedValue: compactPrimaryTabDisplayName,
+            view: normalized.primary
+        )
+        if compactPrimaryTabDisplayName != normalizedPrimaryDisplayName {
+            compactPrimaryTabDisplayName = normalizedPrimaryDisplayName
+        }
+
+        let normalizedSecondaryDisplayName = normalizedCompactTabDisplayName(
+            storedValue: compactSecondaryTabDisplayName,
+            view: normalized.secondary
+        )
+        if compactSecondaryTabDisplayName != normalizedSecondaryDisplayName {
+            compactSecondaryTabDisplayName = normalizedSecondaryDisplayName
+        }
+    }
+
+    private func normalizedCompactTabDisplayName(
+        storedValue: String,
+        view: ViewIdentifier
+    ) -> String {
+        guard CompactTabSettings.isPerspectiveCustomView(view),
+              let perspectiveName = perspectiveName(for: view)
+        else {
+            return ""
+        }
+
+        return CompactTabSettings.normalizedPerspectiveDisplayName(
+            storedValue,
+            perspectiveName: perspectiveName
+        )
+    }
+
+    private func perspectiveName(for view: ViewIdentifier) -> String? {
+        perspective(for: view)?.name
     }
     private func refreshInboxRemindersIfVisible(forceListRefresh: Bool = false) {
         guard container.selectedView == .builtIn(.inbox) else { return }
