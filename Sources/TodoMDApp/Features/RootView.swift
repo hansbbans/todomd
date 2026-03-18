@@ -1553,7 +1553,12 @@ struct RootView: View {
             }
 
             VStack(spacing: 12) {
-                emptyTasksUnavailableView
+                IllustratedEmptyState(
+                    symbol: "star.fill",
+                    glowColor: Color(.systemYellow).opacity(0.2),
+                    title: "You're all caught up",
+                    subtitle: "Enjoy the rest of your day."
+                )
                 unparseableFilesSummary
             }
             .frame(maxWidth: .infinity)
@@ -1571,7 +1576,12 @@ struct RootView: View {
             InboxRemindersImportPanel()
 
             VStack(spacing: 12) {
-                emptyTasksUnavailableView
+                IllustratedEmptyState(
+                    symbol: "tray.fill",
+                    glowColor: Color.accentColor.opacity(0.18),
+                    title: "Inbox is clear",
+                    subtitle: "New tasks land here first."
+                )
                 unparseableFilesSummary
             }
             .frame(maxWidth: .infinity)
@@ -1588,7 +1598,12 @@ struct RootView: View {
             mainHeroListRow
 
             VStack(spacing: 12) {
-                emptyTasksUnavailableView
+                IllustratedEmptyState(
+                    symbol: "checkmark.circle",
+                    glowColor: Color.teal.opacity(0.15),
+                    title: "Nothing here",
+                    subtitle: "Tap + to add a task."
+                )
                 unparseableFilesSummary
             }
             .frame(maxWidth: .infinity)
@@ -1598,14 +1613,6 @@ struct RootView: View {
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
         }
-    }
-
-    private var emptyTasksUnavailableView: some View {
-        ContentUnavailableView(
-            "No Tasks",
-            systemImage: "checkmark.circle",
-            description: Text("Nothing in \(titleForCurrentView()) right now.")
-        )
     }
 
     @ViewBuilder
@@ -6279,5 +6286,43 @@ private struct InlineTaskOptionButton: View {
                 .foregroundStyle(isSelected ? tint : theme.textSecondaryColor)
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct IllustratedEmptyState: View {
+    let symbol: String
+    let glowColor: Color
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        VStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            gradient: Gradient(colors: [glowColor, .clear]),
+                            center: .center,
+                            startRadius: 0,
+                            endRadius: 36
+                        )
+                    )
+                    .frame(width: 72, height: 72)
+
+                Image(systemName: symbol)
+                    .font(.system(size: 52, weight: .regular))
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(spacing: 4) {
+                Text(title)
+                    .font(.headline)
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .padding(.vertical, 8)
     }
 }
