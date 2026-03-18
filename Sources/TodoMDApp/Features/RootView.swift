@@ -2086,7 +2086,19 @@ struct RootView: View {
         inactiveTint: Color,
         flagTint: Color
     ) -> some View {
-        HStack(spacing: 18) {
+        let canCommit = !inlineTaskDraft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return HStack(spacing: 18) {
+            Button {
+                commitInlineTaskComposer()
+            } label: {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.body)
+                    .foregroundStyle(canCommit ? activeTint : inactiveTint)
+            }
+            .buttonStyle(.plain)
+            .disabled(!canCommit)
+            .accessibilityLabel("Add task")
+            .accessibilityIdentifier("inlineTask.commitButton")
             Spacer(minLength: 0)
             inlineTaskDateAccessoryButton(activeTint: dateActiveTint, inactiveTint: inactiveTint)
             inlineTaskTagsAccessoryButton(activeTint: activeTint, inactiveTint: inactiveTint)
