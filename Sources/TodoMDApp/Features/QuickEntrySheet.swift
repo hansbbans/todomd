@@ -145,6 +145,13 @@ struct QuickEntrySheet: View {
                     .keyboardShortcut(.escape, modifiers: [])
                     .accessibilityIdentifier("quickEntry.cancelButton")
                 }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add") {
+                        addTask()
+                    }
+                    .disabled(!canSubmit)
+                    .accessibilityIdentifier("quickEntry.addButton")
+                }
             }
         }
         .accessibilityIdentifier("quickEntry.form")

@@ -3578,6 +3578,21 @@ struct RootView: View {
     private var expandedTaskBottomBar: some View {
         if let path = expandedTaskPath {
             HStack(spacing: 0) {
+                ExpandedTaskBottomBarIconButton(
+                    systemImage: "xmark",
+                    tint: Color.white.opacity(0.88),
+                    action: {
+                        withAnimation(expandedTaskCloseAnimation) {
+                            expandedTaskPath = nil
+                        }
+                    }
+                )
+
+                Rectangle()
+                    .fill(Color.white.opacity(0.12))
+                    .frame(width: 1, height: 30)
+                    .padding(.vertical, 10)
+
                 ExpandedTaskBottomBarPrimaryButton(
                     title: "Move",
                     systemImage: "arrow.right",
