@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 63;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -87,7 +87,6 @@
 		3C9F1E48756A08A06B421277 /* DateChooserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C5590ACCD1082674490FB7D /* DateChooserView.swift */; };
 		3D9D6700C6D12164D0118AAF /* JSONValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B8F45D517B09A5D5AFA1EC4 /* JSONValue.swift */; };
 		3E381011A0F3E94564C580E5 /* QuickFindStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56FFAF6DBC4A59A8501C7F75 /* QuickFindStore.swift */; };
-		58469FB510D143F499CD6879853583C7 /* QuickFindCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 888BFA4A4EF248F8A203F948FA996098 /* QuickFindCard.swift */; };
 		3F03FB4E4CB060CB22D1B76B /* TaskQueryEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BF3A045ACCE9C83A29AF7D7 /* TaskQueryEngine.swift */; };
 		3F3D41521E83CE59EF081180 /* TaskDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CBE60425F8BBFD05B212445 /* TaskDetailView.swift */; };
 		3F7AB2EE9AFC594969FCAE94 /* PomodoroTimerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4E2BFCBD61CB66DDF04581D /* PomodoroTimerView.swift */; };
@@ -122,6 +121,7 @@
 		55FDA79349DA8EBDE43E6E42 /* ToolbarPlacement+Platform.swift in Sources */ = {isa = PBXBuildFile; fileRef = A439E9DDD14A0A281A9B5ADA /* ToolbarPlacement+Platform.swift */; };
 		560B732FB62B4631051E636C /* RecurrenceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAC3117367C2C2A844C8B3E9 /* RecurrenceService.swift */; };
 		5714A6F46DA24A92E698FCE5 /* BuiltInView+Display.swift in Sources */ = {isa = PBXBuildFile; fileRef = F387E447C994E4A5B9425DD3 /* BuiltInView+Display.swift */; };
+		58469FB510D143F499CD6879853583C7 /* QuickFindCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 888BFA4A4EF248F8A203F948FA996098 /* QuickFindCard.swift */; };
 		585D10193D32C68C50AF1566 /* UnparseableFilesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26BDD4D968F473E179559440 /* UnparseableFilesView.swift */; };
 		590354A5503D958764690EE7 /* ExpandedTaskConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26DC654BE22CCC66514C29D8 /* ExpandedTaskConfiguration.swift */; };
 		593081F74A9D0B8287BEDB96 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A046B1C5FE123835D2A30C64 /* OnboardingView.swift */; };
@@ -153,6 +153,7 @@
 		6D5C60556E3CA3F4FE42733C /* VoiceRambleParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FB05ACF3871CAD533208584 /* VoiceRambleParser.swift */; };
 		6DDA2EE85B50080B8EE54E1E /* TaskLifecycleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64FD096FD3685051C3EFFE16 /* TaskLifecycleService.swift */; };
 		6FF10D9E0B12F5D030EF2F3E /* PendingWriteJournal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B33F7915C3061E9C6DBA2DC /* PendingWriteJournal.swift */; };
+		6e2f2d089c8247ef92cd10819daa4045 /* AppContainerProgressTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06d516097d75419a94110e3c49fc2812 /* AppContainerProgressTests.swift */; };
 		719C2BB870ADD08E490B23AD /* AppContainerProjectAssignmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA013479CB9D38EA88C3D4F2 /* AppContainerProjectAssignmentTests.swift */; };
 		71F8998BB99286F42F9E0DAD /* ManualOrderService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA40BA2593B0A5817CB77690 /* ManualOrderService.swift */; };
 		72A7D87BB1E3EBDA38704A47 /* TaskRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = B39B155FF663EFDF12B1E158 /* TaskRecord.swift */; };
@@ -225,6 +226,7 @@
 		AAD88A27BCD437AA7775FCB8 /* RuntimeLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1536030049BF3A64978D79E /* RuntimeLogger.swift */; };
 		ABC7EC79BCE8F18B84F3728C /* TodoMDAppUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 016F4E437E77C3A7C04F9ABF /* TodoMDAppUITests.swift */; };
 		AC48C658E01E53BD4A6786A5 /* FileWatcherEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BBAD8557DA5615431D5712B /* FileWatcherEvent.swift */; };
+		AD08C861B64B4C908E1CE1E74535FE42 /* QuickFindCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 888BFA4A4EF248F8A203F948FA996098 /* QuickFindCard.swift */; };
 		AD47977A4D3FB13B90D1328C /* PerspectivesRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06E2805CDE88DB33A6DAA7BA /* PerspectivesRepository.swift */; };
 		AD586B45099B318D0FC07632 /* NaturalLanguageTaskParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70E4735EAF172C5DD227F11E /* NaturalLanguageTaskParser.swift */; };
 		ADF5069A24DA9EED7D1155C8 /* PerspectivesDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0895B0414A63242E2DC65BD5 /* PerspectivesDocument.swift */; };
@@ -288,7 +290,6 @@
 		DE852ED74657FC91ECAD2E86 /* ThemeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7EC59A2C6C885C3FC2C01AC /* ThemeManager.swift */; };
 		DE94F8FD0EE547DD78B34793 /* NaturalLanguageTaskParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 225812674B9E9E2D61703F89 /* NaturalLanguageTaskParserTests.swift */; };
 		DED205714A030F055AB69E2F /* QuickFindStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56FFAF6DBC4A59A8501C7F75 /* QuickFindStore.swift */; };
-		AD08C861B64B4C908E1CE1E74535FE42 /* QuickFindCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 888BFA4A4EF248F8A203F948FA996098 /* QuickFindCard.swift */; };
 		DF143B7794A80C309B942169 /* QuickFindStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1246AB062AA424688F48A53B /* QuickFindStoreTests.swift */; };
 		DFADF076222BA2A033F9369B /* PerspectiveQueryEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE11CD6CBBDA75FCEF9B5016 /* PerspectiveQueryEngine.swift */; };
 		DFF0F719DA7654F7F40CF2C9 /* FileWatcherService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FF77E6D6A02B490F11AE564 /* FileWatcherService.swift */; };
@@ -391,7 +392,7 @@
 		09D62AAF099BE714A7A87240 /* YAMLValue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YAMLValue.swift; sourceTree = "<group>"; };
 		0C7E95727AD686EDD3808AAF /* NotificationPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPlanner.swift; sourceTree = "<group>"; };
 		0D4C01236146318A710F6F96 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		0E09622DE81AE3C91712B2EA /* TodoMDShareExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = TodoMDShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		0E09622DE81AE3C91712B2EA /* TodoMDShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TodoMDShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		0EEB4C61B9FA6BD89EA420AE /* TodoMDApp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TodoMDApp.entitlements; sourceTree = "<group>"; };
 		1246AB062AA424688F48A53B /* QuickFindStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickFindStoreTests.swift; sourceTree = "<group>"; };
 		19B38D18ACEFD019EA557BFB /* DebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugView.swift; sourceTree = "<group>"; };
@@ -429,10 +430,9 @@
 		52BE57D402F4B071F7ADB5F5 /* TaskSourceAttributionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskSourceAttributionTests.swift; sourceTree = "<group>"; };
 		548B3909CB717B70664E503F /* OnboardingIntegrationPrimerCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingIntegrationPrimerCoordinator.swift; sourceTree = "<group>"; };
 		56FFAF6DBC4A59A8501C7F75 /* QuickFindStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickFindStore.swift; sourceTree = "<group>"; };
-		888BFA4A4EF248F8A203F948FA996098 /* QuickFindCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickFindCard.swift; sourceTree = "<group>"; };
 		5A3DF100D74F0478D534DEFE /* AppleCalendarService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleCalendarService.swift; sourceTree = "<group>"; };
 		5A604671F22BE76296C1EF55 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		5AA5AC6D88A8E18B72F82ED4 /* TodoMDWidgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = TodoMDWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		5AA5AC6D88A8E18B72F82ED4 /* TodoMDWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TodoMDWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		5C004BFB37BB057354757BE1 /* TODO-widget-shared-storage.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "TODO-widget-shared-storage.md"; sourceTree = "<group>"; };
 		5C5590ACCD1082674490FB7D /* DateChooserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateChooserView.swift; sourceTree = "<group>"; };
 		5D8F77F42CDAD540F33ACC08 /* PerspectivesRepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerspectivesRepositoryTests.swift; sourceTree = "<group>"; };
@@ -465,6 +465,7 @@
 		8259383F817A2E4856CC4845 /* RecurrenceServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecurrenceServiceTests.swift; sourceTree = "<group>"; };
 		863F54E44BD921B968B8DFB1 /* TaskIndexRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskIndexRecord.swift; sourceTree = "<group>"; };
 		8842943B4F3C24548B8355C9 /* VoiceRambleSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceRambleSheet.swift; sourceTree = "<group>"; };
+		888BFA4A4EF248F8A203F948FA996098 /* QuickFindCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickFindCard.swift; sourceTree = "<group>"; };
 		9375254F5FA814210CAC9A13 /* TaskFilenameGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskFilenameGenerator.swift; sourceTree = "<group>"; };
 		9534A04F75287E4E846A83C5 /* TaskFilenameGeneratorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskFilenameGeneratorTests.swift; sourceTree = "<group>"; };
 		98639B01A97BD10D12C75CD3 /* TriageRulesDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TriageRulesDocument.swift; sourceTree = "<group>"; };
@@ -480,6 +481,7 @@
 		A663CE0F8831EFB6579912DD /* TaskFileIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskFileIdentity.swift; sourceTree = "<group>"; };
 		A75839B6B92A8669B0E686C3 /* ProjectMetadataRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectMetadataRepository.swift; sourceTree = "<group>"; };
 		A87CAC8E29A08C57E594D0B3 /* TaskFolderPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskFolderPreferences.swift; sourceTree = "<group>"; };
+		06d516097d75419a94110e3c49fc2812 /* AppContainerProgressTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppContainerProgressTests.swift; sourceTree = "<group>"; };
 		AA013479CB9D38EA88C3D4F2 /* AppContainerProjectAssignmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppContainerProjectAssignmentTests.swift; sourceTree = "<group>"; };
 		ABCB56B0C11890AF459AF643 /* QuickEntryConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickEntryConfiguration.swift; sourceTree = "<group>"; };
 		AC1579F964253FEB1B41FCB9 /* UserNotificationSchedulerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserNotificationSchedulerTests.swift; sourceTree = "<group>"; };
@@ -502,7 +504,7 @@
 		C4E2BFCBD61CB66DDF04581D /* PomodoroTimerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PomodoroTimerView.swift; sourceTree = "<group>"; };
 		C55A88FBCCFA1897CD290AB2 /* PerspectivesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerspectivesView.swift; sourceTree = "<group>"; };
 		C5B0360DDF96D21AAA4FD8A3 /* CodecPropertyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodecPropertyTests.swift; sourceTree = "<group>"; };
-		C7033CCF174946FBA61A5A9B /* TodoMD.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TodoMD.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C7033CCF174946FBA61A5A9B /* TodoMD.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = TodoMD.app; path = TodoMDMacApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C8CB6EFB646E5012220B7C7B /* SyncScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncScheduler.swift; sourceTree = "<group>"; };
 		CBC13596BB53C1BC01A6E6BD /* ReminderCalendarPermissionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReminderCalendarPermissionCoordinator.swift; sourceTree = "<group>"; };
 		CD4A6973D9349B5F64E6D257 /* TaskFolderLocatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskFolderLocatorTests.swift; sourceTree = "<group>"; };
@@ -520,7 +522,7 @@
 		E9A94C82FE921590FB97500D /* RootNavigationCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootNavigationCatalogTests.swift; sourceTree = "<group>"; };
 		EAC3117367C2C2A844C8B3E9 /* RecurrenceService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecurrenceService.swift; sourceTree = "<group>"; };
 		EE0354BFD260A3CD78AE09FD /* TaskValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskValidation.swift; sourceTree = "<group>"; };
-		F26DFCD494FEA0D69C5C16BC /* TodoMDApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = TodoMDApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F26DFCD494FEA0D69C5C16BC /* TodoMDApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TodoMDApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F2D180178D92493DC79037FE /* QuickEntrySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickEntrySheet.swift; sourceTree = "<group>"; };
 		F387E447C994E4A5B9425DD3 /* BuiltInView+Display.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BuiltInView+Display.swift"; sourceTree = "<group>"; };
 		F5460E1202F069783CDF869B /* URLRouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLRouterTests.swift; sourceTree = "<group>"; };
@@ -629,7 +631,7 @@
 		1A0A5E692E592D4A3389F29B /* Features */ = {
 			isa = PBXGroup;
 			children = (
-					F387E447C994E4A5B9425DD3 /* BuiltInView+Display.swift */,
+				F387E447C994E4A5B9425DD3 /* BuiltInView+Display.swift */,
 				B7E52DEF3F32A7ABED000AF8 /* CalendarPanels.swift */,
 				26DC654BE22CCC66514C29D8 /* ExpandedTaskConfiguration.swift */,
 				4DE9BABA81B2FF42E317B82F /* InboxRemindersImportPanel.swift */,
@@ -875,6 +877,7 @@
 		9AFF03023840D67C4EB84991 /* TodoMDAppTests */ = {
 			isa = PBXGroup;
 			children = (
+				06d516097d75419a94110e3c49fc2812 /* AppContainerProgressTests.swift */,
 				AA013479CB9D38EA88C3D4F2 /* AppContainerProjectAssignmentTests.swift */,
 				76912621FBEE983DF8977106 /* AppIconTokenTests.swift */,
 				E250F43302A846CE8279AEB6 /* AppleCalendarServiceTests.swift */,
@@ -1109,7 +1112,6 @@
 			packageReferences = (
 				3CF68028663F4E1E9111C32D /* XCRemoteSwiftPackageReference "Yams" */,
 			);
-			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -1393,6 +1395,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6e2f2d089c8247ef92cd10819daa4045 /* AppContainerProgressTests.swift in Sources */,
 				719C2BB870ADD08E490B23AD /* AppContainerProjectAssignmentTests.swift in Sources */,
 				A2DA8DC806B2B1C8249BC83F /* AppIconTokenTests.swift in Sources */,
 				90B1691D10BCB08A2EC48375 /* AppleCalendarServiceTests.swift in Sources */,
@@ -1558,46 +1561,22 @@
 				CODE_SIGN_ENTITLEMENTS = Sources/TodoMDApp/TodoMDApp.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 58F3F2UZ62;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = (
-					com.hans.todomd.notifications.refresh,
-				);
+				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = com.hans.todomd.notifications.refresh;
 				INFOPLIST_KEY_CFBundleDisplayName = todo.md;
-				INFOPLIST_KEY_CFBundleURLTypes = (
-					{
-						CFBundleURLName = com.hans.todomd;
-						CFBundleURLSchemes = (
-							todomd,
-						);
-					},
-				);
+				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleURLName = \"com.hans.todomd\";\n    CFBundleURLSchemes =     (\n        todomd\n    );\n}";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "todo.md uses Calendar access to show your events in Today and Upcoming.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "todo.md uses your location to trigger reminders when you arrive at or leave saved places.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "todo.md uses the microphone so you can dictate multiple tasks with voice ramble.";
 				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "todo.md imports tasks from Apple Reminders when you run the import.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "todo.md uses speech recognition to transcribe voice ramble into structured tasks.";
-				INFOPLIST_KEY_UIBackgroundModes = (
-					fetch,
-				);
+				INFOPLIST_KEY_UIBackgroundModes = fetch;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = (
-					UIInterfaceOrientationPortrait,
-					UIInterfaceOrientationPortraitUpsideDown,
-					UIInterfaceOrientationLandscapeLeft,
-					UIInterfaceOrientationLandscapeRight,
-				);
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = (
-					UIInterfaceOrientationPortrait,
-					UIInterfaceOrientationPortraitUpsideDown,
-					UIInterfaceOrientationLandscapeLeft,
-					UIInterfaceOrientationLandscapeRight,
-				);
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = (
-					UIInterfaceOrientationPortrait,
-					UIInterfaceOrientationLandscapeLeft,
-					UIInterfaceOrientationLandscapeRight,
-				);
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1645,6 +1624,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = Sources/TodoMDWidgets/TodoMDWidgets.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 58F3F2UZ62;
 				INFOPLIST_FILE = Sources/TodoMDWidgets/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1732,14 +1712,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = todo.md;
-				INFOPLIST_KEY_CFBundleURLTypes = (
-					{
-						CFBundleURLName = com.hans.todomd.mac;
-						CFBundleURLSchemes = (
-							todomd,
-						);
-					},
-				);
+				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleURLName = \"com.hans.todomd.mac\";\n    CFBundleURLSchemes =     (\n        todomd\n    );\n}";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "todo.md uses Calendar access to show your events in Today and Upcoming.";
 				INFOPLIST_KEY_NSLocationUsageDescription = "todo.md uses your location to trigger reminders when you arrive at or leave saved places.";
@@ -1761,6 +1734,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = Sources/TodoMDShareExtension/TodoMDShareExtension.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 58F3F2UZ62;
 				INFOPLIST_FILE = Sources/TodoMDShareExtension/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1814,14 +1788,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = todo.md;
-				INFOPLIST_KEY_CFBundleURLTypes = (
-					{
-						CFBundleURLName = com.hans.todomd.mac;
-						CFBundleURLSchemes = (
-							todomd,
-						);
-					},
-				);
+				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleURLName = \"com.hans.todomd.mac\";\n    CFBundleURLSchemes =     (\n        todomd\n    );\n}";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "todo.md uses Calendar access to show your events in Today and Upcoming.";
 				INFOPLIST_KEY_NSLocationUsageDescription = "todo.md uses your location to trigger reminders when you arrive at or leave saved places.";
@@ -1843,6 +1810,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = Sources/TodoMDShareExtension/TodoMDShareExtension.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 58F3F2UZ62;
 				INFOPLIST_FILE = Sources/TodoMDShareExtension/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1861,6 +1829,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = Sources/TodoMDWidgets/TodoMDWidgets.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 58F3F2UZ62;
 				INFOPLIST_FILE = Sources/TodoMDWidgets/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1881,46 +1850,22 @@
 				CODE_SIGN_ENTITLEMENTS = Sources/TodoMDApp/TodoMDApp.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 58F3F2UZ62;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = (
-					com.hans.todomd.notifications.refresh,
-				);
+				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = com.hans.todomd.notifications.refresh;
 				INFOPLIST_KEY_CFBundleDisplayName = todo.md;
-				INFOPLIST_KEY_CFBundleURLTypes = (
-					{
-						CFBundleURLName = com.hans.todomd;
-						CFBundleURLSchemes = (
-							todomd,
-						);
-					},
-				);
+				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleURLName = \"com.hans.todomd\";\n    CFBundleURLSchemes =     (\n        todomd\n    );\n}";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "todo.md uses Calendar access to show your events in Today and Upcoming.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "todo.md uses your location to trigger reminders when you arrive at or leave saved places.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "todo.md uses the microphone so you can dictate multiple tasks with voice ramble.";
 				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "todo.md imports tasks from Apple Reminders when you run the import.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "todo.md uses speech recognition to transcribe voice ramble into structured tasks.";
-				INFOPLIST_KEY_UIBackgroundModes = (
-					fetch,
-				);
+				INFOPLIST_KEY_UIBackgroundModes = fetch;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = (
-					UIInterfaceOrientationPortrait,
-					UIInterfaceOrientationPortraitUpsideDown,
-					UIInterfaceOrientationLandscapeLeft,
-					UIInterfaceOrientationLandscapeRight,
-				);
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = (
-					UIInterfaceOrientationPortrait,
-					UIInterfaceOrientationPortraitUpsideDown,
-					UIInterfaceOrientationLandscapeLeft,
-					UIInterfaceOrientationLandscapeRight,
-				);
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = (
-					UIInterfaceOrientationPortrait,
-					UIInterfaceOrientationLandscapeLeft,
-					UIInterfaceOrientationLandscapeRight,
-				);
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
