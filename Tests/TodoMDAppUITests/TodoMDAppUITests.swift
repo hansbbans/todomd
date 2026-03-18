@@ -220,6 +220,118 @@ final class TodoMDAppUITests: XCTestCase {
         )
     }
 
+    func testInlineComposerShowsKeyboardAfterTappingAdd() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = makeStorageOverridePath()
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let addButton = app.buttons["root.inlineAddButton"].firstMatch
+        XCTAssertTrue(addButton.waitForExistence(timeout: 10), "Inline add button not visible")
+        addButton.tap()
+
+        let titleInput = app.textFields["inlineTask.titleField"].firstMatch
+        XCTAssertTrue(titleInput.waitForExistence(timeout: 10), "Inline task title field did not appear")
+        XCTAssertTrue(
+            app.keyboards.firstMatch.waitForExistence(timeout: 5),
+            "Keyboard did not appear after opening the inline composer"
+        )
+    }
+
+    func testInlineComposerKeyboardCheckmarkCreatesTask() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = makeStorageOverridePath()
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let addButton = app.buttons["root.inlineAddButton"].firstMatch
+        XCTAssertTrue(addButton.waitForExistence(timeout: 10), "Inline add button not visible")
+        addButton.tap()
+
+        let titleInput = app.textFields["inlineTask.titleField"].firstMatch
+        XCTAssertTrue(titleInput.waitForExistence(timeout: 10), "Inline task title field did not appear")
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "Keyboard did not appear for inline task entry")
+        titleInput.typeText("keyboard checkmark inbox")
+
+        let keyboardCommitButton = app.buttons["inlineTask.keyboardCommitButton"].firstMatch
+        if keyboardCommitButton.waitForExistence(timeout: 3), keyboardCommitButton.isHittable {
+            keyboardCommitButton.tap()
+        } else {
+            submitInlineTask(from: app)
+        }
+
+        let createdTaskRow = app.descendants(matching: .any)["taskRow.keyboard checkmark inbox"].firstMatch
+        XCTAssertTrue(createdTaskRow.waitForExistence(timeout: 10), "Keyboard checkmark did not create the task")
+        XCTAssertTrue(
+            waitForCondition(timeout: 5, pollInterval: 0.1) { !titleInput.exists },
+            "Inline composer did not dismiss after confirming from the keyboard"
+        )
+    }
+
+    func testInlineComposerKeyboardReturnCreatesTask() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = makeStorageOverridePath()
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let addButton = app.buttons["root.inlineAddButton"].firstMatch
+        XCTAssertTrue(addButton.waitForExistence(timeout: 10), "Inline add button not visible")
+        addButton.tap()
+
+        let titleInput = app.textFields["inlineTask.titleField"].firstMatch
+        XCTAssertTrue(titleInput.waitForExistence(timeout: 10), "Inline task title field did not appear")
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "Keyboard did not appear for inline task entry")
+        titleInput.typeText("keyboard return inbox")
+        app.typeText("\n")
+
+        let createdTaskRow = app.descendants(matching: .any)["taskRow.keyboard return inbox"].firstMatch
+        XCTAssertTrue(createdTaskRow.waitForExistence(timeout: 10), "Keyboard return did not create the task")
+        XCTAssertTrue(
+            waitForCondition(timeout: 5, pollInterval: 0.1) { !titleInput.exists },
+            "Inline composer did not dismiss after pressing the keyboard return key"
+        )
+    }
+
+    func testTappingBlankListSpaceCollapsesExpandedTask() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = makeStorageOverridePath()
+        app.launch()
+
+        completeOnboarding(app: app)
+        createTask(app: app, title: "collapse on blank space")
+
+        let taskRow = app.descendants(matching: .any)["taskRow.collapse on blank space"].firstMatch
+        XCTAssertTrue(taskRow.waitForExistence(timeout: 10), "Task row was not visible")
+        taskRow.tap()
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 5, pollInterval: 0.1) {
+                (taskRow.value as? String) == "expanded"
+            },
+            "Task did not expand before tapping the list background"
+        )
+
+        let appFrame = app.frame
+        let blankY = min(appFrame.maxY - 120, taskRow.frame.maxY + 140)
+        let blankCoordinate = app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+            .withOffset(CGVector(dx: taskRow.frame.midX, dy: blankY))
+        blankCoordinate.tap()
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 5, pollInterval: 0.1) {
+                (taskRow.value as? String) == "collapsed"
+            },
+            "Tapping the empty part of the list should collapse the expanded task"
+        )
+    }
+
     func testInlineComposerOpensExpandedAtTopOfInboxList() {
         let storageOverride = makeStorageOverridePath()
 
@@ -428,12 +540,14 @@ final class TodoMDAppUITests: XCTestCase {
         let projectMenuButton = app.buttons["inlineTask.projectMenuButton"].firstMatch
         let tagsButton = app.buttons["inlineTask.tagsButton"].firstMatch
         let flagButton = app.buttons["inlineTask.flagButton"].firstMatch
+        let commitButton = app.buttons["inlineTask.commitButton"].firstMatch
         let submitButton = app.buttons["inlineTask.submitButton"].firstMatch
 
         XCTAssertTrue(dateButton.waitForExistence(timeout: 10), "Date icon button was not visible")
         XCTAssertTrue(projectMenuButton.waitForExistence(timeout: 10), "Project menu icon was not visible")
         XCTAssertTrue(tagsButton.waitForExistence(timeout: 10), "Tags icon button was not visible")
         XCTAssertTrue(flagButton.waitForExistence(timeout: 10), "Flag icon button was not visible")
+        XCTAssertFalse(commitButton.exists, "Inline task entry should no longer show the in-card checkmark button")
         XCTAssertFalse(submitButton.exists, "Inline task entry should no longer show a footer submit button")
 
         XCTAssertTrue(
@@ -971,6 +1085,11 @@ final class TodoMDAppUITests: XCTestCase {
     }
 
     private func submitInlineTask(from app: XCUIApplication) {
+        let keyboardCommitButton = app.buttons["inlineTask.keyboardCommitButton"].firstMatch
+        if keyboardCommitButton.waitForExistence(timeout: 1), keyboardCommitButton.isHittable {
+            keyboardCommitButton.tap()
+            return
+        }
         let submitButton = app.buttons["inlineTask.submitButton"].firstMatch
         if submitButton.waitForExistence(timeout: 1), submitButton.isHittable {
             submitButton.tap()
