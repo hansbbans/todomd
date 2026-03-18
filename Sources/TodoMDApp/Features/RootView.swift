@@ -3252,7 +3252,14 @@ struct RootView: View {
                 .frame(width: 20, height: 20)
                 Text(label)
                 Spacer()
-                if isSelected {
+                // Progress ring for project views; suppress checkmark when ring is shown
+                if case .project(let projectName) = view {
+                    let (completed, total) = container.projectProgress(for: projectName)
+                    if total > 0 {
+                        let progress = Double(completed) / Double(total)
+                        ProjectProgressRing(progress: progress, tint: tint ?? theme.accentColor)
+                    }
+                } else if isSelected {
                     Image(systemName: "checkmark")
                         .font(.caption.weight(.bold))
                         .foregroundStyle(theme.accentColor)
