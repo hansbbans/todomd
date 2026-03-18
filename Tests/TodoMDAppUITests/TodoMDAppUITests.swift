@@ -958,6 +958,66 @@ final class TodoMDAppUITests: XCTestCase {
         )
     }
 
+    func testCompactPerspectiveTabUsesShortDisplayName() throws {
+        let storageOverride = makeStorageOverridePath()
+        try seedPerspective(
+            rootPath: storageOverride,
+            id: "long-nav-test",
+            name: "This Perspective Name Is Far Too Long For The Bottom Navigation Bar"
+        )
+
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-ui-testing",
+            "-did_complete_onboarding", "YES",
+            "-settings_compact_tab_primary_view", "perspective:long-nav-test"
+        ]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        let shortLabelTab = app.tabBars.buttons["This Persp"].firstMatch
+        XCTAssertTrue(shortLabelTab.waitForExistence(timeout: 10), "Perspective tab should use a shortened display name")
+        XCTAssertFalse(
+            app.tabBars.buttons["This Perspective Name Is Far Too Long For The Bottom Navigation Bar"].exists,
+            "Perspective tab should not render its full long name in the compact tab bar"
+        )
+    }
+
+    func testCompactPerspectiveDisplayNameEditorIsAvailableInAppearanceSettings() throws {
+        let storageOverride = makeStorageOverridePath()
+        try seedPerspective(
+            rootPath: storageOverride,
+            id: "long-nav-test",
+            name: "This Perspective Name Is Far Too Long For The Bottom Navigation Bar"
+        )
+
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-ui-testing",
+            "-did_complete_onboarding", "YES",
+            "-settings_compact_tab_primary_view", "perspective:long-nav-test"
+        ]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        openSettings(app: app)
+
+        let appearanceSection = app.buttons["settings.section.appearance"].firstMatch
+        XCTAssertTrue(appearanceSection.waitForExistence(timeout: 10), "Appearance settings section not visible")
+        appearanceSection.tap()
+
+        let displayNameButton = app.buttons["settings.appearance.compactPrimaryDisplayNameButton"].firstMatch
+        XCTAssertTrue(displayNameButton.waitForExistence(timeout: 10), "Perspective tab display-name control not visible")
+        displayNameButton.tap()
+
+        let labelField = app.textFields["Display name"].firstMatch
+        XCTAssertTrue(labelField.waitForExistence(timeout: 10), "Display-name editor did not appear")
+
+        let cancelButton = app.buttons["Cancel"].firstMatch
+        XCTAssertTrue(cancelButton.exists, "Display-name editor should allow cancelling")
+        cancelButton.tap()
+    }
+
     func testInboxSmartTriageManualProjectAssignmentCanAdvanceQueue() throws {
         throw XCTSkip("Workflow placement is covered by RootNavigationCatalogTests; compact tab automation is still flaky in UI tests.")
     }
@@ -1229,6 +1289,38 @@ final class TodoMDAppUITests: XCTestCase {
 
         """
         try content.write(to: taskURL, atomically: true, encoding: .utf8)
+    }
+
+    private func seedPerspective(rootPath: String, id: String, name: String) throws {
+        let rootURL = URL(fileURLWithPath: rootPath, isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+
+        let fileURL = rootURL.appendingPathComponent(".perspectives.json")
+        let content = """
+        {
+          "version" : 1,
+          "order" : [
+            "\(id)"
+          ],
+          "perspectives" : {
+            "\(id)" : {
+              "allRules" : [],
+              "anyRules" : [],
+              "group_by" : "none",
+              "icon" : "list.bullet",
+              "id" : "\(id)",
+              "layout" : "default",
+              "name" : "\(name)",
+              "noneRules" : [],
+              "sort" : {
+                "direction" : "asc",
+                "field" : "due"
+              }
+            }
+          }
+        }
+        """
+        try content.write(to: fileURL, atomically: true, encoding: .utf8)
     }
 
     private func waitForFileContents(

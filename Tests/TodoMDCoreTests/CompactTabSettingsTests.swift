@@ -75,4 +75,28 @@ final class CompactTabSettingsTests: XCTestCase {
         XCTAssertEqual(normalized.primary, firstPerspective)
         XCTAssertEqual(normalized.secondary, .builtIn(.logbook))
     }
+
+    func testDefaultPerspectiveDisplayNameTruncatesLongNames() {
+        let displayName = CompactTabSettings.defaultPerspectiveDisplayName("This perspective name is too long")
+
+        XCTAssertEqual(displayName, "This persp")
+    }
+
+    func testNormalizedPerspectiveDisplayNameUsesTrimmedUserInputWhenPresent() {
+        let displayName = CompactTabSettings.normalizedPerspectiveDisplayName(
+            "  Deep Work  ",
+            perspectiveName: "Long Perspective Name"
+        )
+
+        XCTAssertEqual(displayName, "Deep Work")
+    }
+
+    func testNormalizedPerspectiveDisplayNameFallsBackToPerspectiveNameWhenEmpty() {
+        let displayName = CompactTabSettings.normalizedPerspectiveDisplayName(
+            "   ",
+            perspectiveName: "Long Perspective Name"
+        )
+
+        XCTAssertEqual(displayName, "Long Persp")
+    }
 }

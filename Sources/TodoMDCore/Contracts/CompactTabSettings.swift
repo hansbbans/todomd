@@ -3,8 +3,11 @@ import Foundation
 public enum CompactTabSettings {
     public static let leadingViewKey = "settings_compact_tab_primary_view"
     public static let trailingViewKey = "settings_compact_tab_secondary_view"
+    public static let leadingDisplayNameKey = "settings_compact_tab_primary_display_name"
+    public static let trailingDisplayNameKey = "settings_compact_tab_secondary_display_name"
     public static let defaultLeadingView: ViewIdentifier = .builtIn(.upcoming)
     public static let defaultTrailingView: ViewIdentifier = .builtIn(.logbook)
+    public static let maxPerspectiveDisplayNameLength = 10
 
     private static let baseCustomViews: [ViewIdentifier] = [
         .builtIn(.upcoming),
@@ -56,6 +59,30 @@ public enum CompactTabSettings {
         return (primary, secondary)
     }
 
+    public static func isPerspectiveCustomView(_ view: ViewIdentifier) -> Bool {
+        switch view {
+        case .custom(let rawValue):
+            return rawValue.hasPrefix("perspective:") && !ViewIdentifier.custom(rawValue).isBrowse
+        case .builtIn, .area, .project, .tag:
+            return false
+        }
+    }
+
+    public static func defaultPerspectiveDisplayName(_ perspectiveName: String) -> String {
+        limitedDisplayName(perspectiveName)
+    }
+
+    public static func normalizedPerspectiveDisplayName(
+        _ rawValue: String,
+        perspectiveName: String
+    ) -> String {
+        let limited = limitedDisplayName(rawValue)
+        if limited.isEmpty {
+            return defaultPerspectiveDisplayName(perspectiveName)
+        }
+        return limited
+    }
+
     private static func resolveCustomView(
         rawValue: String,
         available: [ViewIdentifier],
@@ -80,10 +107,18 @@ public enum CompactTabSettings {
         switch view {
         case .builtIn(let builtInView):
             return baseCustomViews.contains(.builtIn(builtInView)) || builtInView == .pomodoro
-        case .custom(let rawValue):
-            return rawValue.hasPrefix("perspective:") && !ViewIdentifier.custom(rawValue).isBrowse
+        case .custom:
+            return isPerspectiveCustomView(view)
         case .area, .project, .tag:
             return false
         }
+    }
+
+    private static func limitedDisplayName(_ rawValue: String) -> String {
+        let collapsedWhitespace = rawValue
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        return String(collapsedWhitespace.prefix(maxPerspectiveDisplayNameLength))
     }
 }
