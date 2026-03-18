@@ -152,6 +152,17 @@ struct QuickEntrySheet: View {
                     .disabled(!canSubmit)
                     .accessibilityIdentifier("quickEntry.addButton")
                 }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button {
+                        addTask()
+                    } label: {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.title3)
+                    }
+                    .disabled(!canSubmit)
+                    .accessibilityLabel("Add task")
+                }
             }
         }
         .accessibilityIdentifier("quickEntry.form")
