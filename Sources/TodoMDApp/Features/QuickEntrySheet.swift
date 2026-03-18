@@ -189,6 +189,8 @@ struct QuickEntrySheet: View {
                     .font(.system(.title2, design: .rounded).weight(.regular))
                     .modifier(QuickEntryAutocapitalization(sentences: true))
                     .autocorrectionDisabled(false)
+                    .submitLabel(.done)
+                    .onSubmit { if canSubmit { addTask() } }
                     .frame(maxWidth: CGFloat.infinity, minHeight: descriptionInputHeight, alignment: Alignment.leading)
                     .accessibilityIdentifier("quickEntry.titleField")
             }

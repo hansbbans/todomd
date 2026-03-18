@@ -1464,6 +1464,16 @@ final class AppContainer: ObservableObject {
         }
     }
 
+    func projectProgress(for project: String) -> (completed: Int, total: Int) {
+        let normalizedProject = project.trimmingCharacters(in: .whitespacesAndNewlines)
+        let projectTasks = allIndexedRecords.filter {
+            $0.document.frontmatter.project?.trimmingCharacters(in: .whitespacesAndNewlines) == normalizedProject
+        }
+        let total = projectTasks.filter { $0.document.frontmatter.status != .cancelled }.count
+        let completed = projectTasks.filter { $0.document.frontmatter.status == .done }.count
+        return (completed: completed, total: total)
+    }
+
     func savePerspective(_ perspective: PerspectiveDefinition) {
         let trimmedName = perspective.name
             .trimmingCharacters(in: .whitespacesAndNewlines)

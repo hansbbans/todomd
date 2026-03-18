@@ -997,6 +997,9 @@ struct RootView: View {
                     presentQuickEntryFromCurrentContext()
                     container.clearQuickEntryRequest()
                 }
+                if ProcessInfo.processInfo.arguments.contains("-ui-testing-show-quick-entry") {
+                    showingQuickEntry = true
+                }
             }
             .onDisappear {
                 cancelInlineTaskComposer()
@@ -1550,7 +1553,12 @@ struct RootView: View {
             }
 
             VStack(spacing: 12) {
-                emptyTasksUnavailableView
+                IllustratedEmptyState(
+                    symbol: "star.fill",
+                    glowColor: Color(.systemYellow).opacity(0.2),
+                    title: "You're all caught up",
+                    subtitle: "Enjoy the rest of your day."
+                )
                 unparseableFilesSummary
             }
             .frame(maxWidth: .infinity)
@@ -1568,7 +1576,12 @@ struct RootView: View {
             InboxRemindersImportPanel()
 
             VStack(spacing: 12) {
-                emptyTasksUnavailableView
+                IllustratedEmptyState(
+                    symbol: "tray.fill",
+                    glowColor: Color.accentColor.opacity(0.18),
+                    title: "Inbox is clear",
+                    subtitle: "New tasks land here first."
+                )
                 unparseableFilesSummary
             }
             .frame(maxWidth: .infinity)
@@ -1585,7 +1598,12 @@ struct RootView: View {
             mainHeroListRow
 
             VStack(spacing: 12) {
-                emptyTasksUnavailableView
+                IllustratedEmptyState(
+                    symbol: "checkmark.circle",
+                    glowColor: Color.teal.opacity(0.15),
+                    title: "Nothing here",
+                    subtitle: "Tap + to add a task."
+                )
                 unparseableFilesSummary
             }
             .frame(maxWidth: .infinity)
@@ -1595,14 +1613,6 @@ struct RootView: View {
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
         }
-    }
-
-    private var emptyTasksUnavailableView: some View {
-        ContentUnavailableView(
-            "No Tasks",
-            systemImage: "checkmark.circle",
-            description: Text("Nothing in \(titleForCurrentView()) right now.")
-        )
     }
 
     @ViewBuilder
@@ -3249,7 +3259,14 @@ struct RootView: View {
                 .frame(width: 20, height: 20)
                 Text(label)
                 Spacer()
-                if isSelected {
+                // Progress ring for project views; suppress checkmark when ring is shown
+                if case .project(let projectName) = view {
+                    let (completed, total) = container.projectProgress(for: projectName)
+                    if total > 0 {
+                        let progress = Double(completed) / Double(total)
+                        ProjectProgressRing(progress: progress, tint: tint ?? theme.accentColor)
+                    }
+                } else if isSelected {
                     Image(systemName: "checkmark")
                         .font(.caption.weight(.bold))
                         .foregroundStyle(theme.accentColor)
@@ -4588,7 +4605,14 @@ struct RootView: View {
                 .frame(width: 20, height: 20)
                 Text(label)
                 Spacer()
-                if isSelected {
+                // Progress ring for project views; suppress checkmark when ring is shown
+                if case .project(let projectName) = view {
+                    let (completed, total) = container.projectProgress(for: projectName)
+                    if total > 0 {
+                        let progress = Double(completed) / Double(total)
+                        ProjectProgressRing(progress: progress, tint: tint ?? theme.accentColor)
+                    }
+                } else if isSelected {
                     Image(systemName: "checkmark")
                         .font(.caption.weight(.bold))
                         .foregroundStyle(theme.accentColor)
@@ -5016,9 +5040,7 @@ private struct ExpandedTaskRow: View {
         .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .zIndex(isExpanded ? 1 : 0)
         .onTapGesture {
-            if !isExpanded {
-                onExpand()
-            }
+            onExpand()
         }
         .onChange(of: isExpanded) { _, expanded in
             if expanded {
@@ -6035,6 +6057,7 @@ private struct TaskCheckbox: View {
     let onTap: () -> Void
 
     @State private var fillProgress: CGFloat
+    @State private var checkmarkProgress: CGFloat
 
     init(
         isCompleted: Bool,
@@ -6051,6 +6074,7 @@ private struct TaskCheckbox: View {
         self.accessibilityIdentifier = accessibilityIdentifier
         self.onTap = onTap
         _fillProgress = State(initialValue: isCompleted ? 1 : 0)
+        _checkmarkProgress = State(initialValue: isCompleted ? 1 : 0)
     }
 
     var body: some View {
@@ -6073,31 +6097,53 @@ private struct TaskCheckbox: View {
             }
         }
         .onChange(of: isCompleted) { _, completed in
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
-                fillProgress = completed ? 1 : 0
+            if completed {
+                // Phase 1: fill the circle
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
+                    fillProgress = 1
+                }
+                // Phase 2: draw the checkmark after fill completes
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        checkmarkProgress = 1
+                    }
+                }
+            } else {
+                // Undo: reset both immediately
+                withAnimation(nil) {
+                    fillProgress = 0
+                    checkmarkProgress = 0
+                }
             }
         }
     }
 
     private var checkboxBody: some View {
         ZStack {
+            // Stroke ring (always visible, dashed when in-progress)
             Circle()
                 .stroke(
                     tint,
-                    style: StrokeStyle(lineWidth: 1.5, dash: isDashed && !isCompleted ? [3, 2] : [])
+                    style: StrokeStyle(lineWidth: 1.5, dash: isDashed && fillProgress == 0 ? [3, 2] : [])
                 )
                 .frame(width: 22, height: 22)
 
+            // Filled circle — scales in during phase 1
             Circle()
                 .fill(tint)
                 .frame(width: 22, height: 22)
                 .scaleEffect(fillProgress)
                 .opacity(fillProgress)
 
-            Image(systemName: "checkmark")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(.white)
-                .opacity(fillProgress)
+            // Checkmark path — strokes in during phase 2
+            Path { path in
+                path.move(to: CGPoint(x: 9, y: 15))
+                path.addLine(to: CGPoint(x: 13, y: 19))
+                path.addLine(to: CGPoint(x: 21, y: 11))
+            }
+            .trim(from: 0, to: checkmarkProgress)
+            .stroke(Color.white, style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
+            .frame(width: 22, height: 22)
         }
         .frame(width: 22, height: 22)
     }
@@ -6107,6 +6153,25 @@ private struct TaskCheckbox: View {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
 #endif
         onTap()
+    }
+}
+
+private struct ProjectProgressRing: View {
+    let progress: Double  // 0.0 ... 1.0
+    let tint: Color
+
+    var body: some View {
+        let isComplete = progress >= 1.0
+        let arcColor = isComplete ? Color(.systemGreen) : tint
+        ZStack {
+            Circle()
+                .stroke(Color(.secondarySystemFill), lineWidth: 2)
+            Circle()
+                .trim(from: 0, to: progress)
+                .stroke(arcColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+        }
+        .frame(width: 18, height: 18)
     }
 }
 
@@ -6221,5 +6286,43 @@ private struct InlineTaskOptionButton: View {
                 .foregroundStyle(isSelected ? tint : theme.textSecondaryColor)
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct IllustratedEmptyState: View {
+    let symbol: String
+    let glowColor: Color
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        VStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            gradient: Gradient(colors: [glowColor, .clear]),
+                            center: .center,
+                            startRadius: 0,
+                            endRadius: 36
+                        )
+                    )
+                    .frame(width: 72, height: 72)
+
+                Image(systemName: symbol)
+                    .font(.system(size: 52, weight: .regular))
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(spacing: 4) {
+                Text(title)
+                    .font(.headline)
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .padding(.vertical, 8)
     }
 }
