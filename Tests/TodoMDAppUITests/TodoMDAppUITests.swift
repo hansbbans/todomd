@@ -802,6 +802,34 @@ final class TodoMDAppUITests: XCTestCase {
         )
     }
 
+    func testStoppingVoiceRambleReturnsThePrimaryButtonToRecord() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = makeStorageOverridePath()
+        app.launchEnvironment["TODOMD_UI_TEST_FAKE_VOICE_RAMBLE"] = "1"
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let addButton = app.buttons["root.inlineAddButton"].firstMatch
+        XCTAssertTrue(addButton.waitForExistence(timeout: 10), "Inline add button not visible")
+        addButton.press(forDuration: 0.6)
+
+        let stopButton = app.buttons["Stop"].firstMatch
+        XCTAssertTrue(
+            stopButton.waitForExistence(timeout: 10),
+            "Voice Ramble did not enter the recording state"
+        )
+
+        stopButton.tap()
+
+        let recordButton = app.buttons["Record"].firstMatch
+        XCTAssertTrue(
+            recordButton.waitForExistence(timeout: 5),
+            "Tapping Stop did not return the primary button to Record"
+        )
+    }
+
     func testSwitchingExpandedTasksCollapsesThePreviousCardWithoutShowingKeyboard() {
         let storageOverride = makeStorageOverridePath()
 
