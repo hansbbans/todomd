@@ -1,0 +1,80 @@
+name: Assign TestFlight Groups
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag, or commit containing the assignment script to run
+        required: true
+        type: string
+      bundle_id:
+        description: App bundle identifier
+        required: true
+        type: string
+      version:
+        description: Marketing version for the uploaded build
+        required: true
+        type: string
+      build_number:
+        description: Build number for the uploaded build
+        required: true
+        type: string
+      internal_groups:
+        description: Optional comma-separated internal TestFlight group names or IDs
+        required: false
+        default: ""
+        type: string
+      external_groups:
+        description: Optional comma-separated external TestFlight group names or IDs
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: testflight-assign-${{ inputs.bundle_id }}-${{ inputs.version }}-${{ inputs.build_number }}
+  cancel-in-progress: false
+
+jobs:
+  assign:
+    name: Wait and attach
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      AUTH_KEY_PATH: ${{ github.workspace }}/build/signing-temp/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8
+
+    steps:
+      - name: Checkout requested ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 1
+
+      - name: Install App Store Connect auth key
+        env:
+          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$(dirname "$AUTH_KEY_PATH")"
+          printf '%s' "$APP_STORE_CONNECT_PRIVATE_KEY" > "$AUTH_KEY_PATH"
+
+      - name: Attach build to TestFlight groups
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          AUTH_KEY_PATH: ${{ env.AUTH_KEY_PATH }}
+          APP_BUNDLE_ID: ${{ inputs.bundle_id }}
+          APP_VERSION: ${{ inputs.version }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
+          INTERNAL_GROUPS: ${{ inputs.internal_groups }}
+          EXTERNAL_GROUPS: ${{ inputs.external_groups }}
+        run: |
+          set -euo pipefail
+          ruby Tools/assign_testflight_groups.rb
+
+      - name: Clean up auth key
+        if: always()
+        run: rm -rf "$(dirname "$AUTH_KEY_PATH")"
