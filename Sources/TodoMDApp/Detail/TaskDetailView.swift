@@ -36,6 +36,7 @@ struct TaskDetailView: View {
     @State private var latitudeError: String?
     @State private var longitudeError: String?
     @State private var titleError: String?
+    @State private var newChecklistItemText = ""
 
     var body: some View {
         Group {
@@ -131,7 +132,7 @@ struct TaskDetailView: View {
 
     private var notesSection: some View {
         ZStack(alignment: .topLeading) {
-            if editState?.body.isEmpty ?? true {
+            if notesText.isEmpty {
                 Text("Add notes...")
                     .font(.body)
                     .foregroundStyle(theme.textSecondaryColor)
@@ -139,7 +140,7 @@ struct TaskDetailView: View {
                     .padding(.leading, 4)
                     .allowsHitTesting(false)
             }
-            TextEditor(text: binding(\.body))
+            TextEditor(text: notesBinding)
                 .font(.body)
                 .foregroundStyle(theme.textPrimaryColor)
                 .frame(minHeight: 72)
@@ -300,6 +301,49 @@ struct TaskDetailView: View {
         }
     }
 
+    private var checklistItems: [TaskChecklistMarkdown.Item] {
+        TaskChecklistMarkdown.parse(editState?.body ?? "")
+    }
+
+    private var checklistSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Checklist")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(theme.textSecondaryColor)
+                Spacer()
+                if !checklistItems.isEmpty {
+                    Text("\(checklistItems.filter(\.isCompleted).count)/\(checklistItems.count)")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(theme.textSecondaryColor)
+                }
+            }
+
+            if checklistItems.isEmpty {
+                Text("No checklist items yet.")
+                    .font(.footnote)
+                    .foregroundStyle(theme.textSecondaryColor)
+            } else {
+                VStack(spacing: 10) {
+                    ForEach(checklistItems) { item in
+                        checklistRow(item)
+                    }
+                }
+            }
+
+            HStack(spacing: 10) {
+                TextField("Add checklist item", text: $newChecklistItemText)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(addChecklistItem)
+
+                Button("Add", action: addChecklistItem)
+                    .disabled(newChecklistItemText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+    }
+
     private var moreDetailsSection: some View {
         DisclosureGroup(isExpanded: $expandedMetadata) {
             VStack(spacing: 0) {
@@ -430,6 +474,8 @@ struct TaskDetailView: View {
             VStack(alignment: .leading, spacing: 0) {
                 headerSection
                 Divider()
+                checklistSection
+                Divider()
                 notesSection
                 Divider()
                 corePropertiesSection
@@ -528,7 +574,7 @@ struct TaskDetailView: View {
 
     private var notesEditorView: some View {
         NavigationStack {
-            TextEditor(text: binding(\.body))
+            TextEditor(text: notesBinding)
                 .padding(12)
                 .background(theme.backgroundColor.ignoresSafeArea())
                 .navigationTitle("Notes")
@@ -672,6 +718,50 @@ struct TaskDetailView: View {
         binding(\.tagsText).wrappedValue = tags.joined(separator: ", ")
     }
 
+    private func checklistRow(_ item: TaskChecklistMarkdown.Item) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Button {
+                toggleChecklistItem(item)
+            } label: {
+                Image(systemName: item.isCompleted ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(item.isCompleted ? theme.accentColor : theme.textSecondaryColor)
+                    .padding(.top, 1)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(item.isCompleted ? "Mark checklist item incomplete" : "Mark checklist item complete")
+
+            Text(item.title)
+                .foregroundStyle(theme.textPrimaryColor)
+                .strikethrough(item.isCompleted, color: theme.textSecondaryColor)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button(role: .destructive) {
+                deleteChecklistItem(item)
+            } label: {
+                Image(systemName: "trash")
+                    .font(.footnote.weight(.semibold))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Delete checklist item")
+        }
+    }
+
+    private func addChecklistItem() {
+        let trimmed = newChecklistItemText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        binding(\.body).wrappedValue = TaskChecklistMarkdown.addItem(to: binding(\.body).wrappedValue, title: trimmed)
+        newChecklistItemText = ""
+    }
+
+    private func toggleChecklistItem(_ item: TaskChecklistMarkdown.Item) {
+        binding(\.body).wrappedValue = TaskChecklistMarkdown.toggleItem(in: binding(\.body).wrappedValue, at: item.ordinal)
+    }
+
+    private func deleteChecklistItem(_ item: TaskChecklistMarkdown.Item) {
+        binding(\.body).wrappedValue = TaskChecklistMarkdown.deleteItem(in: binding(\.body).wrappedValue, at: item.ordinal)
+    }
+
 
     private func detailRow(_ title: String, value: String?) -> some View {
         HStack(alignment: .top) {
@@ -729,6 +819,22 @@ struct TaskDetailView: View {
                 editState.project = newValue
                 self.editState = editState
                 scheduleProjectPersistence()
+            }
+        )
+    }
+
+    private var notesText: String {
+        TaskChecklistMarkdown.notes(in: editState?.body ?? "")
+    }
+
+    private var notesBinding: Binding<String> {
+        Binding(
+            get: { notesText },
+            set: { newValue in
+                binding(\.body).wrappedValue = TaskChecklistMarkdown.replaceNotes(
+                    in: binding(\.body).wrappedValue,
+                    with: newValue
+                )
             }
         )
     }
