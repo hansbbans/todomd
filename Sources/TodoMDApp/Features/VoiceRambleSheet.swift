@@ -14,27 +14,39 @@ final class VoiceRambleController: ObservableObject {
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private var speechRecognizer = SFSpeechRecognizer()
+    private var recordingSessionID: UInt64 = 0
     private var shouldSkipAutostartForUITests: Bool {
         ProcessInfo.processInfo.environment["TODOMD_UI_TEST_DISABLE_VOICE_RAMBLE_AUTOSTART"] == "1"
     }
+    private var shouldUseFakeRecordingForUITests: Bool {
+        ProcessInfo.processInfo.environment["TODOMD_UI_TEST_FAKE_VOICE_RAMBLE"] == "1"
+    }
 
     func start(availableProjects: [String]) async {
+        recordingSessionID &+= 1
+        let sessionID = recordingSessionID
         errorMessage = nil
         permissionMessage = nil
+
+        if shouldUseFakeRecordingForUITests {
+            teardownRecordingSession()
+            isRecording = true
+            return
+        }
 
         if shouldSkipAutostartForUITests {
             return
         }
 
         let speechStatus = await Self.requestSpeechPermission()
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, isCurrentSession(sessionID) else { return }
         guard speechStatus == .authorized else {
             permissionMessage = permissionMessage(for: speechStatus)
             return
         }
 
         let microphoneGranted = await Self.requestMicrophonePermission()
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, isCurrentSession(sessionID) else { return }
         guard microphoneGranted else {
             permissionMessage = "Microphone access is required for voice ramble."
             return
@@ -45,7 +57,7 @@ final class VoiceRambleController: ObservableObject {
             return
         }
 
-        stop()
+        teardownRecordingSession()
 
         do {
             try configureAudioSessionIfNeeded()
@@ -53,7 +65,10 @@ final class VoiceRambleController: ObservableObject {
             errorMessage = error.localizedDescription
             return
         }
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, isCurrentSession(sessionID) else {
+            teardownRecordingSession()
+            return
+        }
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
@@ -62,8 +77,8 @@ final class VoiceRambleController: ObservableObject {
         let inputNode = audioEngine.inputNode
         let format = inputNode.outputFormat(forBus: 0)
         inputNode.removeTap(onBus: 0)
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-            self?.recognitionRequest?.append(buffer)
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [request] buffer, _ in
+            request.append(buffer)
         }
 
         audioEngine.prepare()
@@ -78,6 +93,7 @@ final class VoiceRambleController: ObservableObject {
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
             Task { @MainActor in
+                guard self.isCurrentSession(sessionID) else { return }
                 if let result {
                     self.transcript = result.bestTranscription.formattedString
                     self.reparse(availableProjects: availableProjects)
@@ -93,10 +109,19 @@ final class VoiceRambleController: ObservableObject {
             }
         }
 
+        guard isCurrentSession(sessionID) else {
+            teardownRecordingSession()
+            return
+        }
         isRecording = true
     }
 
     func stop() {
+        recordingSessionID &+= 1
+        teardownRecordingSession()
+    }
+
+    private func teardownRecordingSession() {
         if audioEngine.isRunning {
             audioEngine.stop()
             audioEngine.inputNode.removeTap(onBus: 0)
@@ -108,6 +133,10 @@ final class VoiceRambleController: ObservableObject {
         isRecording = false
 
         deactivateAudioSessionIfNeeded()
+    }
+
+    private func isCurrentSession(_ sessionID: UInt64) -> Bool {
+        recordingSessionID == sessionID
     }
 
     func clear() {
@@ -378,6 +407,7 @@ struct VoiceRambleSheet: View {
                     )
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("voiceRamble.recordButton")
 
             Button {
                 saveDrafts()
