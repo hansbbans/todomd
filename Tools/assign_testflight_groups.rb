@@ -6,16 +6,6 @@ require 'net/http'
 require 'openssl'
 require 'uri'
 
-class AppStoreConnectAPIError < StandardError
-  attr_reader :status_code, :detail
-
-  def initialize(status_code:, uri:, detail:)
-    super("App Store Connect API #{status_code} for #{uri}: #{detail}")
-    @status_code = status_code
-    @detail = detail
-  end
-end
-
 class AppStoreConnectClient
   DEFAULT_BASE_URL = 'https://api.appstoreconnect.apple.com'.freeze
   TOKEN_LIFETIME_SECONDS = 19 * 60
@@ -85,7 +75,7 @@ class AppStoreConnectClient
 
     detail = Array(parsed['errors']).map { |error| error['detail'] }.compact.join(' | ')
     detail = body if detail.empty?
-    raise AppStoreConnectAPIError.new(status_code: response.code.to_i, uri: uri, detail: detail)
+    raise "App Store Connect API #{response.code} for #{uri}: #{detail}"
   end
 
   def authorization_token
@@ -234,26 +224,30 @@ def resolve_groups(groups, requested_names_or_ids, label)
   end
 end
 
+def assigned_group_ids(client, build_id)
+  client.get_all("/v1/builds/#{build_id}/betaGroups", 'limit' => '200').map { |group| group['id'] }.to_set
+end
+
 def attach_build_to_groups(client, build_id:, groups:)
+  require 'set'
+
+  existing_group_ids = assigned_group_ids(client, build_id)
+
   groups.each do |group|
     group_id = group['id']
     group_name = group.dig('attributes', 'name')
 
-    begin
-      client.post(
-        "/v1/betaGroups/#{group_id}/relationships/builds",
-        data: [{ type: 'builds', id: build_id }]
-      )
-
-      puts "Assigned build to #{group_name}."
-    rescue AppStoreConnectAPIError => error
-      if error.status_code == 409 || error.detail.to_s.downcase.include?('already')
-        puts "Build is already assigned to #{group_name}."
-        next
-      end
-
-      raise
+    if existing_group_ids.include?(group_id)
+      puts "Build is already assigned to #{group_name}."
+      next
     end
+
+    client.post(
+      "/v1/betaGroups/#{group_id}/relationships/builds",
+      data: [{ type: 'builds', id: build_id }]
+    )
+
+    puts "Assigned build to #{group_name}."
   end
 end
 
@@ -291,7 +285,12 @@ build = poll_for_build(
 build_id = build.fetch('id')
 
 unless internal_groups.empty?
-  puts 'Skipping internal TestFlight group assignment because App Store Connect does not allow attaching builds to internal groups.'
+  groups = fetch_groups(client, app_id: app_id, internal: true)
+  attach_build_to_groups(
+    client,
+    build_id: build_id,
+    groups: resolve_groups(groups, internal_groups, 'internal')
+  )
 end
 
 unless external_groups.empty?
