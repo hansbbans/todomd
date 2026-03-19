@@ -562,6 +562,163 @@ public struct TaskMarkdownCodec {
     }
 }
 
+struct TaskChecklistMarkdown {
+    private static let sectionMarker = "<!-- todo.md checklist -->"
+
+    struct Item: Equatable, Identifiable {
+        let ordinal: Int
+        let isCompleted: Bool
+        let title: String
+
+        var id: Int { ordinal }
+    }
+
+    private struct Document {
+        let notes: String
+        let items: [Item]
+    }
+
+    private struct Match {
+        let isCompleted: Bool
+        let title: String
+    }
+
+    private static let checkboxRegex = try! NSRegularExpression(
+        pattern: #"^(\s*(?:[-*+]\s+)?)\[( |x|X)\]\s+(.*)$"#
+    )
+
+    static func parse(_ markdown: String) -> [Item] {
+        split(markdown).items
+    }
+
+    static func notes(in markdown: String) -> String {
+        split(markdown).notes
+    }
+
+    static func toggleItem(in markdown: String, at ordinal: Int) -> String {
+        mutate(markdown, itemAt: ordinal) { item in
+            Item(ordinal: item.ordinal, isCompleted: !item.isCompleted, title: item.title)
+        }
+    }
+
+    static func deleteItem(in markdown: String, at ordinal: Int) -> String {
+        mutate(markdown) { items in
+            guard items.indices.contains(ordinal) else { return }
+            items.remove(at: ordinal)
+        }
+    }
+
+    static func addItem(to markdown: String, title: String) -> String {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else { return markdown }
+
+        return mutate(markdown) { items in
+            items.append(Item(ordinal: items.count, isCompleted: false, title: trimmedTitle))
+        }
+    }
+
+    static func replaceNotes(in markdown: String, with notes: String) -> String {
+        let document = split(markdown)
+        return render(notes: notes, items: document.items)
+    }
+
+    private static func mutate(_ markdown: String, itemAt ordinal: Int, transform: (Item) -> Item) -> String {
+        mutate(markdown) { items in
+            guard items.indices.contains(ordinal) else { return }
+            items[ordinal] = transform(items[ordinal])
+        }
+    }
+
+    private static func mutate(_ markdown: String, transform: (inout [Item]) -> Void) -> String {
+        let document = split(markdown)
+        var items = document.items
+        transform(&items)
+        let normalizedItems = items.enumerated().map { index, item in
+            Item(ordinal: index, isCompleted: item.isCompleted, title: item.title)
+        }
+        return render(notes: document.notes, items: normalizedItems)
+    }
+
+    private static func lines(in markdown: String) -> [String] {
+        markdown.components(separatedBy: "\n")
+    }
+
+    private static func render(notes: String, items: [Item]) -> String {
+        let normalizedNotes = notes
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\n"))
+        let checklist = items.isEmpty
+            ? ""
+            : ([sectionMarker] + items.map(renderLine)).joined(separator: "\n")
+
+        switch (normalizedNotes.isEmpty, checklist.isEmpty) {
+        case (true, true):
+            return ""
+        case (false, true):
+            return normalizedNotes
+        case (true, false):
+            return checklist
+        case (false, false):
+            return "\(normalizedNotes)\n\n\(checklist)"
+        }
+    }
+
+    private static func renderLine(_ item: Item) -> String {
+        "- [\(item.isCompleted ? "x" : " ")] \(item.title)"
+    }
+
+    private static func split(_ markdown: String) -> Document {
+        let normalized = markdown.replacingOccurrences(of: "\r\n", with: "\n")
+        let lines = lines(in: normalized)
+        guard !lines.isEmpty else {
+            return Document(notes: "", items: [])
+        }
+
+        guard let markerIndex = lines.lastIndex(where: { $0.trimmingCharacters(in: .whitespaces) == sectionMarker }) else {
+            return Document(
+                notes: normalized.trimmingCharacters(in: CharacterSet(charactersIn: "\n")),
+                items: []
+            )
+        }
+
+        let blockLines = Array(lines[(markerIndex + 1)...])
+        guard blockLines.allSatisfy({ line in
+            line.trimmingCharacters(in: .whitespaces).isEmpty || match(line) != nil
+        }) else {
+            return Document(
+                notes: normalized.trimmingCharacters(in: CharacterSet(charactersIn: "\n")),
+                items: []
+            )
+        }
+
+        var noteLines = Array(lines.prefix(markerIndex))
+        while let last = noteLines.last, last.trimmingCharacters(in: .whitespaces).isEmpty {
+            noteLines.removeLast()
+        }
+
+        let items = blockLines.compactMap(match).enumerated().map { index, match in
+            Item(ordinal: index, isCompleted: match.isCompleted, title: match.title)
+        }
+        return Document(notes: noteLines.joined(separator: "\n"), items: items)
+    }
+
+    private static func match(_ line: String) -> Match? {
+        let range = NSRange(line.startIndex..., in: line)
+        guard let result = checkboxRegex.firstMatch(in: line, options: [], range: range),
+              result.numberOfRanges == 4,
+              let markerRange = Range(result.range(at: 2), in: line),
+              let titleRange = Range(result.range(at: 3), in: line)
+        else {
+            return nil
+        }
+
+        return Match(
+            isCompleted: String(line[markerRange]).lowercased() == "x",
+            title: String(line[titleRange])
+        )
+    }
+}
+
 private extension String {
     var nilIfEmpty: String? {
         isEmpty ? nil : self

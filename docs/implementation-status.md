@@ -28,6 +28,7 @@ Use this as the current status reference when roadmap documents differ.
 - Blocked-by advanced UX: core refs + auto-unblock are present, but the UI is still manual text entry for refs; there is no dedicated blocker picker, cycle detection, or dependency graph UI.
 - Theming: token architecture exists, but user-facing custom theme builder/preset switching is not implemented (classic preset only in code).
 - Import/export: Reminders import exists, but multi-source import/export suite (Todoist/OmniFocus/Things/CSV/JSON/TaskPaper/OPML UI) is not implemented.
+- Simple checklist items are supported through a managed markdown checklist block in the task body and can be edited in task detail; true parent/child subtasks remain a later feature.
 
 ## Not Done
 
