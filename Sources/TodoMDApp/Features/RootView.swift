@@ -325,6 +325,14 @@ private enum RootPullToSearchCoordinateSpace {
     static let name = "rootPullToSearchScrollArea"
 }
 
+private enum RootDismissibleSurfaceID {
+    static let inlineTaskComposer = "inlineTaskComposer"
+
+    static func expandedTask(_ path: String) -> String {
+        "expandedTask:\(path)"
+    }
+}
+
 private struct RootListContentMaxYPreferenceKey: PreferenceKey {
     static let defaultValue: CGFloat = .zero
 
@@ -340,6 +348,29 @@ private struct RootListContentBoundaryReporter: ViewModifier {
                 Color.clear.preference(
                     key: RootListContentMaxYPreferenceKey.self,
                     value: proxy.frame(in: .named(RootPullToSearchCoordinateSpace.name)).maxY
+                )
+            }
+        }
+    }
+}
+
+private struct RootDismissibleSurfaceFramesPreferenceKey: PreferenceKey {
+    static let defaultValue: [String: CGRect] = [:]
+
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
+private struct RootDismissibleSurfaceFrameReporter: ViewModifier {
+    let id: String
+
+    func body(content: Content) -> some View {
+        content.background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: RootDismissibleSurfaceFramesPreferenceKey.self,
+                    value: [id: proxy.frame(in: .named(RootPullToSearchCoordinateSpace.name))]
                 )
             }
         }
@@ -711,6 +742,7 @@ struct RootView: View {
     @State private var inlineAddButtonLongPressTask: Task<Void, Never>?
     @State private var inlineTaskFocusTask: Task<Void, Never>?
     @State private var taskListContentMaxY: CGFloat = .zero
+    @State private var dismissibleSurfaceFrames: [String: CGRect] = [:]
     @FocusState private var inlineTaskFocused: Bool
     @Namespace private var compactQuickAddNamespace
     @AppStorage(CompactTabSettings.leadingViewKey) private var compactPrimaryTabRawValue = CompactTabSettings.defaultLeadingView.rawValue
@@ -757,9 +789,11 @@ struct RootView: View {
             .overlay {
                 if isRootSearchPresented {
                     ZStack(alignment: .top) {
-                        Color.clear
-                            .ignoresSafeArea()
-                            .onTapGesture { dismissRootSearch() }
+                        TapOutsideDismissBackdrop(
+                            fillColor: Color.black.opacity(0.001),
+                            accessibilityIdentifier: "quickFind.backdrop",
+                            onDismiss: dismissRootSearch
+                        )
 
                         GeometryReader { geo in
                             QuickFindCard(
@@ -1617,6 +1651,9 @@ struct RootView: View {
         .onPreferenceChange(RootListContentMaxYPreferenceKey.self) { maxY in
             taskListContentMaxY = maxY
         }
+        .onPreferenceChange(RootDismissibleSurfaceFramesPreferenceKey.self) { frames in
+            dismissibleSurfaceFrames = frames
+        }
         .simultaneousGesture(
             SpatialTapGesture()
                 .onEnded { value in
@@ -1963,6 +2000,7 @@ struct RootView: View {
         .accessibilityValue("expanded")
 #if os(iOS)
         .modifier(RootListContentBoundaryReporter())
+        .modifier(RootDismissibleSurfaceFrameReporter(id: RootDismissibleSurfaceID.inlineTaskComposer))
 #endif
         .transition(.asymmetric(
             insertion: .push(from: .top).combined(with: .opacity),
@@ -2057,12 +2095,11 @@ struct RootView: View {
     private var compactInlineTaskComposerOverlay: some View {
         GeometryReader { geometry in
             ZStack(alignment: .bottom) {
-                Color.black.opacity(0.001)
-                    .ignoresSafeArea()
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        cancelInlineTaskComposer()
-                    }
+                TapOutsideDismissBackdrop(
+                    fillColor: Color.black.opacity(0.001),
+                    accessibilityIdentifier: "inlineTask.backdrop",
+                    onDismiss: cancelInlineTaskComposer
+                )
 
                 compactInlineTaskComposerCard(
                     maxHeight: max(
@@ -3804,6 +3841,9 @@ struct RootView: View {
             .onPreferenceChange(RootListContentMaxYPreferenceKey.self) { maxY in
                 taskListContentMaxY = maxY
             }
+            .onPreferenceChange(RootDismissibleSurfaceFramesPreferenceKey.self) { frames in
+                dismissibleSurfaceFrames = frames
+            }
             .simultaneousGesture(
                 SpatialTapGesture()
                     .onEnded { value in
@@ -4031,6 +4071,21 @@ struct RootView: View {
     }
 
     private func handleTaskListBlankSpaceTap(at location: CGPoint) {
+        if isCreatingTask, let frame = dismissibleSurfaceFrame(for: RootDismissibleSurfaceID.inlineTaskComposer) {
+            guard !frame.contains(location) else { return }
+            cancelInlineTaskComposer()
+            return
+        }
+
+        if let expandedTaskPath,
+           let frame = dismissibleSurfaceFrame(for: RootDismissibleSurfaceID.expandedTask(expandedTaskPath)) {
+            guard !frame.contains(location) else { return }
+            withAnimation(expandedTaskCloseAnimation) {
+                self.expandedTaskPath = nil
+            }
+            return
+        }
+
         guard location.y > taskListContentMaxY + 8 else { return }
 
         if isCreatingTask {
@@ -4042,6 +4097,13 @@ struct RootView: View {
         withAnimation(expandedTaskCloseAnimation) {
             expandedTaskPath = nil
         }
+    }
+
+    private func dismissibleSurfaceFrame(for id: String) -> CGRect? {
+        guard let frame = dismissibleSurfaceFrames[id], !frame.isNull, !frame.isEmpty else {
+            return nil
+        }
+        return frame
     }
 
     private func handleInlineTaskTitleChanged(_ value: String) {
@@ -4398,13 +4460,12 @@ struct RootView: View {
     private func expandedTaskDateModalOverlay(target: ExpandedTaskDateTarget) -> some View {
         GeometryReader { proxy in
             ZStack {
-                Color.black.opacity(0.42)
-                    .ignoresSafeArea()
-                    .contentShape(Rectangle())
-                    .accessibilityIdentifier("expandedTaskDate.backdrop")
-                    .onTapGesture {
-                        dismissExpandedTaskDateEditor(animated: true)
-                    }
+                TapOutsideDismissBackdrop(
+                    fillColor: Color.black.opacity(0.42),
+                    accessibilityIdentifier: "expandedTaskDate.backdrop"
+                ) {
+                    dismissExpandedTaskDateEditor(animated: true)
+                }
 
                 expandedTaskDateContent(target: target)
                     .frame(
@@ -4696,6 +4757,7 @@ struct RootView: View {
         .id(path)
 #if os(iOS)
         .modifier(RootListContentBoundaryReporter())
+        .modifier(RootDismissibleSurfaceFrameReporter(id: RootDismissibleSurfaceID.expandedTask(path)))
 #endif
         .accessibilityIdentifier("taskRow.\(record.document.frontmatter.title)")
         .accessibilityValue(expandedTaskPath == path ? "expanded" : "collapsed")
@@ -6071,6 +6133,42 @@ private struct InlineTaskDateEditorSheet: View {
             }
         }
         .accessibilityIdentifier("inlineTaskDate.modal")
+    }
+}
+
+private struct TapOutsideDismissBackdrop: View {
+    let fillColor: Color
+    let accessibilityIdentifier: String?
+    let onDismiss: () -> Void
+
+    init(
+        fillColor: Color = Color.black.opacity(0.001),
+        accessibilityIdentifier: String? = nil,
+        onDismiss: @escaping () -> Void
+    ) {
+        self.fillColor = fillColor
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.onDismiss = onDismiss
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if let accessibilityIdentifier {
+            backdropSurface
+                .accessibilityIdentifier(accessibilityIdentifier)
+        } else {
+            backdropSurface
+        }
+    }
+
+    private var backdropSurface: some View {
+        fillColor
+            .ignoresSafeArea()
+            .contentShape(Rectangle())
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Dismiss")
+            .accessibilityAddTraits(.isButton)
+            .onTapGesture(perform: onDismiss)
     }
 }
 

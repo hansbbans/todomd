@@ -90,6 +90,98 @@ final class TodoMDAppUITests: XCTestCase {
         XCTAssertTrue(rootViewReached(app: app, timeout: 10), "App did not reach the home screen after onboarding primers")
     }
 
+    func testInlineTaskComposerDismissesWhenTappingOutsideCard() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = makeStorageOverridePath()
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let addButton = app.buttons["root.inlineAddButton"].firstMatch
+        XCTAssertTrue(addButton.waitForExistence(timeout: 10), "Inline add button not visible")
+        addButton.tap()
+
+        let composerRow = app.descendants(matching: .any)["inlineTask.row"].firstMatch
+        XCTAssertTrue(composerRow.waitForExistence(timeout: 10), "Inline task composer did not appear")
+
+        let backdrop = app.descendants(matching: .any)["inlineTask.backdrop"].firstMatch
+        if backdrop.exists && backdrop.isHittable {
+            backdrop.tap()
+        } else {
+            let outsideTap = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1))
+            outsideTap.tap()
+        }
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 2, pollInterval: 0.1) { !composerRow.exists },
+            "Tapping outside the inline task composer should dismiss it"
+        )
+    }
+
+    func testExpandedTaskDateModalDismissesWhenTappingOutsideCard() throws {
+        let storageOverride = makeStorageOverridePath()
+        try seedInboxTask(rootPath: storageOverride, title: "dismiss due modal")
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let row = app.descendants(matching: .any)["taskRow.dismiss due modal"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "Seeded task row was not visible")
+        row.tap()
+
+        let dueButton = app.buttons["Choose due date"].firstMatch
+        XCTAssertTrue(dueButton.waitForExistence(timeout: 10), "Expanded task due-date button was not visible")
+        dueButton.tap()
+
+        let modal = app.otherElements["expandedTaskDate.modal"].firstMatch
+        XCTAssertTrue(modal.waitForExistence(timeout: 10), "Expanded task date popup should open as a modal card")
+
+        let backdrop = app.descendants(matching: .any)["expandedTaskDate.backdrop"].firstMatch
+        if backdrop.exists && backdrop.isHittable {
+            backdrop.tap()
+        } else {
+            let outsideTap = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1))
+            outsideTap.tap()
+        }
+
+        XCTAssertFalse(
+            modal.waitForExistence(timeout: 1),
+            "Tapping outside the expanded task date popup should dismiss it"
+        )
+    }
+
+    func testExpandedTaskCollapsesWhenTappingOutsideCard() throws {
+        let storageOverride = makeStorageOverridePath()
+        try seedInboxTask(rootPath: storageOverride, title: "collapse expanded task")
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let row = app.descendants(matching: .any)["taskRow.collapse expanded task"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "Seeded task row was not visible")
+        row.tap()
+
+        let dueButton = app.buttons["Choose due date"].firstMatch
+        XCTAssertTrue(dueButton.waitForExistence(timeout: 10), "Expanded task controls were not visible")
+
+        let outsideTap = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1))
+        outsideTap.tap()
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 2, pollInterval: 0.1) { !dueButton.exists },
+            "Tapping outside the expanded task card should collapse it"
+        )
+    }
+
     func testInlineQuickAddUsesNaturalLanguageDueDate() {
         let storageOverride = makeStorageOverridePath()
 
@@ -936,6 +1028,15 @@ final class TodoMDAppUITests: XCTestCase {
 
         let taskResult = app.buttons["root.search.taskResult.search smoke"].firstMatch
         XCTAssertTrue(taskResult.waitForExistence(timeout: 5), "Typing should show matching task results in the modal")
+
+        let backdrop = app.descendants(matching: .any)["quickFind.backdrop"].firstMatch
+        XCTAssertTrue(backdrop.exists, "Quick Find backdrop should be present while the modal is open")
+        backdrop.tap()
+
+        XCTAssertFalse(
+            searchField.waitForExistence(timeout: 1),
+            "Tapping outside the Quick Find card should dismiss it"
+        )
     }
 
     func testPomodoroAppearsInBrowseWhenEnabled() {
@@ -1331,6 +1432,25 @@ final class TodoMDAppUITests: XCTestCase {
         priority: none
         flagged: false
         created: "2026-03-10T00:00:00.000Z"
+        source: ui-test
+        ---
+
+        """
+        try content.write(to: taskURL, atomically: true, encoding: .utf8)
+    }
+
+    private func seedInboxTask(rootPath: String, title: String) throws {
+        let rootURL = URL(fileURLWithPath: rootPath, isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+
+        let taskURL = rootURL.appendingPathComponent("20260310-0001-\(title.replacingOccurrences(of: " ", with: "-")).md")
+        let content = """
+        ---
+        title: "\(title)"
+        status: todo
+        priority: none
+        flagged: false
+        created: "2026-03-10T00:01:00.000Z"
         source: ui-test
         ---
 
