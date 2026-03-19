@@ -189,6 +189,9 @@ struct QuickEntrySheet: View {
                 fallbackArea: selectedArea,
                 fallbackProject: selectedProject,
                 defaultView: BuiltInView(rawValue: quickEntryDefaultView),
+                onClose: {
+                    showingVoiceRamble = false
+                },
                 onTasksCreated: {
                     dismiss()
                 }
