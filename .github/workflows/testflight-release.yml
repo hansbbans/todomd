@@ -13,6 +13,16 @@ on:
         required: true
         default: true
         type: boolean
+      internal_groups:
+        description: Optional comma-separated internal TestFlight group names or IDs; defaults to repo variable TESTFLIGHT_INTERNAL_GROUPS
+        required: false
+        default: ""
+        type: string
+      external_groups:
+        description: Optional comma-separated external TestFlight group names or IDs; defaults to repo variable TESTFLIGHT_EXTERNAL_GROUPS
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -255,6 +265,17 @@ jobs:
             CURRENT_PROJECT_VERSION="${{ steps.build_number.outputs.value }}" \
             archive
 
+      - name: Read archived app metadata
+        id: app_metadata
+        run: |
+          set -euo pipefail
+
+          app_info_plist="$ARCHIVE_PATH/Products/Applications/TodoMD.app/Info.plist"
+
+          echo "bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_info_plist")" >> "$GITHUB_OUTPUT"
+          echo "version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app_info_plist")" >> "$GITHUB_OUTPUT"
+          echo "build_number=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app_info_plist")" >> "$GITHUB_OUTPUT"
+
       - name: Upload archive to TestFlight
         env:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
@@ -270,6 +291,55 @@ jobs:
             -authenticationKeyPath "$AUTH_KEY_PATH" \
             -authenticationKeyID "$APP_STORE_CONNECT_KEY_ID" \
             -authenticationKeyIssuerID "$APP_STORE_CONNECT_ISSUER_ID"
+
+      - name: Resolve TestFlight group targets
+        id: group_targets
+        env:
+          INTERNAL_ONLY: ${{ inputs.internal_only }}
+          INPUT_INTERNAL_GROUPS: ${{ inputs.internal_groups }}
+          INPUT_EXTERNAL_GROUPS: ${{ inputs.external_groups }}
+          DEFAULT_INTERNAL_GROUPS: ${{ vars.TESTFLIGHT_INTERNAL_GROUPS }}
+          DEFAULT_EXTERNAL_GROUPS: ${{ vars.TESTFLIGHT_EXTERNAL_GROUPS }}
+        run: |
+          set -euo pipefail
+
+          trim() {
+            ruby -e 'value = STDIN.read.strip; print value' <<<"$1"
+          }
+
+          internal_groups="$(trim "${INPUT_INTERNAL_GROUPS:-}")"
+          external_groups="$(trim "${INPUT_EXTERNAL_GROUPS:-}")"
+
+          if [[ -z "$internal_groups" ]]; then
+            internal_groups="$(trim "${DEFAULT_INTERNAL_GROUPS:-}")"
+          fi
+
+          if [[ -z "$external_groups" ]]; then
+            external_groups="$(trim "${DEFAULT_EXTERNAL_GROUPS:-}")"
+          fi
+
+          if [[ "$INTERNAL_ONLY" == "true" && -n "$external_groups" ]]; then
+            echo "Skipping external group assignment because this run is internal-only."
+            external_groups=""
+          fi
+
+          echo "internal_groups=$internal_groups" >> "$GITHUB_OUTPUT"
+          echo "external_groups=$external_groups" >> "$GITHUB_OUTPUT"
+
+      - name: Attach build to TestFlight groups
+        if: ${{ steps.group_targets.outputs.internal_groups != '' || steps.group_targets.outputs.external_groups != '' }}
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          AUTH_KEY_PATH: ${{ env.AUTH_KEY_PATH }}
+          APP_BUNDLE_ID: ${{ steps.app_metadata.outputs.bundle_id }}
+          APP_VERSION: ${{ steps.app_metadata.outputs.version }}
+          BUILD_NUMBER: ${{ steps.app_metadata.outputs.build_number }}
+          INTERNAL_GROUPS: ${{ steps.group_targets.outputs.internal_groups }}
+          EXTERNAL_GROUPS: ${{ steps.group_targets.outputs.external_groups }}
+        run: |
+          set -euo pipefail
+          ruby Tools/assign_testflight_groups.rb
 
       - name: Clean up signing assets
         if: always()
