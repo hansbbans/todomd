@@ -90,7 +90,8 @@ class AppStoreConnectClient
       encoded_header = Base64.urlsafe_encode64(JSON.generate(header), padding: false)
       encoded_payload = Base64.urlsafe_encode64(JSON.generate(payload), padding: false)
       signing_input = "#{encoded_header}.#{encoded_payload}"
-      signature = @private_key.dsa_sign_asn1(OpenSSL::Digest::SHA256.digest(signing_input))
+      der_signature = @private_key.sign(OpenSSL::Digest::SHA256.new, signing_input)
+      signature = der_to_raw_signature(der_signature, 32)
       encoded_signature = Base64.urlsafe_encode64(signature, padding: false)
 
       @token = "#{signing_input}.#{encoded_signature}"
@@ -98,6 +99,22 @@ class AppStoreConnectClient
     end
 
     @token
+  end
+
+  def der_to_raw_signature(der_signature, component_size)
+    asn1 = OpenSSL::ASN1.decode(der_signature)
+    raise 'Unexpected ECDSA signature structure' unless asn1.is_a?(OpenSSL::ASN1::Sequence) && asn1.value.length == 2
+
+    asn1.value.map { |component| integer_to_fixed_bytes(component.value, component_size) }.join
+  end
+
+  def integer_to_fixed_bytes(value, size)
+    hex = value.to_s(16)
+    hex = "0#{hex}" if hex.length.odd?
+    hex = hex.rjust(size * 2, '0')
+    raise "ECDSA signature component is too large for #{size} bytes" if hex.length > size * 2
+
+    [hex].pack('H*')
   end
 end
 

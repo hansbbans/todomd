@@ -270,11 +270,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          app_info_plist="$ARCHIVE_PATH/Products/Applications/TodoMD.app/Info.plist"
+          archive_info_plist="$ARCHIVE_PATH/Info.plist"
 
-          echo "bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_info_plist")" >> "$GITHUB_OUTPUT"
-          echo "version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app_info_plist")" >> "$GITHUB_OUTPUT"
-          echo "build_number=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app_info_plist")" >> "$GITHUB_OUTPUT"
+          if [[ ! -f "$archive_info_plist" ]]; then
+            echo "Archive metadata file is missing: $archive_info_plist"
+            exit 1
+          fi
+
+          echo "bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleIdentifier' "$archive_info_plist")" >> "$GITHUB_OUTPUT"
+          echo "version=$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleShortVersionString' "$archive_info_plist")" >> "$GITHUB_OUTPUT"
+          echo "build_number=$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleVersion' "$archive_info_plist")" >> "$GITHUB_OUTPUT"
 
       - name: Upload archive to TestFlight
         env:
