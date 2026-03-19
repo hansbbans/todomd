@@ -294,7 +294,7 @@ struct OnboardingView: View {
             switch primer {
             case .reminders:
                 _ = await container.requestRemindersAccess()
-                persistIntegrationEnabled(container.isRemindersAccessGranted, for: primer)
+                await container.setRemindersIntegrationEnabled(container.isRemindersAccessGranted)
             case .calendar:
                 await container.connectCalendar()
                 persistIntegrationEnabled(container.isCalendarConnected, for: primer)

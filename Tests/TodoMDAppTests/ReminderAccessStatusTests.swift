@@ -1,4 +1,5 @@
 import EventKit
+import Foundation
 import Testing
 @testable import TodoMDApp
 
@@ -66,3 +67,97 @@ struct ReminderAccessStatusTests {
         EKAuthorizationStatus(rawValue: 3) ?? .denied
     }
 }
+
+@Suite(.serialized)
+@MainActor
+struct AppContainerReminderIntegrationSyncTests {
+    @Test("Explicit reminders enablement updates refresh the reminders integration state")
+    func explicitEnablementUpdatesRefreshRemindersState() async throws {
+        let root = try makeTempDirectory()
+        let defaults = UserDefaults.standard
+        let enabledKey = "settings_reminders_import_enabled"
+        let listKey = "settings_reminders_import_list_id"
+        let originalEnabled = defaults.object(forKey: enabledKey)
+        let originalList = defaults.object(forKey: listKey)
+        let originalOverride = ProcessInfo.processInfo.environment["TODOMD_STORAGE_OVERRIDE_PATH"]
+        let originalFakeReminders = ProcessInfo.processInfo.environment["TODOMD_FAKE_REMINDERS_IMPORT"]
+
+        setenv("TODOMD_STORAGE_OVERRIDE_PATH", root.path, 1)
+        setenv("TODOMD_FAKE_REMINDERS_IMPORT", "1", 1)
+        defaults.removeObject(forKey: enabledKey)
+        defaults.removeObject(forKey: listKey)
+
+        defer {
+            if let originalOverride {
+                setenv("TODOMD_STORAGE_OVERRIDE_PATH", originalOverride, 1)
+            } else {
+                unsetenv("TODOMD_STORAGE_OVERRIDE_PATH")
+            }
+
+            if let originalFakeReminders {
+                setenv("TODOMD_FAKE_REMINDERS_IMPORT", originalFakeReminders, 1)
+            } else {
+                unsetenv("TODOMD_FAKE_REMINDERS_IMPORT")
+            }
+
+            if let originalEnabled {
+                defaults.set(originalEnabled, forKey: enabledKey)
+            } else {
+                defaults.removeObject(forKey: enabledKey)
+            }
+
+            if let originalList {
+                defaults.set(originalList, forKey: listKey)
+            } else {
+                defaults.removeObject(forKey: listKey)
+            }
+
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let container = AppContainer()
+        await container.setRemindersIntegrationEnabled(false)
+
+        try await waitFor(
+            "reminders integration to stay cleared while disabled"
+        ) {
+            container.reminderLists.isEmpty && container.pendingReminderImports.isEmpty
+        }
+
+        await container.setRemindersIntegrationEnabled(true)
+
+        try await waitFor(
+            "reminders integration to refresh after explicit enablement"
+        ) {
+            container.reminderLists.count == 1
+                && container.selectedReminderListID == "ui-test-reminders-list"
+                && container.pendingReminderImports.count == 1
+        }
+    }
+
+    private func makeTempDirectory() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TodoMDReminderTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    private func waitFor(
+        _ description: String,
+        timeoutNanoseconds: UInt64 = 2_000_000_000,
+        condition: @escaping @MainActor () -> Bool
+    ) async throws {
+        let start = DispatchTime.now().uptimeNanoseconds
+        while DispatchTime.now().uptimeNanoseconds - start < timeoutNanoseconds {
+            if condition() {
+                return
+            }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        Issue.record("Timed out waiting for \(description)")
+        throw TimeoutError()
+    }
+}
+
+private struct TimeoutError: Error {}
