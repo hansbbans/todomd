@@ -162,6 +162,12 @@ private final class AppContainerObservationState {
     }
 }
 
+private struct PerspectivesReloadResult: Sendable {
+    let rootURL: URL
+    let document: PerspectivesDocument?
+    let errorDescription: String?
+}
+
 @MainActor
 final class AppContainer: ObservableObject {
     @Published var selectedView: ViewIdentifier = .builtIn(.inbox) {
@@ -242,6 +248,7 @@ final class AppContainer: ObservableObject {
     private var reminderImportRefreshGeneration = 0
     private var lastCalendarSyncAt: Date?
     private var startupValidationPending = false
+    private var perspectivesReloadTask: Task<Void, Never>?
 
     private static let settingsNotificationHourKey = "settings_notification_hour"
     private static let settingsNotificationMinuteKey = "settings_notification_minute"
@@ -428,7 +435,7 @@ final class AppContainer: ObservableObject {
     func refresh(forceFullScan: Bool = false) {
         do {
             let hadKnownTaskStateBeforeRefresh = lastSyncSummary != nil || !canonicalByPath.isEmpty
-            loadPerspectivesFromDisk()
+            reloadPerspectivesFromDiskInBackground()
             let sync = try fileWatcher.synchronize(forceFullScan: forceFullScan)
             applySyncDelta(sync)
             var canonicalRecords = canonicalByPath.values.sorted { $0.identity.path < $1.identity.path }
@@ -3355,20 +3362,70 @@ final class AppContainer: ObservableObject {
     private func loadPerspectivesFromDisk() {
         do {
             let loaded = try perspectivesRepository.load(rootURL: rootURL)
-            cachedPerspectivesDocument = loaded
-            let orderedIDs = orderedPerspectiveIDs(document: loaded)
-            perspectives = orderedIDs.compactMap { loaded.perspectives[$0] }
-            perspectivesWarningMessage = nil
+            applyLoadedPerspectives(loaded)
         } catch {
-            perspectivesWarningMessage = "Perspectives file has errors - using last valid version."
-            _ = perspectivesRepository.backupCorruptedFile(rootURL: rootURL)
-            logger.error("Failed to load perspectives", metadata: ["error": error.localizedDescription])
+            handlePerspectivesLoadFailure(errorDescription: error.localizedDescription)
         }
+    }
+
+    private func reloadPerspectivesFromDiskInBackground() {
+        let requestedRootURL = rootURL.standardizedFileURL.resolvingSymlinksInPath()
+        perspectivesReloadTask?.cancel()
+        perspectivesReloadTask = Task { [weak self, requestedRootURL] in
+            let result = await Self.loadPerspectivesFromDiskOffMain(rootURL: requestedRootURL)
+            guard let self else { return }
+            guard !Task.isCancelled else { return }
+            guard self.rootURL.standardizedFileURL.resolvingSymlinksInPath() == result.rootURL else { return }
+
+            if let document = result.document {
+                self.applyLoadedPerspectives(document)
+            } else {
+                self.handlePerspectivesLoadFailure(
+                    errorDescription: result.errorDescription ?? "Unknown error",
+                    backupIfNeeded: false
+                )
+            }
+        }
+    }
+
+    private nonisolated static func loadPerspectivesFromDiskOffMain(rootURL: URL) async -> PerspectivesReloadResult {
+        await Task.detached(priority: .utility) {
+            let repository = PerspectivesRepository()
+            do {
+                return PerspectivesReloadResult(
+                    rootURL: rootURL,
+                    document: try repository.load(rootURL: rootURL),
+                    errorDescription: nil
+                )
+            } catch {
+                _ = repository.backupCorruptedFile(rootURL: rootURL)
+                return PerspectivesReloadResult(
+                    rootURL: rootURL,
+                    document: nil,
+                    errorDescription: error.localizedDescription
+                )
+            }
+        }.value
+    }
+
+    private func applyLoadedPerspectives(_ loaded: PerspectivesDocument) {
+        cachedPerspectivesDocument = loaded
+        let orderedIDs = orderedPerspectiveIDs(document: loaded)
+        perspectives = orderedIDs.compactMap { loaded.perspectives[$0] }
+        perspectivesWarningMessage = nil
 
         if let selectedPerspectiveID = perspectiveID(for: selectedView),
            !perspectives.contains(where: { $0.id == selectedPerspectiveID }) {
             selectedView = .builtIn(.inbox)
         }
+    }
+
+    private func handlePerspectivesLoadFailure(errorDescription: String, backupIfNeeded: Bool = true) {
+        perspectivesWarningMessage = "Perspectives file has errors - using last valid version."
+        if backupIfNeeded {
+            _ = perspectivesRepository.backupCorruptedFile(rootURL: rootURL)
+        }
+        logger.error("Failed to load perspectives", metadata: ["error": errorDescription])
     }
 
     private func persistPerspectivesToDisk() {
@@ -3675,7 +3732,7 @@ final class AppContainer: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.loadPerspectivesFromDisk()
+                self?.reloadPerspectivesFromDiskInBackground()
                 self?.debounceMetadataRefresh()
                 self?.scheduleCalendarRefresh(force: true)
             }

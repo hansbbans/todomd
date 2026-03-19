@@ -26,14 +26,14 @@ final class VoiceRambleController: ObservableObject {
             return
         }
 
-        let speechStatus = await requestSpeechPermission()
+        let speechStatus = await Self.requestSpeechPermission()
         guard !Task.isCancelled else { return }
         guard speechStatus == .authorized else {
             permissionMessage = permissionMessage(for: speechStatus)
             return
         }
 
-        let microphoneGranted = await requestMicrophonePermission()
+        let microphoneGranted = await Self.requestMicrophonePermission()
         guard !Task.isCancelled else { return }
         guard microphoneGranted else {
             permissionMessage = "Microphone access is required for voice ramble."
@@ -123,7 +123,7 @@ final class VoiceRambleController: ObservableObject {
         drafts = parser.parse(transcript)
     }
 
-    private func requestSpeechPermission() async -> SFSpeechRecognizerAuthorizationStatus {
+    private nonisolated static func requestSpeechPermission() async -> SFSpeechRecognizerAuthorizationStatus {
         await withCheckedContinuation { continuation in
             SFSpeechRecognizer.requestAuthorization { status in
                 continuation.resume(returning: status)
@@ -131,7 +131,7 @@ final class VoiceRambleController: ObservableObject {
         }
     }
 
-    private func requestMicrophonePermission() async -> Bool {
+    private nonisolated static func requestMicrophonePermission() async -> Bool {
         await withCheckedContinuation { continuation in
             #if os(iOS)
             if #available(iOS 17.0, *) {
