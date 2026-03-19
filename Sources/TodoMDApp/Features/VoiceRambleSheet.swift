@@ -14,10 +14,17 @@ final class VoiceRambleController: ObservableObject {
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private var speechRecognizer = SFSpeechRecognizer()
+    private var shouldSkipAutostartForUITests: Bool {
+        ProcessInfo.processInfo.environment["TODOMD_UI_TEST_DISABLE_VOICE_RAMBLE_AUTOSTART"] == "1"
+    }
 
     func start(availableProjects: [String]) async {
         errorMessage = nil
         permissionMessage = nil
+
+        if shouldSkipAutostartForUITests {
+            return
+        }
 
         let speechStatus = await requestSpeechPermission()
         guard !Task.isCancelled else { return }
@@ -202,6 +209,7 @@ struct VoiceRambleSheet: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
+            .accessibilityIdentifier("voiceRamble.sheet")
             .navigationTitle("Voice Ramble")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -209,6 +217,7 @@ struct VoiceRambleSheet: View {
                         controller.stop()
                         dismiss()
                     }
+                    .accessibilityIdentifier("voiceRamble.closeButton")
                 }
             }
         }

@@ -636,6 +636,27 @@ final class TodoMDAppUITests: XCTestCase {
         )
     }
 
+    func testLongPressingAddButtonShowsVoiceRamble() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = makeStorageOverridePath()
+        app.launchEnvironment["TODOMD_UI_TEST_DISABLE_VOICE_RAMBLE_AUTOSTART"] = "1"
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let addButton = app.buttons["root.inlineAddButton"].firstMatch
+        XCTAssertTrue(addButton.waitForExistence(timeout: 10), "Inline add button not visible")
+        addButton.press(forDuration: 0.6)
+
+        let voiceRambleSheet = app.otherElements["voiceRamble.sheet"].firstMatch
+        let closeButton = app.buttons["voiceRamble.closeButton"].firstMatch
+        XCTAssertTrue(
+            voiceRambleSheet.waitForExistence(timeout: 10) || closeButton.waitForExistence(timeout: 10),
+            "Long pressing the add button should present the Voice Ramble sheet"
+        )
+    }
+
     func testSwitchingExpandedTasksCollapsesThePreviousCardWithoutShowingKeyboard() {
         let storageOverride = makeStorageOverridePath()
 
