@@ -2620,6 +2620,11 @@ final class AppContainer: ObservableObject {
         await refreshReminderImportState(forceListRefresh: true, allowsPermissionPrompt: false)
     }
 
+    func setRemindersIntegrationEnabled(_ isEnabled: Bool) async {
+        UserDefaults.standard.set(isEnabled, forKey: Self.settingsRemindersImportEnabledKey)
+        await handleRemindersIntegrationChange()
+    }
+
     func requestRemindersAccess() async -> ReminderAccessRequestOutcome {
         let remindersStatusBeforeRefresh = EKEventStore.authorizationStatus(for: .reminder)
         await refreshReminderImportState(forceListRefresh: true, allowsPermissionPrompt: true)
