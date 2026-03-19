@@ -707,6 +707,8 @@ struct RootView: View {
     @State private var inlineAutoDatePhrase: String?
     @State private var inlineTaskTitleMutationInFlight = false
     @State private var showingInlineVoiceRamble = false
+    @State private var inlineAddButtonLongPressTriggered = false
+    @State private var inlineAddButtonLongPressTask: Task<Void, Never>?
     @State private var inlineTaskFocusTask: Task<Void, Never>?
     @State private var taskListContentMaxY: CGFloat = .zero
     @FocusState private var inlineTaskFocused: Bool
@@ -1350,11 +1352,12 @@ struct RootView: View {
         ToolbarItem(placement: .appTrailingAction) {
             if shouldShowToolbarInlineTaskButton {
                 Button {
-                    triggerInlineTaskComposer()
+                    handleInlineAddButtonTap()
                 } label: {
                     Image(systemName: isCreatingTask ? "xmark" : "plus")
                         .font(.title3.weight(.regular))
                 }
+                .onLongPressGesture(minimumDuration: 0.45, perform: handleInlineAddButtonLongPress)
                 .keyboardShortcut("n", modifiers: .command)
                 .accessibilityLabel(isCreatingTask ? "Close Task Entry" : "Add Task")
                 .accessibilityIdentifier("root.inlineAddButton")
@@ -3655,35 +3658,40 @@ struct RootView: View {
     }
 
     private var floatingAddButton: some View {
-        Button {
-            triggerInlineTaskComposer()
-        } label: {
-            ZStack {
-                RoundedRectangle(cornerRadius: 34, style: .continuous)
-                    .fill(theme.accentColor)
-                    .matchedGeometryEffect(
-                        id: "compactQuickAddShell",
-                        in: compactQuickAddNamespace,
-                        properties: .frame,
-                        anchor: .bottomTrailing
-                    )
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 34, style: .continuous)
-                            .strokeBorder(.white.opacity(0.22), lineWidth: 1)
-                    }
+        ZStack {
+            RoundedRectangle(cornerRadius: 34, style: .continuous)
+                .fill(theme.accentColor)
+                .matchedGeometryEffect(
+                    id: "compactQuickAddShell",
+                    in: compactQuickAddNamespace,
+                    properties: .frame,
+                    anchor: .bottomTrailing
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 34, style: .continuous)
+                        .strokeBorder(.white.opacity(0.22), lineWidth: 1)
+                }
 
-                Image(systemName: "plus")
-                    .font(.system(size: 31, weight: .light))
-                    .foregroundStyle(.white)
-            }
-            .frame(width: 68, height: 68)
-            .shadow(color: theme.accentColor.opacity(0.3), radius: 20, x: 0, y: 10)
-            .shadow(color: .black.opacity(0.2), radius: 12, x: 0, y: 4)
+            Image(systemName: "plus")
+                .font(.system(size: 31, weight: .light))
+                .foregroundStyle(.white)
         }
-        .buttonStyle(.plain)
-        .keyboardShortcut("n", modifiers: .command)
+        .frame(width: 68, height: 68)
+        .contentShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    beginInlineAddButtonPress()
+                }
+                .onEnded { _ in
+                    finishInlineAddButtonPress()
+                }
+        )
         .accessibilityLabel("Add Task")
         .accessibilityIdentifier("root.inlineAddButton")
+        .accessibilityAddTraits(.isButton)
+        .shadow(color: theme.accentColor.opacity(0.3), radius: 20, x: 0, y: 10)
+        .shadow(color: .black.opacity(0.2), radius: 12, x: 0, y: 4)
         .transition(.scale(scale: 0.86, anchor: .bottomTrailing).combined(with: .opacity))
     }
 
@@ -3879,6 +3887,54 @@ struct RootView: View {
         } else {
             showingQuickEntry = true
         }
+    }
+
+    private func handleInlineAddButtonTap() {
+        if inlineAddButtonLongPressTriggered {
+            inlineAddButtonLongPressTriggered = false
+            return
+        }
+        triggerInlineTaskComposer()
+    }
+
+    private func handleInlineAddButtonLongPress() {
+        guard !isCreatingTask else { return }
+        inlineAddButtonLongPressTriggered = true
+        presentInlineVoiceRambleFromCurrentContext()
+    }
+
+    private func beginInlineAddButtonPress() {
+        guard inlineAddButtonLongPressTask == nil else { return }
+        inlineAddButtonLongPressTriggered = false
+        inlineAddButtonLongPressTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(450))
+            guard !Task.isCancelled else { return }
+            handleInlineAddButtonLongPress()
+        }
+    }
+
+    private func finishInlineAddButtonPress() {
+        inlineAddButtonLongPressTask?.cancel()
+        inlineAddButtonLongPressTask = nil
+
+        if inlineAddButtonLongPressTriggered {
+            inlineAddButtonLongPressTriggered = false
+            return
+        }
+
+        handleInlineAddButtonTap()
+    }
+
+    private func presentInlineVoiceRambleFromCurrentContext() {
+        inlineComposerTransitionTask?.cancel()
+        inlineComposerTransitionTask = nil
+        inlineTaskFocusTask?.cancel()
+        inlineTaskFocusTask = nil
+        inlineTaskDraft = defaultInlineTaskDraft(for: container.selectedView)
+        expandedInlineTaskPanel = nil
+        showingInlineTaskDateModal = false
+        compactComposerContentVisible = horizontalSizeClass != .compact
+        showingInlineVoiceRamble = true
     }
 
     private func triggerInlineTaskComposer() {
@@ -6354,15 +6410,13 @@ private struct TaskCheckbox: View {
                 .scaleEffect(fillProgress)
                 .opacity(fillProgress)
 
-            // Checkmark path — strokes in during phase 2
-            Path { path in
-                path.move(to: CGPoint(x: 9, y: 15))
-                path.addLine(to: CGPoint(x: 13, y: 19))
-                path.addLine(to: CGPoint(x: 21, y: 11))
-            }
-            .trim(from: 0, to: checkmarkProgress)
-            .stroke(Color.white, style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
-            .frame(width: 22, height: 22)
+            // Keep the checkmark centered within the filled circle.
+            Image(systemName: "checkmark")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.white)
+                .opacity(checkmarkProgress)
+                .scaleEffect(0.82 + (0.18 * checkmarkProgress))
+                .frame(width: 22, height: 22)
         }
         .frame(width: 22, height: 22)
     }
