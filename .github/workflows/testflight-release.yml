@@ -25,6 +25,7 @@ on:
         type: string
 
 permissions:
+  actions: write
   contents: read
 
 concurrency:
@@ -270,11 +271,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          app_info_plist="$ARCHIVE_PATH/Products/Applications/TodoMD.app/Info.plist"
+          archive_info_plist="$ARCHIVE_PATH/Info.plist"
 
-          echo "bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_info_plist")" >> "$GITHUB_OUTPUT"
-          echo "version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app_info_plist")" >> "$GITHUB_OUTPUT"
-          echo "build_number=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app_info_plist")" >> "$GITHUB_OUTPUT"
+          if [[ ! -f "$archive_info_plist" ]]; then
+            echo "Archive metadata file is missing: $archive_info_plist"
+            exit 1
+          fi
+
+          echo "bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleIdentifier' "$archive_info_plist")" >> "$GITHUB_OUTPUT"
+          echo "version=$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleShortVersionString' "$archive_info_plist")" >> "$GITHUB_OUTPUT"
+          echo "build_number=$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleVersion' "$archive_info_plist")" >> "$GITHUB_OUTPUT"
 
       - name: Upload archive to TestFlight
         env:
@@ -326,12 +332,11 @@ jobs:
           echo "internal_groups=$internal_groups" >> "$GITHUB_OUTPUT"
           echo "external_groups=$external_groups" >> "$GITHUB_OUTPUT"
 
-      - name: Attach build to TestFlight groups
+      - name: Queue TestFlight group assignment
         if: ${{ steps.group_targets.outputs.internal_groups != '' || steps.group_targets.outputs.external_groups != '' }}
         env:
-          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-          AUTH_KEY_PATH: ${{ env.AUTH_KEY_PATH }}
+          GITHUB_TOKEN: ${{ github.token }}
+          WORKFLOW_REF: ${{ github.ref_name }}
           APP_BUNDLE_ID: ${{ steps.app_metadata.outputs.bundle_id }}
           APP_VERSION: ${{ steps.app_metadata.outputs.version }}
           BUILD_NUMBER: ${{ steps.app_metadata.outputs.build_number }}
@@ -339,7 +344,27 @@ jobs:
           EXTERNAL_GROUPS: ${{ steps.group_targets.outputs.external_groups }}
         run: |
           set -euo pipefail
-          ruby Tools/assign_testflight_groups.rb
+
+          payload="$(ruby -rjson -e 'puts JSON.generate({
+            ref: ENV.fetch("WORKFLOW_REF"),
+            inputs: {
+              ref: ENV.fetch("WORKFLOW_REF"),
+              bundle_id: ENV.fetch("APP_BUNDLE_ID"),
+              version: ENV.fetch("APP_VERSION"),
+              build_number: ENV.fetch("BUILD_NUMBER"),
+              internal_groups: ENV.fetch("INTERNAL_GROUPS", ""),
+              external_groups: ENV.fetch("EXTERNAL_GROUPS", "")
+            }
+          })')"
+
+          curl --fail --silent --show-error \
+            -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/testflight-assign-groups.yml/dispatches" \
+            -d "$payload"
+
+          echo "Queued follow-up workflow to attach build ${BUILD_NUMBER} for version ${APP_VERSION} to TestFlight groups."
 
       - name: Clean up signing assets
         if: always()

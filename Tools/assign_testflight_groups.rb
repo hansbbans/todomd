@@ -90,7 +90,8 @@ class AppStoreConnectClient
       encoded_header = Base64.urlsafe_encode64(JSON.generate(header), padding: false)
       encoded_payload = Base64.urlsafe_encode64(JSON.generate(payload), padding: false)
       signing_input = "#{encoded_header}.#{encoded_payload}"
-      signature = @private_key.dsa_sign_asn1(OpenSSL::Digest::SHA256.digest(signing_input))
+      der_signature = @private_key.sign(OpenSSL::Digest::SHA256.new, signing_input)
+      signature = der_to_raw_signature(der_signature, 32)
       encoded_signature = Base64.urlsafe_encode64(signature, padding: false)
 
       @token = "#{signing_input}.#{encoded_signature}"
@@ -98,6 +99,22 @@ class AppStoreConnectClient
     end
 
     @token
+  end
+
+  def der_to_raw_signature(der_signature, component_size)
+    asn1 = OpenSSL::ASN1.decode(der_signature)
+    raise 'Unexpected ECDSA signature structure' unless asn1.is_a?(OpenSSL::ASN1::Sequence) && asn1.value.length == 2
+
+    asn1.value.map { |component| integer_to_fixed_bytes(component.value, component_size) }.join
+  end
+
+  def integer_to_fixed_bytes(value, size)
+    hex = value.to_s(16)
+    hex = "0#{hex}" if hex.length.odd?
+    hex = hex.rjust(size * 2, '0')
+    raise "ECDSA signature component is too large for #{size} bytes" if hex.length > size * 2
+
+    [hex].pack('H*')
   end
 end
 
@@ -212,6 +229,8 @@ version = required_env('APP_VERSION')
 build_number = required_env('BUILD_NUMBER')
 internal_groups = parse_group_list(ENV['INTERNAL_GROUPS'])
 external_groups = parse_group_list(ENV['EXTERNAL_GROUPS'])
+wait_timeout_seconds = Integer(ENV.fetch('WAIT_TIMEOUT_SECONDS', '1800'))
+poll_interval_seconds = Integer(ENV.fetch('POLL_INTERVAL_SECONDS', '30'))
 
 if internal_groups.empty? && external_groups.empty?
   puts 'No TestFlight groups requested; skipping assignment.'
@@ -221,7 +240,14 @@ end
 app_id = find_app_id(client, bundle_id)
 puts "Resolved App Store Connect app ID #{app_id} for #{bundle_id}."
 
-build = poll_for_build(client, app_id: app_id, version: version, build_number: build_number)
+build = poll_for_build(
+  client,
+  app_id: app_id,
+  version: version,
+  build_number: build_number,
+  timeout_seconds: wait_timeout_seconds,
+  interval_seconds: poll_interval_seconds
+)
 build_id = build.fetch('id')
 
 unless internal_groups.empty?
