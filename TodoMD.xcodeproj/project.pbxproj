@@ -1566,6 +1566,7 @@
 				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = com.hans.todomd.notifications.refresh;
 				INFOPLIST_KEY_CFBundleDisplayName = todo.md;
 				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleURLName = \"com.hans.todomd\";\n    CFBundleURLSchemes =     (\n        todomd\n    );\n}";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "todo.md uses Calendar access to show your events in Today and Upcoming.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "todo.md uses your location to trigger reminders when you arrive at or leave saved places.";
@@ -1855,6 +1856,7 @@
 				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = com.hans.todomd.notifications.refresh;
 				INFOPLIST_KEY_CFBundleDisplayName = todo.md;
 				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleURLName = \"com.hans.todomd\";\n    CFBundleURLSchemes =     (\n        todomd\n    );\n}";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "todo.md uses Calendar access to show your events in Today and Upcoming.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "todo.md uses your location to trigger reminders when you arrive at or leave saved places.";
