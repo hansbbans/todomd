@@ -1918,6 +1918,25 @@ final class AppContainer: ObservableObject {
     }
 
     @discardableResult
+    func duplicateTask(path: String) -> TaskRecord? {
+        do {
+            let sourceRecord = try repository.load(path: path)
+            let createdRecord = try repository.create(
+                document: duplicatedTaskDocument(from: sourceRecord.document, now: Date()),
+                preferredFilename: nil
+            )
+            upsertRecordInMemory(createdRecord)
+            markSelfWrite(path: createdRecord.identity.path)
+            refresh()
+            return createdRecord
+        } catch {
+            logger.error("Task duplicate failed", metadata: ["path": path, "error": error.localizedDescription])
+            refresh()
+            return nil
+        }
+    }
+
+    @discardableResult
     func deferToTomorrow(path: String) -> Bool {
         do {
             let updated = try repository.update(path: path) { document in
@@ -4015,6 +4034,24 @@ final class AppContainer: ObservableObject {
         }
 
         return resolved
+    }
+
+    private func duplicatedTaskDocument(from source: TaskDocument, now: Date) -> TaskDocument {
+        var duplicate = source
+        duplicate.frontmatter.ref = nil
+        duplicate.frontmatter.status = .todo
+        duplicate.frontmatter.due = nil
+        duplicate.frontmatter.dueTime = nil
+        duplicate.frontmatter.persistentReminder = nil
+        duplicate.frontmatter.defer = nil
+        duplicate.frontmatter.scheduled = nil
+        duplicate.frontmatter.scheduledTime = nil
+        duplicate.frontmatter.recurrence = nil
+        duplicate.frontmatter.created = now
+        duplicate.frontmatter.modified = now
+        duplicate.frontmatter.completed = nil
+        duplicate.frontmatter.completedBy = nil
+        return duplicate
     }
 
     private func locationReminder(from editState: TaskEditState) -> TaskLocationReminder? {

@@ -1316,7 +1316,7 @@ struct RootView: View {
     private func detailPaneContent<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
             .navigationDestination(for: String.self) { path in
-                TaskDetailView(path: path)
+                TaskDetailView(path: path, onDuplicate: openFullTaskEditor(path:))
             }
             .modifier(
                 RootNavigationTitleModifier(
@@ -4777,6 +4777,12 @@ struct RootView: View {
 
             Button(record.document.frontmatter.flagged ? "Remove Flag" : "Flag") {
                 _ = container.toggleFlag(path: record.identity.path)
+            }
+
+            Button("Duplicate") {
+                if let duplicate = container.duplicateTask(path: record.identity.path) {
+                    openFullTaskEditor(path: duplicate.identity.path)
+                }
             }
 
             Button("Delete", role: .destructive) {
