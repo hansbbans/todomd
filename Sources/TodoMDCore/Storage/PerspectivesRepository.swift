@@ -11,7 +11,7 @@ public struct PerspectivesRepository {
 
     public func load(rootURL: URL) throws -> PerspectivesDocument {
         let url = perspectivesURL(rootURL: rootURL)
-        resolvePerspectivesConflictsIfNeeded(at: url)
+        resolveNewestFileVersionConflictsIfNeeded(at: url)
 
         guard fileManager.fileExists(atPath: url.path) else {
             return PerspectivesDocument()
@@ -67,7 +67,7 @@ public struct PerspectivesRepository {
 
     public func save(_ document: PerspectivesDocument, rootURL: URL) throws {
         let url = perspectivesURL(rootURL: rootURL)
-        resolvePerspectivesConflictsIfNeeded(at: url)
+        resolveNewestFileVersionConflictsIfNeeded(at: url)
 
         var mapped: [String: Any] = [:]
         let encoder = JSONEncoder()
@@ -133,32 +133,4 @@ public struct PerspectivesRepository {
         }
     }
 
-    private func resolvePerspectivesConflictsIfNeeded(at url: URL) {
-        guard let versions = NSFileVersion.unresolvedConflictVersionsOfItem(at: url), !versions.isEmpty else {
-            return
-        }
-
-        let localModificationDate: Date = {
-            guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey]),
-                  let date = values.contentModificationDate else {
-                return .distantPast
-            }
-            return date
-        }()
-
-        let newestConflict = versions.max { lhs, rhs in
-            (lhs.modificationDate ?? .distantPast) < (rhs.modificationDate ?? .distantPast)
-        }
-
-        if let newestConflict,
-           (newestConflict.modificationDate ?? .distantPast) > localModificationDate {
-            _ = try? newestConflict.replaceItem(at: url, options: [])
-        }
-
-        for version in versions {
-            version.isResolved = true
-            _ = try? version.remove()
-        }
-        _ = try? NSFileVersion.removeOtherVersionsOfItem(at: url)
-    }
 }

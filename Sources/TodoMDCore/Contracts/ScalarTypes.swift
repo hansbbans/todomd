@@ -130,28 +130,33 @@ public enum LocalTimeError: Error, Equatable, Sendable {
 }
 
 public struct DateCoding {
-    private static func fractionalFormatter() -> ISO8601DateFormatter {
-        let key = "todo-md.datecoding.fractional"
+    private static func formatter(
+        key: String,
+        formatOptions: ISO8601DateFormatter.Options
+    ) -> ISO8601DateFormatter {
         if let formatter = Thread.current.threadDictionary[key] as? ISO8601DateFormatter {
             return formatter
         }
+
         let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.formatOptions = formatOptions
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         Thread.current.threadDictionary[key] = formatter
         return formatter
     }
 
+    private static func fractionalFormatter() -> ISO8601DateFormatter {
+        formatter(
+            key: "todo-md.datecoding.fractional",
+            formatOptions: [.withInternetDateTime, .withFractionalSeconds]
+        )
+    }
+
     private static func nonFractionalFormatter() -> ISO8601DateFormatter {
-        let key = "todo-md.datecoding.nonfractional"
-        if let formatter = Thread.current.threadDictionary[key] as? ISO8601DateFormatter {
-            return formatter
-        }
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        Thread.current.threadDictionary[key] = formatter
-        return formatter
+        formatter(
+            key: "todo-md.datecoding.nonfractional",
+            formatOptions: [.withInternetDateTime]
+        )
     }
 
     public static func encode(_ date: Date) -> String {
