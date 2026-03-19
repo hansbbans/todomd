@@ -137,18 +137,53 @@ def find_app_id(client, bundle_id)
   app['id']
 end
 
+def build_number_for(candidate)
+  attributes = candidate.fetch('attributes', {})
+
+  # App Store Connect exposes the uploaded build number as the build resource's
+  # version attribute. Keep supporting buildNumber too in case Apple changes the
+  # payload shape or older endpoints behave differently.
+  attributes['buildNumber'] || attributes['version']
+end
+
+def find_build_for_pre_release_version(client, pre_release_version_id:, build_number:)
+  builds = client.get_all("/v1/preReleaseVersions/#{pre_release_version_id}/builds", 'limit' => '200')
+  builds.find { |candidate| build_number_for(candidate).to_s == build_number.to_s }
+end
+
+def find_build(client, app_id:, version:, build_number:)
+  pre_release_versions = client.get_all(
+    '/v1/preReleaseVersions',
+    'filter[app]' => app_id,
+    'filter[version]' => version,
+    'limit' => '200'
+  )
+
+  pre_release_versions.each do |pre_release_version|
+    build = find_build_for_pre_release_version(
+      client,
+      pre_release_version_id: pre_release_version.fetch('id'),
+      build_number: build_number
+    )
+    return build if build
+  end
+
+  # Fall back to scanning all builds for the app in case the prerelease-version
+  # lookup lags behind what App Store Connect shows in the UI.
+  builds = client.get_all('/v1/builds', 'filter[app]' => app_id, 'limit' => '200')
+  builds.find { |candidate| build_number_for(candidate).to_s == build_number.to_s }
+end
+
 def poll_for_build(client, app_id:, version:, build_number:, timeout_seconds: 1800, interval_seconds: 30)
   deadline = Time.now + timeout_seconds
 
   loop do
-    builds = client.get_all(
-      '/v1/builds',
-      'filter[app]' => app_id,
-      'filter[version]' => version,
-      'limit' => '200'
+    build = find_build(
+      client,
+      app_id: app_id,
+      version: version,
+      build_number: build_number
     )
-
-    build = builds.find { |candidate| candidate.dig('attributes', 'buildNumber').to_s == build_number.to_s }
     if build
       processing_state = build.dig('attributes', 'processingState')
       puts "Found build #{build_number} for version #{version} with processing state #{processing_state}."
