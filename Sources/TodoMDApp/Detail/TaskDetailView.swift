@@ -15,6 +15,7 @@ struct TaskDetailView: View {
     @EnvironmentObject private var theme: ThemeManager
 
     let path: String
+    let onDuplicate: ((String) -> Void)?
 
     @State private var editState: TaskEditState?
     @State private var showDeleteConfirmation = false
@@ -49,6 +50,14 @@ struct TaskDetailView: View {
         .navigationTitle("Task")
         .modifier(TaskDetailInlineTitleDisplay())
         .toolbar {
+            ToolbarItem(placement: .appTrailingAction) {
+                Button {
+                    duplicateTask()
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                }
+                .accessibilityIdentifier("taskDetail.duplicateButton")
+            }
             ToolbarItem(placement: .appTrailingAction) {
                 Button(role: .destructive) {
                     showDeleteConfirmation = true
@@ -840,12 +849,26 @@ struct TaskDetailView: View {
     }
 
     private func autoSave() {
-        guard let editState else { return }
+        _ = persistCurrentEditsIfValid()
+    }
+
+    @discardableResult
+    private func persistCurrentEditsIfValid() -> Bool {
+        guard let editState else { return false }
         if let locationError = validateLocationReminder(editState) {
             errorMessage = locationError
+            return false
+        }
+        return container.updateTask(path: path, editState: editState)
+    }
+
+    private func duplicateTask() {
+        guard persistCurrentEditsIfValid() else { return }
+        guard let duplicate = container.duplicateTask(path: path) else {
+            errorMessage = "Could not duplicate this task."
             return
         }
-        container.updateTask(path: path, editState: editState)
+        onDuplicate?(duplicate.identity.path)
     }
 
     private func locationSummary() -> String {
