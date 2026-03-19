@@ -361,13 +361,9 @@ struct QuickEntrySheet: View {
 
     @ViewBuilder
     private var destinationMenuActions: some View {
-        let groupedAreas = container.projectsByArea()
-        let groupedProjects = groupedAreas.flatMap(\.projects)
-        let ungroupedProjects = container.allProjects().filter { candidate in
-            !groupedProjects.contains(where: {
-                $0.compare(candidate, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
-            })
-        }
+        let pickerContent = container.projectPickerContent()
+        let groupedAreas = pickerContent.groupedAreas
+        let ungroupedProjects = pickerContent.ungroupedProjects
 
         Button("Inbox") {
             selectedArea = nil
@@ -375,7 +371,7 @@ struct QuickEntrySheet: View {
         }
 
         if groupedAreas.isEmpty {
-            ForEach(container.allProjects(), id: \.self) { project in
+            ForEach(pickerContent.allProjects, id: \.self) { project in
                 Button(project) {
                     selectedArea = nil
                     selectedProject = project

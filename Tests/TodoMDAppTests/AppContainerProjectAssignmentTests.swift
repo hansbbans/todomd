@@ -234,6 +234,120 @@ struct AppContainerProjectAssignmentTests {
         #expect(persisted.document.frontmatter.due?.isoString == "2026-03-20")
     }
 
+    @Test("Project picker content includes both grouped and metadata-only projects")
+    func projectPickerContentIncludesUngroupedMetadataProjects() throws {
+        let root = try makeTempDirectory()
+        let repository = FileTaskRepository(rootURL: root)
+        let referenceDate = Date(timeIntervalSince1970: 1_700_000_000)
+        _ = try repository.create(
+            document: .init(
+                frontmatter: TaskFrontmatterV1(
+                    title: "Seed project",
+                    status: .todo,
+                    priority: .none,
+                    flagged: false,
+                    area: "Work",
+                    project: "Launch",
+                    tags: [],
+                    created: referenceDate,
+                    modified: referenceDate,
+                    source: "user"
+                ),
+                body: ""
+            ),
+            preferredFilename: "seed-project.md"
+        )
+
+        let originalOverride = ProcessInfo.processInfo.environment["TODOMD_STORAGE_OVERRIDE_PATH"]
+        setenv("TODOMD_STORAGE_OVERRIDE_PATH", root.path, 1)
+        defer {
+            if let originalOverride {
+                setenv("TODOMD_STORAGE_OVERRIDE_PATH", originalOverride, 1)
+            } else {
+                unsetenv("TODOMD_STORAGE_OVERRIDE_PATH")
+            }
+        }
+
+        let container = AppContainer()
+        container.selectedView = .builtIn(.inbox)
+        container.refresh(forceFullScan: true)
+
+        #expect(container.createProject(name: "Errands", colorHex: "1E88E5") == "Errands")
+
+        let pickerContent = container.projectPickerContent()
+        #expect(pickerContent.groupedAreas.contains(where: { group in
+            group.area == "Work" && group.projects == ["Launch"]
+        }))
+        #expect(pickerContent.ungroupedProjects == ["Errands"])
+        #expect(pickerContent.allProjects == ["Errands", "Launch"])
+
+        let addToProjectContent = container.projectPickerContent(excluding: "Launch")
+        #expect(addToProjectContent.groupedAreas.isEmpty)
+        #expect(addToProjectContent.ungroupedProjects == ["Errands"])
+        #expect(addToProjectContent.allProjects == ["Errands"])
+    }
+
+    @Test("Project picker content keeps flattened project lists case-insensitively unique")
+    func projectPickerContentAllProjectsStaysDeduplicated() throws {
+        let root = try makeTempDirectory()
+        let repository = FileTaskRepository(rootURL: root)
+        let referenceDate = Date(timeIntervalSince1970: 1_700_000_000)
+        _ = try repository.create(
+            document: .init(
+                frontmatter: TaskFrontmatterV1(
+                    title: "Launch work",
+                    status: .todo,
+                    priority: .none,
+                    flagged: false,
+                    area: "Work",
+                    project: "Launch",
+                    tags: [],
+                    created: referenceDate,
+                    modified: referenceDate,
+                    source: "user"
+                ),
+                body: ""
+            ),
+            preferredFilename: "launch-work.md"
+        )
+        _ = try repository.create(
+            document: .init(
+                frontmatter: TaskFrontmatterV1(
+                    title: "Launch home",
+                    status: .todo,
+                    priority: .none,
+                    flagged: false,
+                    area: "Home",
+                    project: "launch",
+                    tags: [],
+                    created: referenceDate,
+                    modified: referenceDate,
+                    source: "user"
+                ),
+                body: ""
+            ),
+            preferredFilename: "launch-home.md"
+        )
+
+        let originalOverride = ProcessInfo.processInfo.environment["TODOMD_STORAGE_OVERRIDE_PATH"]
+        setenv("TODOMD_STORAGE_OVERRIDE_PATH", root.path, 1)
+        defer {
+            if let originalOverride {
+                setenv("TODOMD_STORAGE_OVERRIDE_PATH", originalOverride, 1)
+            } else {
+                unsetenv("TODOMD_STORAGE_OVERRIDE_PATH")
+            }
+        }
+
+        let container = AppContainer()
+        container.selectedView = .builtIn(.inbox)
+        container.refresh(forceFullScan: true)
+
+        let pickerContent = container.projectPickerContent()
+        #expect(pickerContent.allProjects.count == 1)
+        #expect(pickerContent.allProjects.first?.caseInsensitiveCompare("Launch") == .orderedSame)
+    }
+
     private func makeTempDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("TodoMDAppTests-\(UUID().uuidString)", isDirectory: true)
