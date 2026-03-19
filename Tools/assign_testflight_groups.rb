@@ -291,12 +291,7 @@ build = poll_for_build(
 build_id = build.fetch('id')
 
 unless internal_groups.empty?
-  groups = fetch_groups(client, app_id: app_id, internal: true)
-  attach_build_to_groups(
-    client,
-    build_id: build_id,
-    groups: resolve_groups(groups, internal_groups, 'internal')
-  )
+  puts 'Skipping internal TestFlight group assignment because App Store Connect does not allow attaching builds to internal groups.'
 end
 
 unless external_groups.empty?
