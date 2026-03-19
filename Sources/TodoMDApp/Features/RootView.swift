@@ -806,6 +806,9 @@ struct RootView: View {
                     fallbackArea: inlineTaskDraft.area,
                     fallbackProject: inlineTaskDraft.project,
                     defaultView: currentBuiltInView,
+                    onClose: {
+                        showingInlineVoiceRamble = false
+                    },
                     onTasksCreated: {
                         showingInlineVoiceRamble = false
                         cancelInlineTaskComposer()

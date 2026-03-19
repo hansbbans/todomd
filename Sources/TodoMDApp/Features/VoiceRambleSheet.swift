@@ -196,6 +196,7 @@ struct VoiceRambleSheet: View {
     let fallbackArea: String?
     let fallbackProject: String?
     let defaultView: BuiltInView?
+    let onClose: () -> Void
     let onTasksCreated: () -> Void
 
     var body: some View {
@@ -214,7 +215,7 @@ struct VoiceRambleSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") {
-                        controller.stop()
+                        onClose()
                         dismiss()
                     }
                     .accessibilityIdentifier("voiceRamble.closeButton")
