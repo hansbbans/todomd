@@ -145,11 +145,10 @@ def poll_for_build(client, app_id:, version:, build_number:, timeout_seconds: 18
       '/v1/builds',
       'filter[app]' => app_id,
       'filter[version]' => version,
-      'filter[buildNumber]' => build_number,
       'limit' => '200'
     )
 
-    build = builds.first
+    build = builds.find { |candidate| candidate.dig('attributes', 'buildNumber').to_s == build_number.to_s }
     if build
       processing_state = build.dig('attributes', 'processingState')
       puts "Found build #{build_number} for version #{version} with processing state #{processing_state}."
