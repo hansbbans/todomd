@@ -1,5 +1,35 @@
 import Foundation
 
+// v1 policy: when iCloud leaves unresolved conflict versions behind, prefer the newest one by modification date.
+func resolveNewestFileVersionConflictsIfNeeded(at url: URL) {
+    guard let versions = NSFileVersion.unresolvedConflictVersionsOfItem(at: url), !versions.isEmpty else {
+        return
+    }
+
+    let localModificationDate: Date = {
+        guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey]),
+              let date = values.contentModificationDate else {
+            return .distantPast
+        }
+        return date
+    }()
+
+    let newestConflict = versions.max { lhs, rhs in
+        (lhs.modificationDate ?? .distantPast) < (rhs.modificationDate ?? .distantPast)
+    }
+
+    if let newestConflict,
+       (newestConflict.modificationDate ?? .distantPast) > localModificationDate {
+        _ = try? newestConflict.replaceItem(at: url, options: [])
+    }
+
+    for version in versions {
+        version.isResolved = true
+        _ = try? version.remove()
+    }
+    _ = try? NSFileVersion.removeOtherVersionsOfItem(at: url)
+}
+
 public struct OrderRepository {
     public var fileIO: TaskFileIO
 
@@ -9,7 +39,7 @@ public struct OrderRepository {
 
     public func load(rootURL: URL) throws -> OrderDocument {
         let url = orderURL(rootURL: rootURL)
-        resolveOrderConflictsIfNeeded(at: url)
+        resolveNewestFileVersionConflictsIfNeeded(at: url)
         let path = url.path
         guard FileManager.default.fileExists(atPath: path) else {
             return OrderDocument(version: 1, views: [:], unknownTopLevel: [:])
@@ -42,7 +72,7 @@ public struct OrderRepository {
 
     public func save(_ document: OrderDocument, rootURL: URL) throws {
         let url = orderURL(rootURL: rootURL)
-        resolveOrderConflictsIfNeeded(at: url)
+        resolveNewestFileVersionConflictsIfNeeded(at: url)
 
         var object: [String: Any] = [
             "version": document.version,
@@ -63,35 +93,5 @@ public struct OrderRepository {
 
     private func orderURL(rootURL: URL) -> URL {
         rootURL.appendingPathComponent(".order.json")
-    }
-
-    // v1 policy: if .order.json has unresolved iCloud conflict versions, pick the newest by mtime.
-    private func resolveOrderConflictsIfNeeded(at url: URL) {
-        guard let versions = NSFileVersion.unresolvedConflictVersionsOfItem(at: url), !versions.isEmpty else {
-            return
-        }
-
-        let localModificationDate: Date = {
-            guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey]),
-                  let date = values.contentModificationDate else {
-                return .distantPast
-            }
-            return date
-        }()
-
-        let newestConflict = versions.max { lhs, rhs in
-            (lhs.modificationDate ?? .distantPast) < (rhs.modificationDate ?? .distantPast)
-        }
-
-        if let newestConflict,
-           (newestConflict.modificationDate ?? .distantPast) > localModificationDate {
-            _ = try? newestConflict.replaceItem(at: url, options: [])
-        }
-
-        for version in versions {
-            version.isResolved = true
-            _ = try? version.remove()
-        }
-        _ = try? NSFileVersion.removeOtherVersionsOfItem(at: url)
     }
 }

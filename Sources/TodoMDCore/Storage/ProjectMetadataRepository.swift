@@ -9,7 +9,7 @@ public struct ProjectMetadataRepository {
 
     public func load(rootURL: URL) throws -> ProjectMetadataDocument {
         let url = metadataURL(rootURL: rootURL)
-        resolveConflictsIfNeeded(at: url)
+        resolveNewestFileVersionConflictsIfNeeded(at: url)
         let path = url.path
         guard FileManager.default.fileExists(atPath: path) else {
             return ProjectMetadataDocument(version: 1, projects: [], colors: [:], icons: [:], unknownTopLevel: [:])
@@ -56,7 +56,7 @@ public struct ProjectMetadataRepository {
 
     public func save(_ document: ProjectMetadataDocument, rootURL: URL) throws {
         let url = metadataURL(rootURL: rootURL)
-        resolveConflictsIfNeeded(at: url)
+        resolveNewestFileVersionConflictsIfNeeded(at: url)
 
         var object: [String: Any] = [
             "version": document.version,
@@ -79,34 +79,5 @@ public struct ProjectMetadataRepository {
 
     public func metadataURL(rootURL: URL) -> URL {
         rootURL.appendingPathComponent(".projects.json")
-    }
-
-    private func resolveConflictsIfNeeded(at url: URL) {
-        guard let versions = NSFileVersion.unresolvedConflictVersionsOfItem(at: url), !versions.isEmpty else {
-            return
-        }
-
-        let localModificationDate: Date = {
-            guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey]),
-                  let date = values.contentModificationDate else {
-                return .distantPast
-            }
-            return date
-        }()
-
-        let newestConflict = versions.max { lhs, rhs in
-            (lhs.modificationDate ?? .distantPast) < (rhs.modificationDate ?? .distantPast)
-        }
-
-        if let newestConflict,
-           (newestConflict.modificationDate ?? .distantPast) > localModificationDate {
-            _ = try? newestConflict.replaceItem(at: url, options: [])
-        }
-
-        for version in versions {
-            version.isResolved = true
-            _ = try? version.remove()
-        }
-        _ = try? NSFileVersion.removeOtherVersionsOfItem(at: url)
     }
 }

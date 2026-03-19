@@ -2,6 +2,18 @@ import XCTest
 @testable import TodoMDCore
 
 final class TaskMarkdownCodecTests: XCTestCase {
+    func testDateCodingDecodesFractionalTimestamps() throws {
+        let decoded = try XCTUnwrap(DateCoding.decode("2026-03-19T12:34:56.789Z"))
+
+        XCTAssertEqual(DateCoding.encode(decoded), "2026-03-19T12:34:56.789Z")
+    }
+
+    func testDateCodingDecodesNonFractionalTimestamps() throws {
+        let decoded = try XCTUnwrap(DateCoding.decode("2026-03-19T12:34:56Z"))
+
+        XCTAssertEqual(DateCoding.encode(decoded), "2026-03-19T12:34:56.000Z")
+    }
+
     func testRoundTripPreservesUnknownFrontmatter() throws {
         let raw = """
         ---
