@@ -52,6 +52,7 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription: "todo.md uses Calendar access to show your events in Today and Upcoming."
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "todo.md uses the microphone so you can dictate multiple tasks with voice ramble."
         INFOPLIST_KEY_NSRemindersFullAccessUsageDescription: "todo.md imports tasks from Apple Reminders when you run the import."
         INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: "todo.md uses speech recognition to transcribe voice ramble into structured tasks."
