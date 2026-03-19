@@ -161,8 +161,8 @@ struct AppContainerProjectAssignmentTests {
         #expect(persisted.document.frontmatter.area == "Work")
     }
 
-    @Test("Quick entry keeps natural-language dates in the title while persisting the due date")
-    func quickEntryPreservesNaturalLanguageTitleWhilePersistingDue() async throws {
+    @Test("Quick entry strips natural-language dates from the saved title while persisting the due date")
+    func quickEntryStripsNaturalLanguageDateFromSavedTitle() async throws {
         let root = try makeTempDirectory()
         let repository = FileTaskRepository(rootURL: root)
 
@@ -182,7 +182,7 @@ struct AppContainerProjectAssignmentTests {
         #expect(container.createTask(fromQuickEntryText: title))
 
         let persisted = try await waitForSingleRecord(in: repository)
-        #expect(persisted.document.frontmatter.title == title)
+        #expect(persisted.document.frontmatter.title == "Buy gum")
         #expect(persisted.document.frontmatter.due?.isoString == "2026-03-20")
     }
 

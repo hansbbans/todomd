@@ -2290,7 +2290,7 @@ final class AppContainer: ObservableObject {
         let trimmedInput = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let mergedTags = normalizeTags(parsed.tags + tags)
         createTask(
-            title: (parsed.due != nil || parsed.dueTime != nil) ? trimmedInput : parsed.title,
+            title: parsed.title,
             naturalDate: nil,
             tags: mergedTags,
             explicitDue: explicitDue ?? parsed.due,

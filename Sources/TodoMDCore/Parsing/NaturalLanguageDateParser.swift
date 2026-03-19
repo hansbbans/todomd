@@ -117,10 +117,18 @@ public struct NaturalLanguageDateParser {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.calendar = calendar
+        let normalized = normalizeAbsoluteDatePhrase(lowered)
+
+        for format in ["MMMM d yyyy", "MMM d yyyy", "MMMM d, yyyy", "MMM d, yyyy"] {
+            formatter.dateFormat = format
+            if let date = formatter.date(from: normalized) {
+                return date
+            }
+        }
 
         for format in ["MMMM d", "MMM d"] {
             formatter.dateFormat = format
-            if let date = formatter.date(from: lowered) {
+            if let date = formatter.date(from: normalized) {
                 var year = calendar.component(.year, from: referenceDate)
                 var components = calendar.dateComponents([.month, .day], from: date)
                 components.year = year
@@ -136,7 +144,16 @@ public struct NaturalLanguageDateParser {
 
         // yyyy-mm-dd
         formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.date(from: lowered)
+        return formatter.date(from: normalized)
+    }
+
+    private func normalizeAbsoluteDatePhrase(_ value: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: #"(\d{1,2})(st|nd|rd|th)\b"#, options: [.caseInsensitive]) else {
+            return value
+        }
+
+        let range = NSRange(value.startIndex..<value.endIndex, in: value)
+        return regex.stringByReplacingMatches(in: value, options: [], range: range, withTemplate: "$1")
     }
 
     private func localDate(from date: Date) -> LocalDate? {
