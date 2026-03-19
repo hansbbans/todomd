@@ -2445,7 +2445,7 @@ struct RootView: View {
                         }
                     }
 
-                    ForEach(container.recentProjects(limit: 6, excluding: inlineTaskDraft.project), id: \.self) { project in
+                    ForEach(container.projectPickerContent(excluding: inlineTaskDraft.project).allProjects, id: \.self) { project in
                         InlineTaskOptionButton(
                             title: project,
                             isSelected: inlineTaskDraft.project == project,
@@ -2687,13 +2687,8 @@ struct RootView: View {
 
         if token.hasPrefix("@") {
             let query = String(token.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
-            let suggestions: [String]
-            if query.isEmpty {
-                suggestions = container.recentProjects(limit: 6, excluding: inlineTaskDraft.project)
-            } else {
-                suggestions = Array(container.allProjects().filter { project in
-                    matchesQuery(project, query: query)
-                }.prefix(6))
+            let suggestions = container.projectPickerContent(excluding: inlineTaskDraft.project).allProjects.filter { project in
+                query.isEmpty || matchesQuery(project, query: query)
             }
 
             guard !suggestions.isEmpty else { return nil }
@@ -4560,16 +4555,14 @@ struct RootView: View {
     }
 
     private func expandedTaskMoveSheet(target: ExpandedTaskMoveTarget) -> some View {
-        let groupedAreas = container.projectsByArea()
-        let groupedProjects = Set(groupedAreas.flatMap(\.projects))
-        let ungroupedProjects = container.allProjects().filter { !groupedProjects.contains($0) }
+        let pickerContent = container.projectPickerContent()
         let currentFrontmatter = container.record(for: target.path)?.document.frontmatter
 
         return ExpandedTaskMoveEditorSheet(
             currentArea: currentFrontmatter?.area,
             currentProject: currentFrontmatter?.project,
-            groupedAreas: groupedAreas,
-            ungroupedProjects: ungroupedProjects
+            groupedAreas: pickerContent.groupedAreas.map { (area: $0.area, projects: $0.projects) },
+            ungroupedProjects: pickerContent.ungroupedProjects
         ) { area, project in
             _ = container.moveTask(path: target.path, area: area, project: project)
             expandedTaskMoveTarget = nil
@@ -4723,7 +4716,8 @@ struct RootView: View {
     private func taskRowItem(_ record: TaskRecord) -> some View {
         let path = record.identity.path
         let isDone = record.document.frontmatter.status == .done
-        let quickProjects = container.recentProjects(limit: 3, excluding: record.document.frontmatter.project)
+        let pickerContent = container.projectPickerContent(excluding: record.document.frontmatter.project)
+        let quickProjects = pickerContent.allProjects
         let isCompleting = pathsCompleting.contains(path)
         let isSlidingOut = pathsSlidingOut.contains(path)
         return ExpandedTaskRow(
@@ -4778,7 +4772,7 @@ struct RootView: View {
 
                 Menu("Add to Project") {
                     if quickProjects.isEmpty {
-                        Button("No Recent Projects") {}
+                        Button("No Projects") {}
                             .disabled(true)
                     } else {
                         ForEach(quickProjects, id: \.self) { project in
@@ -4823,7 +4817,7 @@ struct RootView: View {
                 Button("Move to Inbox") {
                     _ = container.moveTask(path: record.identity.path, area: nil, project: nil)
                 }
-                ForEach(container.projectsByArea(), id: \.area) { group in
+                ForEach(pickerContent.groupedAreas, id: \.area) { group in
                     Menu(group.area) {
                         Button("Area Only") {
                             _ = container.moveTask(path: record.identity.path, area: group.area, project: nil)
@@ -4831,6 +4825,15 @@ struct RootView: View {
                         ForEach(group.projects, id: \.self) { project in
                             Button(project) {
                                 _ = container.moveTask(path: record.identity.path, area: group.area, project: project)
+                            }
+                        }
+                    }
+                }
+                if !pickerContent.ungroupedProjects.isEmpty {
+                    Menu("No Area") {
+                        ForEach(pickerContent.ungroupedProjects, id: \.self) { project in
+                            Button(project) {
+                                _ = container.moveTask(path: record.identity.path, area: nil, project: project)
                             }
                         }
                     }

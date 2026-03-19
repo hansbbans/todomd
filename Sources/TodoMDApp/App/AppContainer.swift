@@ -96,6 +96,17 @@ struct UpcomingAgendaSection: Identifiable, Equatable {
     }
 }
 
+struct ProjectPickerContent: Equatable {
+    struct AreaGroup: Equatable {
+        let area: String
+        let projects: [String]
+    }
+
+    let groupedAreas: [AreaGroup]
+    let ungroupedProjects: [String]
+    let allProjects: [String]
+}
+
 struct LocationFavorite: Identifiable, Codable, Equatable {
     var id: String
     var name: String
@@ -1469,6 +1480,37 @@ final class AppContainer: ObservableObject {
         availableAreas().map { area in
             (area: area, projects: availableProjects(inArea: area))
         }
+    }
+
+    func projectPickerContent(excluding projectToExclude: String? = nil) -> ProjectPickerContent {
+        let normalizedExclusion = projectToExclude?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+        let groupedAreas = projectsByArea().map { group in
+            let filteredProjects = group.projects.filter { project in
+                guard let normalizedExclusion else { return true }
+                return project.compare(normalizedExclusion, options: [.caseInsensitive, .diacriticInsensitive]) != .orderedSame
+            }
+            return ProjectPickerContent.AreaGroup(area: group.area, projects: filteredProjects)
+        }
+        .filter { !$0.projects.isEmpty }
+
+        let groupedProjects = groupedAreas.flatMap(\.projects)
+        let allProjects = allProjects().filter { project in
+            guard let normalizedExclusion else { return true }
+            return project.compare(normalizedExclusion, options: [.caseInsensitive, .diacriticInsensitive]) != .orderedSame
+        }
+        let ungroupedProjects = allProjects.filter { candidate in
+            !groupedProjects.contains(where: {
+                $0.compare(candidate, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+            })
+        }
+
+        return ProjectPickerContent(
+            groupedAreas: groupedAreas,
+            ungroupedProjects: ungroupedProjects,
+            allProjects: allProjects
+        )
     }
 
     func projectProgress(for project: String) -> (completed: Int, total: Int) {

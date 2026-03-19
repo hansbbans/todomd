@@ -728,6 +728,33 @@ final class TodoMDAppUITests: XCTestCase {
         )
     }
 
+    func testExpandedTaskMoveSheetIncludesMetadataOnlyProjects() throws {
+        let storageOverride = makeStorageOverridePath()
+        try seedProjectMetadata(rootPath: storageOverride, projects: ["Aardvark"])
+        try seedInboxTask(rootPath: storageOverride, title: "move target")
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let row = app.descendants(matching: .any)["taskRow.move target"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "Seeded task row was not visible")
+        row.tap()
+
+        let moveButton = app.buttons["Move"].firstMatch
+        XCTAssertTrue(moveButton.waitForExistence(timeout: 10), "Expanded task move button was not visible")
+        moveButton.tap()
+
+        let projectButton = app.buttons["Aardvark"].firstMatch
+        XCTAssertTrue(
+            projectButton.waitForExistence(timeout: 10),
+            "Expanded move sheet should include metadata-only projects"
+        )
+    }
+
     func testLongPressingAddButtonShowsVoiceRamble() {
         let app = XCUIApplication()
         app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
@@ -1456,6 +1483,21 @@ final class TodoMDAppUITests: XCTestCase {
 
         """
         try content.write(to: taskURL, atomically: true, encoding: .utf8)
+    }
+
+    private func seedProjectMetadata(rootPath: String, projects: [String]) throws {
+        let rootURL = URL(fileURLWithPath: rootPath, isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+
+        let metadataURL = rootURL.appendingPathComponent(".projects.json")
+        let metadata: [String: Any] = [
+            "version": 1,
+            "projects": projects,
+            "colors": [:],
+            "icons": [:]
+        ]
+        let data = try JSONSerialization.data(withJSONObject: metadata, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: metadataURL)
     }
 
     private func seedPerspective(rootPath: String, id: String, name: String) throws {
