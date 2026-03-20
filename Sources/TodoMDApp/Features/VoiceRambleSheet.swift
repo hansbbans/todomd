@@ -15,6 +15,7 @@ final class VoiceRambleController: ObservableObject {
     private var recognitionTask: SFSpeechRecognitionTask?
     private var speechRecognizer = SFSpeechRecognizer()
     private var recordingSessionID: UInt64 = 0
+    private var lastAvailableProjects: [String] = []
     private var shouldSkipAutostartForUITests: Bool {
         ProcessInfo.processInfo.environment["TODOMD_UI_TEST_DISABLE_VOICE_RAMBLE_AUTOSTART"] == "1"
     }
@@ -22,14 +23,21 @@ final class VoiceRambleController: ObservableObject {
         ProcessInfo.processInfo.environment["TODOMD_UI_TEST_FAKE_VOICE_RAMBLE"] == "1"
     }
 
+    private var fakeTranscript: String {
+        ProcessInfo.processInfo.environment["TODOMD_UI_TEST_FAKE_VOICE_RAMBLE_TRANSCRIPT"] ?? ""
+    }
+
     func start(availableProjects: [String]) async {
         recordingSessionID &+= 1
         let sessionID = recordingSessionID
+        lastAvailableProjects = availableProjects
         errorMessage = nil
         permissionMessage = nil
 
         if shouldUseFakeRecordingForUITests {
             teardownRecordingSession()
+            transcript = fakeTranscript
+            reparse(availableProjects: availableProjects, segments: fakeSegments(from: fakeTranscript))
             isRecording = true
             return
         }
@@ -96,7 +104,10 @@ final class VoiceRambleController: ObservableObject {
                 guard self.isCurrentSession(sessionID) else { return }
                 if let result {
                     self.transcript = result.bestTranscription.formattedString
-                    self.reparse(availableProjects: availableProjects)
+                    let segments = result.bestTranscription.segments.map {
+                        VoiceRambleSegment(text: $0.substring, startTime: $0.timestamp, duration: $0.duration)
+                    }
+                    self.reparse(availableProjects: availableProjects, segments: segments)
                     if result.isFinal {
                         self.stop()
                     }
@@ -121,6 +132,108 @@ final class VoiceRambleController: ObservableObject {
         teardownRecordingSession()
     }
 
+    func updateDraft(_ updated: VoiceRambleTaskDraft) {
+        guard let index = drafts.firstIndex(where: { $0.id == updated.id }) else { return }
+        drafts[index] = updated
+    }
+
+    func deleteDraft(id: UUID) {
+        drafts.removeAll { $0.id == id }
+    }
+
+    func mergeDraftIntoPrevious(id: UUID) {
+        guard let index = drafts.firstIndex(where: { $0.id == id }), index > 0 else { return }
+        var previous = drafts[index - 1]
+        let current = drafts[index]
+
+        previous.title = normalizeWhitespace("\(previous.title) \(current.title)")
+        previous.project = previous.project ?? current.project
+        previous.priority = previous.priority ?? current.priority
+        previous.due = previous.due ?? current.due
+        previous.dueTime = previous.dueTime ?? current.dueTime
+        previous.tags = normalizeTags(previous.tags + current.tags)
+        previous.estimatedMinutes = previous.estimatedMinutes ?? current.estimatedMinutes
+        previous.confidence = min(previous.confidence, current.confidence, 0.7)
+        previous.warning = "Merged tasks. Review before saving."
+        previous.sourceText = normalizeWhitespace("\(previous.sourceText) \(current.sourceText)")
+
+        drafts[index - 1] = previous
+        drafts.remove(at: index)
+    }
+
+    func splitDraft(id: UUID) {
+        guard let index = drafts.firstIndex(where: { $0.id == id }) else { return }
+        let draft = drafts[index]
+        let suggestions = splitSuggestions(for: draft)
+        guard suggestions.count == 2 else { return }
+
+        var first = suggestions[0]
+        var second = suggestions[1]
+
+        first = finalizeSplitDraft(first, inheriting: draft, warning: "Split from one spoken draft. Review before saving.")
+        second = finalizeSplitDraft(second, inheriting: draft, warning: "Split from one spoken draft. Review before saving.")
+
+        drafts[index] = first
+        drafts.insert(second, at: index + 1)
+    }
+
+    private func finalizeSplitDraft(
+        _ draft: VoiceRambleTaskDraft,
+        inheriting source: VoiceRambleTaskDraft,
+        warning: String
+    ) -> VoiceRambleTaskDraft {
+        VoiceRambleTaskDraft(
+            title: draft.title,
+            due: draft.due,
+            dueTime: draft.dueTime,
+            priority: draft.priority ?? source.priority,
+            project: draft.project ?? source.project,
+            tags: normalizeTags(draft.tags.isEmpty ? source.tags : draft.tags),
+            estimatedMinutes: draft.estimatedMinutes,
+            confidence: min(draft.confidence, 0.68),
+            warning: warning,
+            sourceText: draft.sourceText
+        )
+    }
+
+    private func splitSuggestions(for draft: VoiceRambleTaskDraft) -> [VoiceRambleTaskDraft] {
+        let sourceText = draft.sourceText.isEmpty ? draft.title : draft.sourceText
+        let pieces = manualSplitPieces(from: sourceText)
+        guard pieces.count == 2 else { return [] }
+
+        let parser = VoiceRambleParser(availableProjects: lastAvailableProjects)
+        return pieces.compactMap { piece in
+            parser.parse(piece).first ?? VoiceRambleTaskDraft(title: piece, sourceText: piece)
+        }
+    }
+
+    private func manualSplitPieces(from sourceText: String) -> [String] {
+        let normalized = normalizeWhitespace(sourceText)
+        guard !normalized.isEmpty else { return [] }
+
+        let separatorPatterns = [
+            #"\s+\band\b\s+"#,
+            #"\s+\balso\b\s+"#,
+            #"\s+\bplus\b\s+"#
+        ]
+
+        for pattern in separatorPatterns {
+            if let range = normalized.range(of: pattern, options: [.regularExpression, .caseInsensitive]) {
+                let first = normalizeWhitespace(String(normalized[..<range.lowerBound]))
+                let second = normalizeWhitespace(String(normalized[range.upperBound...]))
+                if !first.isEmpty, !second.isEmpty {
+                    return [first, second]
+                }
+            }
+        }
+
+        let words = normalized.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        guard words.count >= 4 else { return [] }
+        let midpoint = max(1, words.count / 2)
+        let first = words[..<midpoint].joined(separator: " ")
+        let second = words[midpoint...].joined(separator: " ")
+        return [normalizeWhitespace(first), normalizeWhitespace(second)].filter { !$0.isEmpty }
+    }
     private func teardownRecordingSession() {
         if audioEngine.isRunning {
             audioEngine.stop()
@@ -147,11 +260,51 @@ final class VoiceRambleController: ObservableObject {
         permissionMessage = nil
     }
 
-    private func reparse(availableProjects: [String]) {
+    private func reparse(availableProjects: [String], segments: [VoiceRambleSegment] = []) {
+        lastAvailableProjects = availableProjects
         let parser = VoiceRambleParser(availableProjects: availableProjects)
-        drafts = parser.parse(transcript)
+        drafts = parser.parse(transcript, segments: segments)
     }
 
+    private func fakeSegments(from transcript: String) -> [VoiceRambleSegment] {
+        let groups = transcript
+            .components(separatedBy: "||")
+            .map { normalizeWhitespace($0) }
+            .filter { !$0.isEmpty }
+
+        var segments: [VoiceRambleSegment] = []
+        var timestamp: TimeInterval = 0
+        let sourceGroups = groups.isEmpty ? [normalizeWhitespace(transcript)] : groups
+
+        for group in sourceGroups where !group.isEmpty {
+            for word in group.split(whereSeparator: { $0.isWhitespace }) {
+                let text = String(word)
+                segments.append(VoiceRambleSegment(text: text, startTime: timestamp, duration: 0.18))
+                timestamp += 0.22
+            }
+            timestamp += 1.0
+        }
+
+        return segments
+    }
+
+    private func normalizeWhitespace(_ value: String) -> String {
+        value
+            .split(whereSeparator: { $0.isWhitespace })
+            .map(String.init)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func normalizeTags(_ tags: [String]) -> [String] {
+        var seen = Set<String>()
+        return tags.compactMap { rawTag in
+            let normalized = rawTag.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !normalized.isEmpty, !seen.contains(normalized) else { return nil }
+            seen.insert(normalized)
+            return normalized
+        }
+    }
     private nonisolated static func requestSpeechPermission() async -> SFSpeechRecognizerAuthorizationStatus {
         await withCheckedContinuation { continuation in
             SFSpeechRecognizer.requestAuthorization { status in
@@ -210,12 +363,89 @@ final class VoiceRambleController: ObservableObject {
     }
 }
 
+private struct VoiceRambleDraftEditorState: Identifiable {
+    let id: UUID
+    var title: String
+    var due: String
+    var dueTime: String
+    var project: String
+    var priority: TaskPriority?
+    var tags: String
+    var estimatedMinutes: String
+
+    init(draft: VoiceRambleTaskDraft) {
+        id = draft.id
+        title = draft.title
+        due = draft.due?.isoString ?? ""
+        dueTime = draft.dueTime?.isoString ?? ""
+        project = draft.project ?? ""
+        priority = draft.priority
+        tags = draft.tags.joined(separator: ", ")
+        if let estimatedMinutes = draft.estimatedMinutes {
+            self.estimatedMinutes = String(estimatedMinutes)
+        } else {
+            self.estimatedMinutes = ""
+        }
+    }
+
+    func validationError() -> String? {
+        guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "Title is required."
+        }
+
+        if !due.isEmpty && (try? LocalDate(isoDate: due)) == nil {
+            return "Due date must use YYYY-MM-DD."
+        }
+
+        if !dueTime.isEmpty && due.isEmpty {
+            return "Add a due date before adding a time."
+        }
+
+        if !dueTime.isEmpty && (try? LocalTime(isoTime: dueTime)) == nil {
+            return "Due time must use HH:MM."
+        }
+
+        if !estimatedMinutes.isEmpty, Int(estimatedMinutes) == nil {
+            return "Estimated minutes must be a number."
+        }
+
+        return nil
+    }
+
+    func apply(to draft: VoiceRambleTaskDraft) -> VoiceRambleTaskDraft? {
+        guard validationError() == nil else { return nil }
+
+        let parsedDue = due.isEmpty ? nil : (try? LocalDate(isoDate: due))
+        let parsedDueTime = dueTime.isEmpty ? nil : (try? LocalTime(isoTime: dueTime))
+        let parsedEstimatedMinutes = estimatedMinutes.isEmpty ? nil : Int(estimatedMinutes)
+        let parsedTags = tags
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+
+        return VoiceRambleTaskDraft(
+            id: draft.id,
+            title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+            due: parsedDue,
+            dueTime: parsedDueTime,
+            priority: priority,
+            project: project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : project.trimmingCharacters(in: .whitespacesAndNewlines),
+            tags: parsedTags,
+            estimatedMinutes: parsedEstimatedMinutes,
+            confidence: 1,
+            warning: nil,
+            sourceText: title.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+}
+
 struct VoiceRambleSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var container: AppContainer
     @EnvironmentObject private var theme: ThemeManager
 
     @StateObject private var controller = VoiceRambleController()
+    @State private var draftEditor: VoiceRambleDraftEditorState?
 
     let fallbackDue: LocalDate?
     let fallbackDueTime: LocalTime?
@@ -257,6 +487,9 @@ struct VoiceRambleSheet: View {
                 await controller.start(availableProjects: container.allProjects())
             }
         }
+        .sheet(item: $draftEditor) { editor in
+            draftEditorSheet(editor)
+        }
         .onDisappear {
             controller.stop()
         }
@@ -277,7 +510,7 @@ struct VoiceRambleSheet: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(controller.isRecording ? "Listening for tasks" : "Ready to capture")
                         .font(.system(.headline, design: .rounded).weight(.semibold))
-                    Text("Say multiple tasks naturally. Use “actually …” to replace the last one or “remove that” to delete it.")
+                    Text("Speak naturally. You can say “actually”, “change the second one”, or “same project as the last one” to correct drafts.")
                         .font(.system(.subheadline, design: .rounded))
                         .foregroundStyle(theme.textSecondaryColor)
                 }
@@ -347,31 +580,78 @@ struct VoiceRambleSheet: View {
                     .foregroundStyle(theme.textSecondaryColor)
                     .frame(maxWidth: .infinity, minHeight: 120, alignment: .center)
             } else {
+                if let warningCount = previewWarningCount, warningCount > 0 {
+                    Text("\(warningCount) draft\(warningCount == 1 ? " needs" : "s need") a quick review.")
+                        .font(.system(.footnote, design: .rounded).weight(.semibold))
+                        .foregroundStyle(.orange)
+                        .accessibilityIdentifier("voiceRamble.warningSummary")
+                }
+
                 ScrollView {
                     VStack(spacing: 10) {
-                        ForEach(controller.drafts) { draft in
-                            draftCard(draft)
+                        ForEach(Array(controller.drafts.enumerated()), id: \.element.id) { index, draft in
+                            draftCard(draft, index: index)
                         }
                     }
                     .padding(.vertical, 2)
                 }
-                .frame(maxHeight: 260)
+                .frame(maxHeight: 320)
             }
         }
     }
 
-    private func draftCard(_ draft: VoiceRambleTaskDraft) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(draft.title)
-                .font(.system(.body, design: .rounded).weight(.semibold))
-                .foregroundStyle(theme.textPrimaryColor)
-                .frame(maxWidth: .infinity, alignment: .leading)
+    private var previewWarningCount: Int? {
+        let count = controller.drafts.filter { $0.warning != nil }.count
+        return count == 0 ? nil : count
+    }
 
-            let metadata = metadataLine(for: draft)
-            if !metadata.isEmpty {
-                Text(metadata)
-                    .font(.system(.footnote, design: .rounded))
-                    .foregroundStyle(theme.textSecondaryColor)
+    private func draftCard(_ draft: VoiceRambleTaskDraft, index: Int) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(draft.title)
+                        .font(.system(.body, design: .rounded).weight(.semibold))
+                        .foregroundStyle(theme.textPrimaryColor)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    let metadata = metadataLine(for: draft)
+                    if !metadata.isEmpty {
+                        Text(metadata)
+                            .font(.system(.footnote, design: .rounded))
+                            .foregroundStyle(theme.textSecondaryColor)
+                    }
+
+                    if let warning = draft.warning {
+                        Text(warning)
+                            .font(.system(.footnote, design: .rounded).weight(.semibold))
+                            .foregroundStyle(.orange)
+                            .accessibilityIdentifier("voiceRamble.warning.\(index)")
+                    } else {
+                        Text("Confidence \(Int((draft.confidence * 100).rounded()))%")
+                            .font(.system(.caption, design: .rounded))
+                            .foregroundStyle(theme.textSecondaryColor)
+                    }
+                }
+
+                VStack(alignment: .trailing, spacing: 8) {
+                    previewActionButton(title: "Edit", systemImage: "pencil", identifier: "voiceRamble.editButton.\(index)") {
+                        draftEditor = VoiceRambleDraftEditorState(draft: draft)
+                    }
+
+                    previewActionButton(title: "Split", systemImage: "square.split.2x1", identifier: "voiceRamble.splitButton.\(index)") {
+                        controller.splitDraft(id: draft.id)
+                    }
+                    .disabled(!canSplit(draft))
+
+                    previewActionButton(title: "Merge", systemImage: "arrow.up.left.and.arrow.down.right", identifier: "voiceRamble.mergeButton.\(index)") {
+                        controller.mergeDraftIntoPrevious(id: draft.id)
+                    }
+                    .disabled(index == 0)
+
+                    previewActionButton(title: "Delete", systemImage: "trash", identifier: "voiceRamble.deleteButton.\(index)") {
+                        controller.deleteDraft(id: draft.id)
+                    }
+                }
             }
         }
         .padding(14)
@@ -381,8 +661,34 @@ struct VoiceRambleSheet: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(theme.textSecondaryColor.opacity(0.18), lineWidth: 1)
+                .stroke(draft.warning == nil ? theme.textSecondaryColor.opacity(0.18) : Color.orange.opacity(0.35), lineWidth: 1)
         )
+    }
+
+    private func previewActionButton(
+        title: String,
+        systemImage: String,
+        identifier: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.system(.caption, design: .rounded).weight(.semibold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .frame(minWidth: 86)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(theme.backgroundColor.opacity(0.95))
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier)
+    }
+
+    private func canSplit(_ draft: VoiceRambleTaskDraft) -> Bool {
+        let source = draft.sourceText.isEmpty ? draft.title : draft.sourceText
+        return source.split(whereSeparator: { $0.isWhitespace }).count >= 4
     }
 
     private var actionRow: some View {
@@ -424,6 +730,21 @@ struct VoiceRambleSheet: View {
             }
             .buttonStyle(.plain)
             .disabled(controller.drafts.isEmpty)
+            .accessibilityIdentifier("voiceRamble.addTasksButton")
+        }
+    }
+
+    private func draftEditorSheet(_ initialState: VoiceRambleDraftEditorState) -> some View {
+        VoiceRambleDraftEditorView(theme: theme, initialState: initialState) { updatedState in
+            guard let existing = controller.drafts.first(where: { $0.id == updatedState.id }),
+                  let updated = updatedState.apply(to: existing) else {
+                return
+            }
+
+            controller.updateDraft(updated)
+            draftEditor = nil
+        } onCancel: {
+            draftEditor = nil
         }
     }
 
@@ -478,5 +799,95 @@ struct VoiceRambleSheet: View {
         controller.stop()
         onTasksCreated()
         dismiss()
+    }
+}
+
+private struct VoiceRambleDraftEditorView: View {
+    let theme: ThemeManager
+    let onSave: (VoiceRambleDraftEditorState) -> Void
+    let onCancel: () -> Void
+
+    @State private var state: VoiceRambleDraftEditorState
+
+    init(
+        theme: ThemeManager,
+        initialState: VoiceRambleDraftEditorState,
+        onSave: @escaping (VoiceRambleDraftEditorState) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.theme = theme
+        self.onSave = onSave
+        self.onCancel = onCancel
+        _state = State(initialValue: initialState)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Task") {
+                    TextField("Title", text: $state.title)
+                        .accessibilityIdentifier("voiceRamble.editor.titleField")
+                    TextField("Project", text: $state.project)
+                        .accessibilityIdentifier("voiceRamble.editor.projectField")
+                }
+
+                Section("Schedule") {
+                    TextField("Due date (YYYY-MM-DD)", text: $state.due)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .accessibilityIdentifier("voiceRamble.editor.dueField")
+                    TextField("Due time (HH:MM)", text: $state.dueTime)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .accessibilityIdentifier("voiceRamble.editor.dueTimeField")
+                }
+
+                Section("Details") {
+                    Picker("Priority", selection: Binding(get: {
+                        state.priority ?? TaskPriority.none
+                    }, set: { newValue in
+                        state.priority = newValue == TaskPriority.none ? nil : newValue
+                    })) {
+                        Text("None").tag(TaskPriority.none)
+                        ForEach(TaskPriority.allCases.filter { $0 != .none }, id: \.self) { priority in
+                            Text(priority.rawValue.capitalized).tag(priority)
+                        }
+                    }
+                    .accessibilityIdentifier("voiceRamble.editor.priorityPicker")
+
+                    TextField("Tags (comma separated)", text: $state.tags)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .accessibilityIdentifier("voiceRamble.editor.tagsField")
+
+                    TextField("Estimated minutes", text: $state.estimatedMinutes)
+                        .keyboardType(.numberPad)
+                        .accessibilityIdentifier("voiceRamble.editor.estimateField")
+                }
+
+                if let validationError = state.validationError() {
+                    Section {
+                        Text(validationError)
+                            .font(.system(.footnote, design: .rounded))
+                            .foregroundStyle(.red)
+                            .accessibilityIdentifier("voiceRamble.editor.validationError")
+                    }
+                }
+            }
+            .navigationTitle("Edit Draft")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onCancel)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        onSave(state)
+                    }
+                    .disabled(state.validationError() != nil)
+                    .accessibilityIdentifier("voiceRamble.editor.saveButton")
+                }
+            }
+        }
+        .tint(theme.accentColor)
     }
 }

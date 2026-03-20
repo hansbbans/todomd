@@ -701,6 +701,63 @@ final class TodoMDAppUITests: XCTestCase {
         )
     }
 
+    func testInlineTaskAtSuggestionsIncludeMetadataOnlyProjects() throws {
+        let storageOverride = makeStorageOverridePath()
+        try seedProjectMetadata(
+            rootPath: storageOverride,
+            projects: ["Aardvark", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Gamma"]
+        )
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let addButton = app.buttons["root.inlineAddButton"].firstMatch
+        XCTAssertTrue(addButton.waitForExistence(timeout: 10), "Inline add button not visible")
+        addButton.tap()
+
+        let titleInput = app.textFields["inlineTask.titleField"].firstMatch
+        XCTAssertTrue(titleInput.waitForExistence(timeout: 10), "Inline task title field did not appear")
+        titleInput.tap()
+        app.typeText("@")
+
+        let aardvarkSuggestion = app.buttons["Aardvark"].firstMatch
+        XCTAssertTrue(
+            aardvarkSuggestion.waitForExistence(timeout: 10),
+            "Blank @ suggestions should include the full project list, including metadata-only projects"
+        )
+    }
+
+    func testExpandedTaskMoveSheetIncludesMetadataOnlyProjects() throws {
+        let storageOverride = makeStorageOverridePath()
+        try seedProjectMetadata(rootPath: storageOverride, projects: ["Aardvark"])
+        try seedInboxTask(rootPath: storageOverride, title: "move target")
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let row = app.descendants(matching: .any)["taskRow.move target"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "Seeded task row was not visible")
+        row.tap()
+
+        let moveButton = app.buttons["Move"].firstMatch
+        XCTAssertTrue(moveButton.waitForExistence(timeout: 10), "Expanded task move button was not visible")
+        moveButton.tap()
+
+        let projectButton = app.buttons["Aardvark"].firstMatch
+        XCTAssertTrue(
+            projectButton.waitForExistence(timeout: 10),
+            "Expanded move sheet should include metadata-only projects"
+        )
+    }
+
     func testQuickEntryKeyboardDoneCreatesTask() {
         let app = XCUIApplication()
         app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding", "-ui-testing-show-quick-entry"]
@@ -830,6 +887,69 @@ final class TodoMDAppUITests: XCTestCase {
         )
     }
 
+    func testVoiceRamblePreviewSupportsEditingAndDeletingDrafts() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = makeStorageOverridePath()
+        app.launchEnvironment["TODOMD_UI_TEST_FAKE_VOICE_RAMBLE"] = "1"
+        app.launchEnvironment["TODOMD_UI_TEST_FAKE_VOICE_RAMBLE_TRANSCRIPT"] = "buy milk. call mom"
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let addButton = app.buttons["root.inlineAddButton"].firstMatch
+        XCTAssertTrue(addButton.waitForExistence(timeout: 10), "Inline add button not visible")
+        addButton.press(forDuration: 0.6)
+
+        let editButton = app.buttons["voiceRamble.editButton.0"].firstMatch
+        XCTAssertTrue(editButton.waitForExistence(timeout: 10), "Edit button for the first voice draft was not visible")
+        editButton.tap()
+
+        let titleField = app.textFields["voiceRamble.editor.titleField"].firstMatch
+        XCTAssertTrue(titleField.waitForExistence(timeout: 10), "Voice draft editor did not appear")
+        titleField.tap()
+        titleField.typeText(" later")
+
+        let saveButton = app.buttons["voiceRamble.editor.saveButton"].firstMatch
+        XCTAssertTrue(saveButton.waitForExistence(timeout: 10), "Voice draft editor save button did not appear")
+        saveButton.tap()
+
+        let updatedTitle = app.staticTexts["buy milk later"].firstMatch
+        XCTAssertTrue(updatedTitle.waitForExistence(timeout: 10), "Edited draft title was not shown in the preview")
+
+        let deleteButton = app.buttons["voiceRamble.deleteButton.1"].firstMatch
+        XCTAssertTrue(deleteButton.waitForExistence(timeout: 10), "Delete button for the second voice draft was not visible")
+        deleteButton.tap()
+
+        let deletedTitle = app.staticTexts["call mom"].firstMatch
+        XCTAssertTrue(
+            waitForCondition(timeout: 5, pollInterval: 0.1) {
+                !deletedTitle.exists
+            },
+            "Deleting a voice draft did not remove it from the preview"
+        )
+    }
+
+    func testVoiceRambleShowsWarningForAmbiguousDrafts() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = makeStorageOverridePath()
+        app.launchEnvironment["TODOMD_UI_TEST_FAKE_VOICE_RAMBLE"] = "1"
+        app.launchEnvironment["TODOMD_UI_TEST_FAKE_VOICE_RAMBLE_TRANSCRIPT"] = "buy milk call mom send invoice"
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let addButton = app.buttons["root.inlineAddButton"].firstMatch
+        XCTAssertTrue(addButton.waitForExistence(timeout: 10), "Inline add button not visible")
+        addButton.press(forDuration: 0.6)
+
+        let warningSummary = app.staticTexts["1 draft needs a quick review."].firstMatch
+        let inlineWarning = app.staticTexts["This may contain more than one task. Review before saving."].firstMatch
+
+        XCTAssertTrue(warningSummary.waitForExistence(timeout: 10), "Warning summary did not appear for an ambiguous voice draft")
+        XCTAssertTrue(inlineWarning.waitForExistence(timeout: 10), "Inline warning did not appear for an ambiguous voice draft")
+    }
     func testSwitchingExpandedTasksCollapsesThePreviousCardWithoutShowingKeyboard() {
         let storageOverride = makeStorageOverridePath()
 
