@@ -1206,12 +1206,20 @@ struct RootView: View {
         container.perspectives.map { container.perspectiveViewIdentifier(for: $0.id) }
     }
 
+    private var compactProjectViews: [ViewIdentifier] {
+        container.allProjects().map(ViewIdentifier.project)
+    }
+
+    private var compactAdditionalTabViews: [ViewIdentifier] {
+        compactPerspectiveViews + compactProjectViews
+    }
+
     private var compactCustomViews: (primary: ViewIdentifier, secondary: ViewIdentifier) {
         CompactTabSettings.normalizedCustomViews(
             leadingRawValue: compactPrimaryTabRawValue,
             trailingRawValue: compactSecondaryTabRawValue,
             pomodoroEnabled: pomodoroEnabled,
-            additionalViews: compactPerspectiveViews
+            additionalViews: compactAdditionalTabViews
         )
     }
 
@@ -1574,6 +1582,12 @@ struct RootView: View {
         if container.selectedView == .builtIn(.review) {
             return AnyView(
                 weeklyReviewContent()
+                    .transition(rootScreenTransition)
+            )
+        }
+        if container.selectedView == .builtIn(.logbook) {
+            return AnyView(
+                logbookMainContent(records: container.filteredRecords())
                     .transition(rootScreenTransition)
             )
         }
@@ -5082,7 +5096,7 @@ struct RootView: View {
             leadingRawValue: compactPrimaryTabRawValue,
             trailingRawValue: compactSecondaryTabRawValue,
             pomodoroEnabled: pomodoroEnabled,
-            additionalViews: compactPerspectiveViews
+            additionalViews: compactAdditionalTabViews
         )
 
         if compactPrimaryTabRawValue != normalized.primary.rawValue {

@@ -47,7 +47,7 @@ final class CalendarIntegrationManager {
         let upcomingSections: [CalendarDaySection]
     }
 
-    /// Fetches upcoming calendar events within the next 30 days, starting today.
+    /// Fetches upcoming calendar events for the next seven days, starting today.
     ///
     /// - Parameters:
     ///   - allowedCalendarIDs: When non-nil, only events from these calendar IDs are included.
@@ -63,7 +63,7 @@ final class CalendarIntegrationManager {
         let now = Date()
         let calendar = Calendar.current
         let startDate = calendar.startOfDay(for: now)
-        guard let endDate = calendar.date(byAdding: .day, value: 30, to: startDate) else {
+        guard let endDate = calendar.date(byAdding: .day, value: TaskQueryEngine.upcomingHorizonDays + 1, to: startDate) else {
             return FetchResult(sources: [], todayEvents: [], upcomingSections: [])
         }
 

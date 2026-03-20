@@ -46,6 +46,17 @@ final class CompactTabSettingsTests: XCTestCase {
         XCTAssertTrue(views.contains(perspectiveView))
     }
 
+    func testAvailableCustomViewsIncludesProjects() {
+        let projectView = ViewIdentifier.project("Work")
+
+        let views = CompactTabSettings.availableCustomViews(
+            pomodoroEnabled: false,
+            additionalViews: [projectView]
+        )
+
+        XCTAssertTrue(views.contains(projectView))
+    }
+
     func testNormalizedCustomViewsKeepsCustomPerspectiveSelections() {
         let firstPerspective = ViewIdentifier.custom("perspective:focus")
         let secondPerspective = ViewIdentifier.custom("perspective:deep-work")
@@ -73,6 +84,20 @@ final class CompactTabSettingsTests: XCTestCase {
         )
 
         XCTAssertEqual(normalized.primary, firstPerspective)
+        XCTAssertEqual(normalized.secondary, .builtIn(.logbook))
+    }
+
+    func testNormalizedCustomViewsKeepsProjectSelections() {
+        let projectView = ViewIdentifier.project("Work")
+
+        let normalized = CompactTabSettings.normalizedCustomViews(
+            leadingRawValue: projectView.rawValue,
+            trailingRawValue: BuiltInView.logbook.rawValue,
+            pomodoroEnabled: false,
+            additionalViews: [projectView]
+        )
+
+        XCTAssertEqual(normalized.primary, projectView)
         XCTAssertEqual(normalized.secondary, .builtIn(.logbook))
     }
 

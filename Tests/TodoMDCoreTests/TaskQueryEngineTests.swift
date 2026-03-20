@@ -45,6 +45,44 @@ final class TaskQueryEngineTests: XCTestCase {
         XCTAssertTrue(engine.matches(record, view: .builtIn(.flagged), today: today, eveningStart: defaultEveningStart))
     }
 
+    func testUpcomingOnlyIncludesNextSevenDays() throws {
+        let today = try LocalDate(isoDate: "2025-03-01")
+
+        let dueTomorrow = TaskRecord(
+            identity: TaskFileIdentity(path: "/tmp/upcoming-tomorrow.md"),
+            document: TaskDocument(
+                frontmatter: TestSupport.sampleFrontmatter(due: try LocalDate(isoDate: "2025-03-02")),
+                body: ""
+            )
+        )
+        let dueInSevenDays = TaskRecord(
+            identity: TaskFileIdentity(path: "/tmp/upcoming-seven.md"),
+            document: TaskDocument(
+                frontmatter: TestSupport.sampleFrontmatter(due: try LocalDate(isoDate: "2025-03-08")),
+                body: ""
+            )
+        )
+        let dueInEightDays = TaskRecord(
+            identity: TaskFileIdentity(path: "/tmp/upcoming-eight.md"),
+            document: TaskDocument(
+                frontmatter: TestSupport.sampleFrontmatter(due: try LocalDate(isoDate: "2025-03-09")),
+                body: ""
+            )
+        )
+        let scheduledInEightDays = TaskRecord(
+            identity: TaskFileIdentity(path: "/tmp/upcoming-scheduled-eight.md"),
+            document: TaskDocument(
+                frontmatter: TestSupport.sampleFrontmatter(scheduled: try LocalDate(isoDate: "2025-03-09")),
+                body: ""
+            )
+        )
+
+        XCTAssertTrue(engine.matches(dueTomorrow, view: .builtIn(.upcoming), today: today, eveningStart: defaultEveningStart))
+        XCTAssertTrue(engine.matches(dueInSevenDays, view: .builtIn(.upcoming), today: today, eveningStart: defaultEveningStart))
+        XCTAssertFalse(engine.matches(dueInEightDays, view: .builtIn(.upcoming), today: today, eveningStart: defaultEveningStart))
+        XCTAssertFalse(engine.matches(scheduledInEightDays, view: .builtIn(.upcoming), today: today, eveningStart: defaultEveningStart))
+    }
+
     func testBlockedTaskExcludedFromAnytime() throws {
         var frontmatter = TestSupport.sampleFrontmatter()
         frontmatter.blockedBy = .manual

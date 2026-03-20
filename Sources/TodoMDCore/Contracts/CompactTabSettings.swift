@@ -109,7 +109,9 @@ public enum CompactTabSettings {
             return baseCustomViews.contains(.builtIn(builtInView)) || builtInView == .pomodoro
         case .custom:
             return isPerspectiveCustomView(view)
-        case .area, .project, .tag:
+        case .project:
+            return true
+        case .area, .tag:
             return false
         }
     }

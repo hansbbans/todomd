@@ -15,10 +15,22 @@ struct CompactTabChoiceCatalogTests {
 
         let views = CompactTabChoiceCatalog.availableViews(
             pomodoroEnabled: false,
-            perspectives: [perspective]
+            perspectives: [perspective],
+            projects: []
         )
 
         #expect(views.contains(.custom("perspective:focus")))
+    }
+
+    @Test("Available compact tab choices include projects")
+    func availableChoicesIncludeProjects() {
+        let views = CompactTabChoiceCatalog.availableViews(
+            pomodoroEnabled: false,
+            perspectives: [],
+            projects: ["Work"]
+        )
+
+        #expect(views.contains(.project("Work")))
     }
 
     @Test("Custom perspective choices use perspective metadata")

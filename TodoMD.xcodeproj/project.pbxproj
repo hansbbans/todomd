@@ -41,6 +41,7 @@
 		13F33A501FB769FC623E1ED7 /* TaskFilenameGeneratorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9534A04F75287E4E846A83C5 /* TaskFilenameGeneratorTests.swift */; };
 		14FBDAD4AA3317B760CE2A74 /* VoiceRambleParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FB05ACF3871CAD533208584 /* VoiceRambleParser.swift */; };
 		179F5FF14AC3FF5F15B7E8F0 /* ProjectMetadataRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = A75839B6B92A8669B0E686C3 /* ProjectMetadataRepository.swift */; };
+		19CB9D039F85D0F2D030CBBE /* WidgetCalendarSnapshotStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67D4CD5F6DEC2B7692A7513B /* WidgetCalendarSnapshotStoreTests.swift */; };
 		1AD04E3FC2C6D26A5536E9B9 /* VoiceRambleParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FBDB655875F9BCCB08FB4AE /* VoiceRambleParserTests.swift */; };
 		1B544A66CEB281F6D3A620A8 /* NotificationTimePreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0C83EFD327AD18E41690E1A /* NotificationTimePreference.swift */; };
 		1B8C49DD8130BB628E180B3B /* TaskError.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD377B3EC56C11E809C817ED /* TaskError.swift */; };
@@ -159,6 +160,7 @@
 		6FF10D9E0B12F5D030EF2F3E /* PendingWriteJournal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B33F7915C3061E9C6DBA2DC /* PendingWriteJournal.swift */; };
 		719C2BB870ADD08E490B23AD /* AppContainerProjectAssignmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA013479CB9D38EA88C3D4F2 /* AppContainerProjectAssignmentTests.swift */; };
 		71F8998BB99286F42F9E0DAD /* ManualOrderService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA40BA2593B0A5817CB77690 /* ManualOrderService.swift */; };
+		729BB45057469078E938A98E /* WidgetCalendarSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58686F2A6E9756BF2D648FC3 /* WidgetCalendarSnapshotStore.swift */; };
 		72A7D87BB1E3EBDA38704A47 /* TaskRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = B39B155FF663EFDF12B1E158 /* TaskRecord.swift */; };
 		72C047339CE8A372916FC8A9 /* OrderRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EECC60DF983568B4782CFCE /* OrderRepository.swift */; };
 		72E49D082F71F9235154494E /* CompactTabChoiceCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FC793DF9AD84F52D9D31E0B /* CompactTabChoiceCatalog.swift */; };
@@ -232,6 +234,7 @@
 		AAD88A27BCD437AA7775FCB8 /* RuntimeLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1536030049BF3A64978D79E /* RuntimeLogger.swift */; };
 		AADC25C284D351DB271F5DDA /* LogbookSearchEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15D4A51F9BDC65F03F25F2EF /* LogbookSearchEngine.swift */; };
 		ABC7EC79BCE8F18B84F3728C /* TodoMDAppUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 016F4E437E77C3A7C04F9ABF /* TodoMDAppUITests.swift */; };
+		ABFE23B9D57A57DE7E9CBB35 /* WidgetCalendarSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58686F2A6E9756BF2D648FC3 /* WidgetCalendarSnapshotStore.swift */; };
 		AC48C658E01E53BD4A6786A5 /* FileWatcherEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BBAD8557DA5615431D5712B /* FileWatcherEvent.swift */; };
 		AD47977A4D3FB13B90D1328C /* PerspectivesRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06E2805CDE88DB33A6DAA7BA /* PerspectivesRepository.swift */; };
 		AD586B45099B318D0FC07632 /* NaturalLanguageTaskParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70E4735EAF172C5DD227F11E /* NaturalLanguageTaskParser.swift */; };
@@ -304,6 +307,7 @@
 		E376C6128297F2C3256AEC8C /* OrderRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EECC60DF983568B4782CFCE /* OrderRepository.swift */; };
 		E41057ADFA2D4DE00D64033D /* QuickEntryConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABCB56B0C11890AF459AF643 /* QuickEntryConfiguration.swift */; };
 		E58CD1FD51A6B934BBA9C50D /* TriageRulesRepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BB428148D7FFA3357072404 /* TriageRulesRepositoryTests.swift */; };
+		E5B96525931655345996FC50 /* WidgetCalendarSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58686F2A6E9756BF2D648FC3 /* WidgetCalendarSnapshotStore.swift */; };
 		E885B9A0369EEBE29E28914D /* TodoMDShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0E09622DE81AE3C91712B2EA /* TodoMDShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		E88BBE36FF0755FC888945FD /* OnboardingIntegrationPrimerCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 548B3909CB717B70664E503F /* OnboardingIntegrationPrimerCoordinator.swift */; };
 		E93A521697C4C914E46EE794 /* NaturalLanguageParserHardeningTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B042F1A3FF1C203B53D2D32A /* NaturalLanguageParserHardeningTests.swift */; };
@@ -322,6 +326,7 @@
 		EEE0876E47F414659742B925 /* PerspectivesDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0895B0414A63242E2DC65BD5 /* PerspectivesDocument.swift */; };
 		F240F8EE791C34A833A3389B /* TaskSourceAttribution.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3E040C1C7C81C1A130FE445 /* TaskSourceAttribution.swift */; };
 		F30BE113E346C522307D538C /* TaskQueryEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BF3A045ACCE9C83A29AF7D7 /* TaskQueryEngine.swift */; };
+		F4E296DAD822FECE9DD9610B /* WidgetCalendarSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58686F2A6E9756BF2D648FC3 /* WidgetCalendarSnapshotStore.swift */; };
 		F5C60085DCB13E8731CF5E79 /* CompactTabChoiceCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FC793DF9AD84F52D9D31E0B /* CompactTabChoiceCatalog.swift */; };
 		F6C6BADF9E6AB8D30DA496EF /* TaskFileIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A663CE0F8831EFB6579912DD /* TaskFileIdentity.swift */; };
 		F6CDD9A9BE078A4CD07380E8 /* TriageRulesDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98639B01A97BD10D12C75CD3 /* TriageRulesDocument.swift */; };
@@ -440,6 +445,7 @@
 		52BE57D402F4B071F7ADB5F5 /* TaskSourceAttributionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskSourceAttributionTests.swift; sourceTree = "<group>"; };
 		548B3909CB717B70664E503F /* OnboardingIntegrationPrimerCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingIntegrationPrimerCoordinator.swift; sourceTree = "<group>"; };
 		56FFAF6DBC4A59A8501C7F75 /* QuickFindStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickFindStore.swift; sourceTree = "<group>"; };
+		58686F2A6E9756BF2D648FC3 /* WidgetCalendarSnapshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetCalendarSnapshotStore.swift; sourceTree = "<group>"; };
 		5A3DF100D74F0478D534DEFE /* AppleCalendarService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleCalendarService.swift; sourceTree = "<group>"; };
 		5A604671F22BE76296C1EF55 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		5AA5AC6D88A8E18B72F82ED4 /* TodoMDWidgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = TodoMDWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -452,6 +458,7 @@
 		62DA532BFF4ACE698347D0F7 /* TaskMetadataIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskMetadataIndex.swift; sourceTree = "<group>"; };
 		64FD096FD3685051C3EFFE16 /* TaskLifecycleService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskLifecycleService.swift; sourceTree = "<group>"; };
 		6610505BFF0970DD488B404A /* RootNavigationCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootNavigationCatalog.swift; sourceTree = "<group>"; };
+		67D4CD5F6DEC2B7692A7513B /* WidgetCalendarSnapshotStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetCalendarSnapshotStoreTests.swift; sourceTree = "<group>"; };
 		698CBBDCE009990A0D752AE9 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		6B6C0BE73203312AB750876B /* WeeklyReviewEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeklyReviewEngine.swift; sourceTree = "<group>"; };
 		6D08ED841E6B86D3499C2930 /* Diagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Diagnostics.swift; sourceTree = "<group>"; };
@@ -827,6 +834,7 @@
 				F5460E1202F069783CDF869B /* URLRouterTests.swift */,
 				3FBDB655875F9BCCB08FB4AE /* VoiceRambleParserTests.swift */,
 				707F0560F8196CD1C8F3DF1F /* WeeklyReviewEngineTests.swift */,
+				67D4CD5F6DEC2B7692A7513B /* WidgetCalendarSnapshotStoreTests.swift */,
 			);
 			path = TodoMDCoreTests;
 			sourceTree = "<group>";
@@ -845,6 +853,7 @@
 				26019DDA81293898B8E46A69 /* TaskFolderLocator.swift */,
 				A87CAC8E29A08C57E594D0B3 /* TaskFolderPreferences.swift */,
 				32ED712CC56823F8F09C15E7 /* TriageRulesRepository.swift */,
+				58686F2A6E9756BF2D648FC3 /* WidgetCalendarSnapshotStore.swift */,
 			);
 			path = Storage;
 			sourceTree = "<group>";
@@ -1260,6 +1269,7 @@
 				14FBDAD4AA3317B760CE2A74 /* VoiceRambleParser.swift in Sources */,
 				51A62282EDD80A301D080D72 /* VoiceRambleSheet.swift in Sources */,
 				B5AB73393ECBA9AAE315C963 /* WeeklyReviewEngine.swift in Sources */,
+				F4E296DAD822FECE9DD9610B /* WidgetCalendarSnapshotStore.swift in Sources */,
 				E06F1A6E083493D5CC67DD77 /* YAMLValue.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1356,6 +1366,7 @@
 				6D5C60556E3CA3F4FE42733C /* VoiceRambleParser.swift in Sources */,
 				8790E9769A79A79B32EFD9F0 /* VoiceRambleSheet.swift in Sources */,
 				3047D4D85681078B84314797 /* WeeklyReviewEngine.swift in Sources */,
+				E5B96525931655345996FC50 /* WidgetCalendarSnapshotStore.swift in Sources */,
 				BFA2C46D2717F8D9674AD271 /* YAMLValue.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1409,6 +1420,7 @@
 				12F93FCE1E42D3E9B2153974 /* ViewIdentifier.swift in Sources */,
 				9B7C15E32D882302DCA16453 /* VoiceRambleParser.swift in Sources */,
 				AA4D0FE9EA23F02669F97EBA /* WeeklyReviewEngine.swift in Sources */,
+				ABFE23B9D57A57DE7E9CBB35 /* WidgetCalendarSnapshotStore.swift in Sources */,
 				6C37CF3A16705DBED1DA69CA /* YAMLValue.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1483,6 +1495,7 @@
 				8368AD24D1A90DCBDC2CE1DF /* ViewIdentifier.swift in Sources */,
 				2FDF651EAE326376221EF80F /* VoiceRambleParser.swift in Sources */,
 				FFAECB9F2377E9E6EED9E197 /* WeeklyReviewEngine.swift in Sources */,
+				729BB45057469078E938A98E /* WidgetCalendarSnapshotStore.swift in Sources */,
 				01F310A01191A782D632BA13 /* YAMLValue.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1531,6 +1544,7 @@
 				FCBD21AC5C124C9DA49C95EA /* URLRouterTests.swift in Sources */,
 				1AD04E3FC2C6D26A5536E9B9 /* VoiceRambleParserTests.swift in Sources */,
 				42E745F9AEBFC7C4594DDC9E /* WeeklyReviewEngineTests.swift in Sources */,
+				19CB9D039F85D0F2D030CBBE /* WidgetCalendarSnapshotStoreTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
