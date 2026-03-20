@@ -83,6 +83,61 @@ final class FileTaskRepositoryAndWatcherTests: XCTestCase {
         })
     }
 
+#if os(macOS)
+    func testFileWatcherIngestsExternallyCreatedTaskDuringIncrementalScan() async throws {
+        let root = try TestSupport.tempDirectory(prefix: "WatcherIncrementalCreate")
+        let repository = FileTaskRepository(rootURL: root)
+        let watcher = FileWatcherService(rootURL: root, repository: repository)
+
+        for index in 0..<129 {
+            _ = try repository.create(
+                document: .init(
+                    frontmatter: TestSupport.sampleFrontmatter(title: "Seed \(index)", source: "seed"),
+                    body: ""
+                ),
+                preferredFilename: String(format: "seed-%03d.md", index)
+            )
+        }
+
+        _ = try watcher.synchronize(now: Date())
+
+        let createdURL = root.appendingPathComponent("external-agent-task.md")
+        try """
+        ---
+        title: External Agent Task
+        status: todo
+        priority: none
+        flagged: false
+        created: "2026-03-20T12:00:00.000Z"
+        source: codex-agent
+        ---
+        """.write(to: createdURL, atomically: true, encoding: .utf8)
+
+        var ingestedPaths: Set<String> = []
+        var ingestedRecords: [TaskRecord] = []
+
+        for attempt in 0..<20 {
+            if attempt > 0 {
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+
+            let sync = try watcher.synchronize(now: Date().addingTimeInterval(Double(attempt + 1)))
+            ingestedRecords = sync.records
+            ingestedPaths = Set(sync.records.map(\.identity.path))
+
+            if ingestedPaths.contains(createdURL.path) {
+                break
+            }
+        }
+
+        XCTAssertTrue(ingestedPaths.contains(createdURL.path))
+        XCTAssertEqual(
+            ingestedRecords.first(where: { $0.identity.path == createdURL.path })?.document.frontmatter.title,
+            "External Agent Task"
+        )
+    }
+#endif
+
     func testFileWatcherSuppressesSelfWriteEchoForRecentModification() throws {
         let root = try TestSupport.tempDirectory(prefix: "WatcherSelfWrite")
         let repository = FileTaskRepository(rootURL: root)
