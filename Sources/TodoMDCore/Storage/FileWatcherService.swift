@@ -77,6 +77,11 @@ public final class FileWatcherService: @unchecked Sendable {
         let newFingerprints = discovery.fingerprints
         let changedPaths = discovery.changedPaths
         let createdPaths = discovery.createdPaths
+        let externallyCreatedPaths = createdPaths.filter { path in
+            guard let fingerprint = newFingerprints[path] else { return false }
+            return !isSelfWrite(path: path, modificationDate: fingerprint.modificationDate)
+        }
+        let pathsToParse = Array(Set(changedPaths).union(externallyCreatedPaths)).sorted()
         var events: [FileWatcherEvent] = []
         let deletedPaths = discovery.deletedPaths
 
@@ -90,15 +95,14 @@ public final class FileWatcherService: @unchecked Sendable {
         var successfulPaths: [String] = []
         var newParseDiagnostics: [ParseFailureDiagnostic] = []
 
-        let sortedChangedPaths = changedPaths.sorted()
-        for path in sortedChangedPaths where hasConflicts(at: path) {
+        for path in pathsToParse where hasConflicts(at: path) {
             events.append(.conflict(path: path, timestamp: now))
         }
         let chunks: [[String]]
         if isRateLimited {
-            chunks = sortedChangedPaths.chunked(into: max(1, rateLimitPolicy.threshold))
+            chunks = pathsToParse.chunked(into: max(1, rateLimitPolicy.threshold))
         } else {
-            chunks = [sortedChangedPaths]
+            chunks = [pathsToParse]
         }
 
         var records: [TaskRecord] = []
