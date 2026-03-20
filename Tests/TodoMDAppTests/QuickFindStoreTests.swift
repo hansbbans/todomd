@@ -275,4 +275,66 @@ struct QuickFindStoreTests {
         #expect(store2.recentSearches.first?.tintHex == "E53935")
         #expect(store2.recentSearches.first?.destination == .view("project:Italy"))
     }
+
+    @Test("pinned items persist across separate store instances using the same defaults")
+    func pin_persistsAcrossInstances() throws {
+        let (store, defaults, suiteName) = try makeStore()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let original = RecentItem(label: "Italy", icon: "folder", tintHex: "E53935", destination: .view("project:Italy"))
+        store.pin(original)
+
+        let store2 = QuickFindStore(defaults: defaults)
+        #expect(store2.pinnedSearches.count == 1)
+        #expect(store2.pinnedSearches.first?.label == "Italy")
+        #expect(store2.pinnedSearches.first?.icon == "folder")
+        #expect(store2.pinnedSearches.first?.tintHex == "E53935")
+        #expect(store2.pinnedSearches.first?.destination == .view("project:Italy"))
+    }
+
+    @Test("pinned task items persist across separate store instances using the same defaults")
+    func pin_taskPersistsAcrossInstances() throws {
+        let (store, defaults, suiteName) = try makeStore()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let original = RecentItem(
+            label: "File taxes",
+            icon: "doc.text",
+            tintHex: nil,
+            destination: .task("/tasks/file-taxes.md")
+        )
+        store.pin(original)
+
+        let store2 = QuickFindStore(defaults: defaults)
+        #expect(store2.pinnedSearches.count == 1)
+        #expect(store2.pinnedSearches.first?.label == "File taxes")
+        #expect(store2.pinnedSearches.first?.icon == "doc.text")
+        #expect(store2.pinnedSearches.first?.destination == .task("/tasks/file-taxes.md"))
+    }
+
+    @Test("shared defaults can migrate pinned items from legacy defaults")
+    func init_migratesPinnedItemsFromLegacyDefaults() throws {
+        let defaultsSuite = "QuickFindStoreTests.Shared.\(UUID().uuidString)"
+        let legacySuite = "QuickFindStoreTests.Legacy.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: defaultsSuite),
+              let legacyDefaults = UserDefaults(suiteName: legacySuite) else {
+            Issue.record("Failed to create isolated UserDefaults suites")
+            throw CancellationError()
+        }
+        defer {
+            defaults.removePersistentDomain(forName: defaultsSuite)
+            legacyDefaults.removePersistentDomain(forName: legacySuite)
+        }
+
+        let original = RecentItem(label: "Inbox", icon: "tray", tintHex: nil, destination: .view("inbox"))
+        legacyDefaults.set(try JSONEncoder().encode([original]), forKey: "quickFind.pinnedSearches")
+
+        let store = QuickFindStore(defaults: defaults, legacyDefaults: legacyDefaults)
+        #expect(store.pinnedSearches.count == 1)
+        #expect(store.pinnedSearches.first?.destination == .view("inbox"))
+
+        let store2 = QuickFindStore(defaults: defaults, legacyDefaults: nil)
+        #expect(store2.pinnedSearches.count == 1)
+        #expect(store2.pinnedSearches.first?.destination == .view("inbox"))
+    }
 }

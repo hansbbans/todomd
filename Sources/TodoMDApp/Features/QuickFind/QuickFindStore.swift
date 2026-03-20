@@ -68,11 +68,26 @@ final class QuickFindStore {
         didSet { defaults.set(recordTasks, forKey: Self.recordTasksKey) }
     }
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = TaskFolderPreferences.shared, legacyDefaults: UserDefaults? = nil) {
         self.defaults = defaults
-        self.recentSearches = Self.load([RecentItem].self, key: Self.recentKey, from: defaults)
-        self.pinnedSearches = Self.load([RecentItem].self, key: Self.pinnedKey, from: defaults)
-        self.recordTasks = defaults.object(forKey: Self.recordTasksKey) as? Bool ?? true
+        let legacyDefaults = legacyDefaults ?? Self.defaultLegacyDefaults(for: defaults)
+
+        let recentSearches = Self.load([RecentItem].self, key: Self.recentKey, from: defaults, fallback: legacyDefaults)
+        let pinnedSearches = Self.load([RecentItem].self, key: Self.pinnedKey, from: defaults, fallback: legacyDefaults)
+        let recordTasks = Self.loadBool(key: Self.recordTasksKey, from: defaults, fallback: legacyDefaults) ?? true
+
+        self.recentSearches = recentSearches.value
+        self.pinnedSearches = pinnedSearches.value
+        self.recordTasks = recordTasks
+
+        if recentSearches.didMigrate || pinnedSearches.didMigrate {
+            persist()
+        }
+        if defaults.object(forKey: Self.recordTasksKey) == nil,
+           let legacyDefaults,
+           legacyDefaults.object(forKey: Self.recordTasksKey) != nil {
+            defaults.set(recordTasks, forKey: Self.recordTasksKey)
+        }
     }
 
     // MARK: - Computed display lists
@@ -128,10 +143,35 @@ final class QuickFindStore {
         defaults.set(try? JSONEncoder().encode(pinnedSearches), forKey: Self.pinnedKey)
     }
 
-    private static func load<T: Decodable>(_ type: T.Type, key: String, from defaults: UserDefaults) -> T where T: ExpressibleByArrayLiteral {
-        guard let data = defaults.data(forKey: key),
-              let decoded = try? JSONDecoder().decode(T.self, from: data) else { return [] }
-        return decoded
+    private static func defaultLegacyDefaults(for defaults: UserDefaults) -> UserDefaults? {
+        defaults === UserDefaults.standard ? nil : .standard
+    }
+
+    private static func load<T: Decodable>(
+        _: T.Type,
+        key: String,
+        from defaults: UserDefaults,
+        fallback legacyDefaults: UserDefaults?
+    ) -> (value: T, didMigrate: Bool) where T: ExpressibleByArrayLiteral {
+        if let decoded = decode(T.self, key: key, from: defaults) {
+            return (decoded, false)
+        }
+        if let legacyDefaults, let decoded = decode(T.self, key: key, from: legacyDefaults) {
+            return (decoded, true)
+        }
+        return ([], false)
+    }
+
+    private static func loadBool(key: String, from defaults: UserDefaults, fallback legacyDefaults: UserDefaults?) -> Bool? {
+        if let value = defaults.object(forKey: key) as? Bool {
+            return value
+        }
+        return legacyDefaults?.object(forKey: key) as? Bool
+    }
+
+    private static func decode<T: Decodable>(_ type: T.Type, key: String, from defaults: UserDefaults) -> T? {
+        guard let data = defaults.data(forKey: key) else { return nil }
+        return try? JSONDecoder().decode(T.self, from: data)
     }
 
 }
