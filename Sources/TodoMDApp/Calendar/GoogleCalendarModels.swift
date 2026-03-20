@@ -26,3 +26,36 @@ struct CalendarDaySection: Identifiable, Equatable {
         String(Calendar.current.startOfDay(for: date).timeIntervalSinceReferenceDate)
     }
 }
+
+extension CalendarEventItem {
+    var widgetSnapshotValue: WidgetCalendarEventSnapshot {
+        WidgetCalendarEventSnapshot(
+            id: id,
+            calendarID: calendarID,
+            calendarName: calendarName,
+            calendarColorHex: calendarColorHex,
+            title: title,
+            startDate: startDate,
+            endDate: endDate,
+            isAllDay: isAllDay
+        )
+    }
+}
+
+extension CalendarDaySection {
+    var widgetSnapshotValue: WidgetCalendarDaySnapshot {
+        WidgetCalendarDaySnapshot(
+            day: localDate,
+            events: events.map(\.widgetSnapshotValue)
+        )
+    }
+
+    private var localDate: LocalDate {
+        let components = Calendar.current.dateComponents([.year, .month, .day], from: date)
+        return (try? LocalDate(
+            year: components.year ?? 1970,
+            month: components.month ?? 1,
+            day: components.day ?? 1
+        )) ?? .epoch
+    }
+}

@@ -441,7 +441,7 @@ struct SettingsView: View {
                     leadingRawValue: compactPrimaryTabRawValue,
                     trailingRawValue: compactSecondaryTabRawValue,
                     pomodoroEnabled: isOn,
-                    additionalViews: compactPerspectiveViews
+                    additionalViews: compactAdditionalTabViews
                 )
                 compactPrimaryTabRawValue = normalized.primary.rawValue
                 compactSecondaryTabRawValue = normalized.secondary.rawValue
@@ -844,10 +844,19 @@ struct SettingsView: View {
         container.perspectives.map { container.perspectiveViewIdentifier(for: $0.id) }
     }
 
+    private var compactProjectViews: [ViewIdentifier] {
+        container.allProjects().map(ViewIdentifier.project)
+    }
+
+    private var compactAdditionalTabViews: [ViewIdentifier] {
+        compactPerspectiveViews + compactProjectViews
+    }
+
     private var compactAvailableTabChoices: [CompactTabChoice] {
         CompactTabChoiceCatalog.availableViews(
             pomodoroEnabled: pomodoroEnabled,
-            perspectives: container.perspectives
+            perspectives: container.perspectives,
+            projects: container.allProjects()
         )
         .map { CompactTabChoiceCatalog.choice(for: $0, perspectives: container.perspectives) }
     }
@@ -857,7 +866,7 @@ struct SettingsView: View {
             leadingRawValue: compactPrimaryTabRawValue,
             trailingRawValue: compactSecondaryTabRawValue,
             pomodoroEnabled: pomodoroEnabled,
-            additionalViews: compactPerspectiveViews
+            additionalViews: compactAdditionalTabViews
         )
     }
 
@@ -907,7 +916,7 @@ struct SettingsView: View {
             leadingRawValue: slot == .primary ? newValue : compactPrimaryTabRawValue,
             trailingRawValue: slot == .secondary ? newValue : compactSecondaryTabRawValue,
             pomodoroEnabled: pomodoroEnabled,
-            additionalViews: compactPerspectiveViews
+            additionalViews: compactAdditionalTabViews
         )
         compactPrimaryTabRawValue = normalized.primary.rawValue
         compactSecondaryTabRawValue = normalized.secondary.rawValue

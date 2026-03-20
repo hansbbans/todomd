@@ -173,8 +173,12 @@ struct TodoMDTodayTomorrowWidgetEntry: TimelineEntry, Codable {
     let date: Date
     let todayCount: Int
     let tomorrowCount: Int
+    let todayEventCount: Int
+    let tomorrowEventCount: Int
     let todayTasks: [WidgetTaskItem]
     let tomorrowTasks: [WidgetTaskItem]
+    let todayEvents: [WidgetCalendarEventSnapshot]
+    let tomorrowEvents: [WidgetCalendarEventSnapshot]
 }
 
 private struct WidgetEntryCache {
@@ -215,7 +219,7 @@ private struct WidgetEntryCache {
 
 private struct TodayTomorrowWidgetEntryCache {
     private let defaults = TaskFolderPreferences.shared
-    private let key = "widget_entry_cache_today_tomorrow_v1"
+    private let key = "widget_entry_cache_today_tomorrow_v2"
 
     func load() -> TodoMDTodayTomorrowWidgetEntry? {
         guard let data = defaults.data(forKey: key) else {
@@ -304,6 +308,7 @@ private struct WidgetTaskLoader {
         let today = LocalDate.today(in: .current)
         let tomorrow = offset(today, byDays: 1)
         let records = try snapshotStore.hydrate(rootURL: root, repository: repository, mode: .optimistic).records
+        let calendarSnapshot = WidgetCalendarSnapshotStore.load()
 
         let todayIdentifier = ViewIdentifier.builtIn(.today)
         let orderedToday = manualOrderService.ordered(
@@ -315,12 +320,18 @@ private struct WidgetTaskLoader {
             .sorted { compareTomorrowRecords($0, $1, tomorrow: tomorrow) }
 
         let sanitizedLimit = max(1, min(8, maxTasksPerColumn))
+        let todayEvents = calendarSnapshot?.events(for: today) ?? []
+        let tomorrowEvents = calendarSnapshot?.events(for: tomorrow) ?? []
         return TodoMDTodayTomorrowWidgetEntry(
             date: Date(),
             todayCount: orderedToday.count,
             tomorrowCount: orderedTomorrow.count,
+            todayEventCount: todayEvents.count,
+            tomorrowEventCount: tomorrowEvents.count,
             todayTasks: map(records: orderedToday, limit: sanitizedLimit),
-            tomorrowTasks: map(records: orderedTomorrow, limit: sanitizedLimit)
+            tomorrowTasks: map(records: orderedTomorrow, limit: sanitizedLimit),
+            todayEvents: Array(todayEvents.prefix(sanitizedLimit)),
+            tomorrowEvents: Array(tomorrowEvents.prefix(sanitizedLimit))
         )
     }
 
@@ -539,6 +550,7 @@ private struct WidgetTaskLoader {
             day: shiftedComponents.day ?? date.day
         )) ?? date
     }
+
 }
 
 struct TodoMDTimelineProvider: AppIntentTimelineProvider {
@@ -688,8 +700,12 @@ struct TodayTomorrowTimelineProvider: TimelineProvider {
             date: Date(),
             todayCount: 0,
             tomorrowCount: 0,
+            todayEventCount: 0,
+            tomorrowEventCount: 0,
             todayTasks: [],
-            tomorrowTasks: []
+            tomorrowTasks: [],
+            todayEvents: [],
+            tomorrowEvents: []
         )
     }
 
@@ -703,6 +719,8 @@ struct TodayTomorrowTimelineProvider: TimelineProvider {
             date: Date(),
             todayCount: 2,
             tomorrowCount: 2,
+            todayEventCount: 1,
+            tomorrowEventCount: 1,
             todayTasks: [
                 WidgetTaskItem(id: "today-1", path: "/tmp/today-1.md", title: "Ship widget polish", status: .todo, dueISODate: nil),
                 WidgetTaskItem(id: "today-2", path: "/tmp/today-2.md", title: "Review trip budget", status: .inProgress, dueISODate: nil)
@@ -710,6 +728,30 @@ struct TodayTomorrowTimelineProvider: TimelineProvider {
             tomorrowTasks: [
                 WidgetTaskItem(id: "tomorrow-1", path: "/tmp/tomorrow-1.md", title: "Draft itinerary", status: .todo, dueISODate: "2026-03-17"),
                 WidgetTaskItem(id: "tomorrow-2", path: "/tmp/tomorrow-2.md", title: "Confirm hotel check-in", status: .todo, dueISODate: "2026-03-17")
+            ],
+            todayEvents: [
+                WidgetCalendarEventSnapshot(
+                    id: "event-today-1",
+                    calendarID: "calendar",
+                    calendarName: "Work",
+                    calendarColorHex: "#FF6B6B",
+                    title: "Design review",
+                    startDate: Date().addingTimeInterval(60 * 60),
+                    endDate: Date().addingTimeInterval(2 * 60 * 60),
+                    isAllDay: false
+                )
+            ],
+            tomorrowEvents: [
+                WidgetCalendarEventSnapshot(
+                    id: "event-tomorrow-1",
+                    calendarID: "calendar",
+                    calendarName: "Personal",
+                    calendarColorHex: "#4D96FF",
+                    title: "Dentist appointment",
+                    startDate: Date().addingTimeInterval(25 * 60 * 60),
+                    endDate: Date().addingTimeInterval(26 * 60 * 60),
+                    isAllDay: false
+                )
             ]
         )
     }
@@ -974,6 +1016,8 @@ struct TodoMDTodayTomorrowWidgetView: View {
         let headerFontSize: CGFloat
         let countFontSize: CGFloat
         let taskFontSize: CGFloat
+        let eventFontSize: CGFloat
+        let eventTimeFontSize: CGFloat
         let glyphFontSize: CGFloat
         let quickAddDiameter: CGFloat
         let quickAddGlyphSize: CGFloat
@@ -983,19 +1027,43 @@ struct TodoMDTodayTomorrowWidgetView: View {
         let padding: CGFloat
         let dividerOpacity: CGFloat
         let emptyFontSize: CGFloat
-        let tasksPerColumn: Int
+        let rowsPerColumn: Int
+        let preferredEventSlots: Int
+        let eventMarkerSize: CGFloat
+    }
+
+    private enum ColumnRow: Identifiable {
+        case task(WidgetTaskItem)
+        case event(WidgetCalendarEventSnapshot)
+
+        var id: String {
+            switch self {
+            case .task(let task):
+                return "task-\(task.id)"
+            case .event(let event):
+                return "event-\(event.id)"
+            }
+        }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: metrics.sectionSpacing) {
             HStack(alignment: .top, spacing: metrics.columnSpacing) {
-                taskColumn(title: "Today", count: entry.todayCount, tasks: displayedTodayTasks)
+                taskColumn(
+                    title: "Today",
+                    countText: countText(taskCount: entry.todayCount, eventCount: entry.todayEventCount),
+                    rows: displayedTodayRows
+                )
 
                 Rectangle()
                     .fill(textSecondary.opacity(metrics.dividerOpacity))
                     .frame(width: 1)
 
-                taskColumn(title: "Tomorrow", count: entry.tomorrowCount, tasks: displayedTomorrowTasks)
+                taskColumn(
+                    title: "Tomorrow",
+                    countText: countText(taskCount: entry.tomorrowCount, eventCount: entry.tomorrowEventCount),
+                    rows: displayedTomorrowRows
+                )
             }
 
             Spacer(minLength: 0)
@@ -1012,16 +1080,16 @@ struct TodoMDTodayTomorrowWidgetView: View {
         .widgetURL(showViewURL(rawValue: BuiltInView.today.rawValue))
     }
 
-    private var displayedTodayTasks: [WidgetTaskItem] {
-        Array(entry.todayTasks.prefix(metrics.tasksPerColumn))
+    private var displayedTodayRows: [ColumnRow] {
+        columnRows(tasks: entry.todayTasks, events: entry.todayEvents)
     }
 
-    private var displayedTomorrowTasks: [WidgetTaskItem] {
-        Array(entry.tomorrowTasks.prefix(metrics.tasksPerColumn))
+    private var displayedTomorrowRows: [ColumnRow] {
+        columnRows(tasks: entry.tomorrowTasks, events: entry.tomorrowEvents)
     }
 
     @ViewBuilder
-    private func taskColumn(title: String, count: Int, tasks: [WidgetTaskItem]) -> some View {
+    private func taskColumn(title: String, countText: String, rows: [ColumnRow]) -> some View {
         VStack(alignment: .leading, spacing: metrics.sectionSpacing) {
             HStack(spacing: 6) {
                 Text(title)
@@ -1031,20 +1099,27 @@ struct TodoMDTodayTomorrowWidgetView: View {
 
                 Spacer(minLength: 4)
 
-                Text("\(count)")
+                Text(countText)
                     .font(countFont)
                     .foregroundStyle(textSecondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
             }
 
-            if tasks.isEmpty {
-                Text("No tasks")
+            if rows.isEmpty {
+                Text("No items")
                     .font(emptyStateFont)
                     .foregroundStyle(textSecondary)
                     .lineLimit(1)
             } else {
                 VStack(alignment: .leading, spacing: metrics.rowSpacing) {
-                    ForEach(tasks) { task in
-                        taskRow(task)
+                    ForEach(rows) { row in
+                        switch row {
+                        case .task(let task):
+                            taskRow(task)
+                        case .event(let event):
+                            eventRow(event)
+                        }
                     }
                 }
             }
@@ -1085,6 +1160,27 @@ struct TodoMDTodayTomorrowWidgetView: View {
         }
     }
 
+    private func eventRow(_ event: WidgetCalendarEventSnapshot) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            Circle()
+                .fill(Color(hex: event.calendarColorHex))
+                .frame(width: metrics.eventMarkerSize, height: metrics.eventMarkerSize)
+
+            Text(eventTimeText(for: event))
+                .font(eventTimeFont)
+                .foregroundStyle(textSecondary)
+                .lineLimit(1)
+                .monospacedDigit()
+
+            Text(event.title)
+                .font(eventTitleFont)
+                .foregroundStyle(textPrimary.opacity(0.92))
+                .lineLimit(1)
+
+            Spacer(minLength: 0)
+        }
+    }
+
     private var quickAddButton: some View {
         Link(destination: quickAddURL) {
             ZStack {
@@ -1113,6 +1209,8 @@ struct TodoMDTodayTomorrowWidgetView: View {
                 headerFontSize: 19,
                 countFontSize: 18,
                 taskFontSize: 17,
+                eventFontSize: 15,
+                eventTimeFontSize: 12,
                 glyphFontSize: 17,
                 quickAddDiameter: 56,
                 quickAddGlyphSize: 29,
@@ -1122,13 +1220,17 @@ struct TodoMDTodayTomorrowWidgetView: View {
                 padding: 14,
                 dividerOpacity: 0.18,
                 emptyFontSize: 14,
-                tasksPerColumn: 6
+                rowsPerColumn: 6,
+                preferredEventSlots: 2,
+                eventMarkerSize: 7
             )
         default:
             return Metrics(
                 headerFontSize: 18,
                 countFontSize: 17,
                 taskFontSize: 16,
+                eventFontSize: 13,
+                eventTimeFontSize: 11,
                 glyphFontSize: 16,
                 quickAddDiameter: 52,
                 quickAddGlyphSize: 27,
@@ -1138,7 +1240,9 @@ struct TodoMDTodayTomorrowWidgetView: View {
                 padding: 12,
                 dividerOpacity: 0.14,
                 emptyFontSize: 13,
-                tasksPerColumn: 3
+                rowsPerColumn: 3,
+                preferredEventSlots: 1,
+                eventMarkerSize: 6
             )
         }
     }
@@ -1157,6 +1261,14 @@ struct TodoMDTodayTomorrowWidgetView: View {
 
     private var taskGlyphFont: Font {
         .system(size: metrics.glyphFontSize, weight: .regular)
+    }
+
+    private var eventTitleFont: Font {
+        .system(size: metrics.eventFontSize, weight: .regular)
+    }
+
+    private var eventTimeFont: Font {
+        .system(size: metrics.eventTimeFontSize, weight: .medium)
     }
 
     private var emptyStateFont: Font {
@@ -1197,6 +1309,44 @@ struct TodoMDTodayTomorrowWidgetView: View {
         components.host = "task"
         components.queryItems = [URLQueryItem(name: "path", value: path)]
         return components.url
+    }
+
+    private func countText(taskCount: Int, eventCount: Int) -> String {
+        switch (taskCount, eventCount) {
+        case (0, 0):
+            return "0"
+        case let (tasks, 0):
+            return "\(tasks)"
+        case let (0, events):
+            return "\(events)E"
+        case let (tasks, events):
+            return "\(tasks)T \(events)E"
+        }
+    }
+
+    private func columnRows(
+        tasks: [WidgetTaskItem],
+        events: [WidgetCalendarEventSnapshot]
+    ) -> [ColumnRow] {
+        let maxRows = metrics.rowsPerColumn
+        let reservedEventSlots = tasks.isEmpty ? maxRows : min(events.count, metrics.preferredEventSlots)
+        let taskCount = min(tasks.count, maxRows - reservedEventSlots)
+        let eventCount = min(events.count, maxRows - taskCount)
+
+        let taskRows = tasks.prefix(taskCount).map { ColumnRow.task($0) }
+        let eventRows = events.prefix(eventCount).map { ColumnRow.event($0) }
+        return taskRows + eventRows
+    }
+
+    private func eventTimeText(for event: WidgetCalendarEventSnapshot) -> String {
+        if event.isAllDay {
+            return "All day"
+        }
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "h:mm"
+        return formatter.string(from: event.startDate)
     }
 }
 

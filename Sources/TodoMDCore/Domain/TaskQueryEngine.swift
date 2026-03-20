@@ -9,6 +9,8 @@ public enum TodayGroup: String, Sendable {
 }
 
 public struct TaskQueryEngine {
+    public static let upcomingHorizonDays = 7
+
     public var calendar: Calendar
 
     public init(calendar: Calendar = .current) {
@@ -110,9 +112,10 @@ public struct TaskQueryEngine {
     public func isUpcoming(_ record: TaskRecord, today: LocalDate) -> Bool {
         guard isActive(record), isAvailableByDefer(record, today: today) else { return false }
         let frontmatter = record.document.frontmatter
+        guard let latestUpcomingDate = addingDays(Self.upcomingHorizonDays, to: today) else { return false }
 
-        if let due = frontmatter.due, due > today { return true }
-        if let scheduled = frontmatter.scheduled, scheduled > today { return true }
+        if let due = frontmatter.due, due > today, due <= latestUpcomingDate { return true }
+        if let scheduled = frontmatter.scheduled, scheduled > today, scheduled <= latestUpcomingDate { return true }
         return false
     }
 
@@ -158,5 +161,25 @@ public struct TaskQueryEngine {
     private func isAvailableByDefer(_ record: TaskRecord, today: LocalDate) -> Bool {
         guard let deferDate = record.document.frontmatter.defer else { return true }
         return deferDate <= today
+    }
+
+    private func addingDays(_ days: Int, to date: LocalDate) -> LocalDate? {
+        var components = DateComponents()
+        components.year = date.year
+        components.month = date.month
+        components.day = date.day
+        components.calendar = calendar
+
+        guard let baseDate = components.date,
+              let shiftedDate = calendar.date(byAdding: .day, value: days, to: baseDate) else {
+            return nil
+        }
+
+        let shiftedComponents = calendar.dateComponents([.year, .month, .day], from: shiftedDate)
+        return try? LocalDate(
+            year: shiftedComponents.year ?? date.year,
+            month: shiftedComponents.month ?? date.month,
+            day: shiftedComponents.day ?? date.day
+        )
     }
 }

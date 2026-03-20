@@ -6,6 +6,9 @@ import SwiftData
 #if canImport(UIKit)
 import UIKit
 #endif
+#if canImport(WidgetKit)
+import WidgetKit
+#endif
 
 struct ConflictVersionSummary: Identifiable, Equatable {
     let id: String
@@ -2828,6 +2831,9 @@ final class AppContainer: ObservableObject {
             calendarStatusMessage = error.localizedDescription
             if case AppleCalendarServiceError.accessDenied = error {
                 isCalendarConnected = false
+                calendarTodayEvents = []
+                calendarUpcomingSections = []
+                clearWidgetCalendarSnapshot()
             }
         }
         isCalendarSyncing = false
@@ -2839,6 +2845,7 @@ final class AppContainer: ObservableObject {
         guard calendarEnabled else {
             calendarTodayEvents = []
             calendarUpcomingSections = []
+            clearWidgetCalendarSnapshot()
             return
         }
 
@@ -2846,6 +2853,7 @@ final class AppContainer: ObservableObject {
             isCalendarConnected = false
             calendarTodayEvents = []
             calendarUpcomingSections = []
+            clearWidgetCalendarSnapshot()
             return
         }
 
@@ -2858,7 +2866,7 @@ final class AppContainer: ObservableObject {
 
         let calendar = Calendar.current
         let startDate = calendar.startOfDay(for: now)
-        guard let endDate = calendar.date(byAdding: .day, value: 30, to: startDate) else {
+        guard let endDate = calendar.date(byAdding: .day, value: TaskQueryEngine.upcomingHorizonDays + 1, to: startDate) else {
             return
         }
 
@@ -2896,10 +2904,14 @@ final class AppContainer: ObservableObject {
 
             calendarTodayEvents = eventsForToday(result.events, today: startDate)
             calendarUpcomingSections = groupedUpcomingSections(result.events, today: startDate)
+            saveWidgetCalendarSnapshot(capturedAt: now)
         } catch {
             calendarStatusMessage = error.localizedDescription
             if case AppleCalendarServiceError.accessDenied = error {
                 isCalendarConnected = false
+                calendarTodayEvents = []
+                calendarUpcomingSections = []
+                clearWidgetCalendarSnapshot()
             }
         }
     }
@@ -3386,6 +3398,28 @@ final class AppContainer: ObservableObject {
             return lhs.isAllDay && !rhs.isAllDay
         }
         return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+    }
+
+    private func saveWidgetCalendarSnapshot(capturedAt: Date) {
+        let snapshot = WidgetCalendarSnapshot(
+            capturedAt: capturedAt,
+            capturedDay: LocalDate.today(in: .current),
+            todayEvents: calendarTodayEvents.map(\.widgetSnapshotValue),
+            upcomingSections: calendarUpcomingSections.map(\.widgetSnapshotValue)
+        )
+        WidgetCalendarSnapshotStore.save(snapshot)
+        reloadTodayTomorrowWidgetTimeline()
+    }
+
+    private func clearWidgetCalendarSnapshot() {
+        WidgetCalendarSnapshotStore.clear()
+        reloadTodayTomorrowWidgetTimeline()
+    }
+
+    private func reloadTodayTomorrowWidgetTimeline() {
+#if canImport(WidgetKit)
+        WidgetCenter.shared.reloadTimelines(ofKind: "TodoMDTodayTomorrowWidget")
+#endif
     }
 
     private func migrateLegacyPerspectivesFromSettingsIfNeeded() {

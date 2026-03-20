@@ -17,11 +17,13 @@ struct CompactTabChoice: Identifiable, Hashable {
 enum CompactTabChoiceCatalog {
     static func availableViews(
         pomodoroEnabled: Bool,
-        perspectives: [PerspectiveDefinition]
+        perspectives: [PerspectiveDefinition],
+        projects: [String]
     ) -> [ViewIdentifier] {
         CompactTabSettings.availableCustomViews(
             pomodoroEnabled: pomodoroEnabled,
             additionalViews: perspectives.map { .custom("perspective:\($0.id)") }
+                + projects.map(ViewIdentifier.project)
         )
     }
 
