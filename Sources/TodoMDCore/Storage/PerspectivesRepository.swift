@@ -27,12 +27,10 @@ public struct PerspectivesRepository {
         let order = object["order"] as? [String] ?? []
 
         var perspectives: [String: PerspectiveDefinition] = [:]
+        let decoder = JSONDecoder()
         if let mapped = object["perspectives"] as? [String: Any] {
-            let decoder = JSONDecoder()
             for (id, rawPerspective) in mapped {
-                guard JSONSerialization.isValidJSONObject(rawPerspective),
-                      let perspectiveData = try? JSONSerialization.data(withJSONObject: rawPerspective),
-                      var perspective = try? decoder.decode(PerspectiveDefinition.self, from: perspectiveData) else {
+                guard var perspective = decodePerspective(rawPerspective, decoder: decoder) else {
                     continue
                 }
                 if perspective.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -41,11 +39,8 @@ public struct PerspectivesRepository {
                 perspectives[perspective.id] = perspective
             }
         } else if let legacyArray = object["perspectives"] as? [Any] {
-            let decoder = JSONDecoder()
             for rawPerspective in legacyArray {
-                guard JSONSerialization.isValidJSONObject(rawPerspective),
-                      let perspectiveData = try? JSONSerialization.data(withJSONObject: rawPerspective),
-                      let perspective = try? decoder.decode(PerspectiveDefinition.self, from: perspectiveData) else {
+                guard let perspective = decodePerspective(rawPerspective, decoder: decoder) else {
                     continue
                 }
                 perspectives[perspective.id] = perspective
@@ -131,6 +126,15 @@ public struct PerspectivesRepository {
             try? fileManager.removeItem(at: tempURL)
             throw TaskError.ioFailure("Failed to write .perspectives.json: \(error.localizedDescription)")
         }
+    }
+
+    private func decodePerspective(_ rawPerspective: Any, decoder: JSONDecoder) -> PerspectiveDefinition? {
+        guard JSONSerialization.isValidJSONObject(rawPerspective),
+              let perspectiveData = try? JSONSerialization.data(withJSONObject: rawPerspective),
+              let perspective = try? decoder.decode(PerspectiveDefinition.self, from: perspectiveData) else {
+            return nil
+        }
+        return perspective
     }
 
 }
