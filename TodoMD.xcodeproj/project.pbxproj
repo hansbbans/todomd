@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 63;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -115,15 +115,17 @@
 		48EB79BCA29F5060B4070D5A /* FileWatcherService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FF77E6D6A02B490F11AE564 /* FileWatcherService.swift */; };
 		4E59AA70A653B0986F4188CA /* NaturalLanguageDateParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62B34FEF46221AD741666760 /* NaturalLanguageDateParser.swift */; };
 		4F05CDA94CEE69ECD1F3A5A6 /* ProjectMetadataDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 002543D3C86B80426D9DD486 /* ProjectMetadataDocument.swift */; };
+		4FC676C9C85B9518933EAA12 /* LogbookSearchEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15D4A51F9BDC65F03F25F2EF /* LogbookSearchEngine.swift */; };
 		51A62282EDD80A301D080D72 /* VoiceRambleSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8842943B4F3C24548B8355C9 /* VoiceRambleSheet.swift */; };
 		53E161B627C3FA7A31B5093E /* TodoMDWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5AA5AC6D88A8E18B72F82ED4 /* TodoMDWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		541666ED7001211B69842CED /* QuickFindCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F367D745A31232B0F9167BA7 /* QuickFindCard.swift */; };
 		552C8178471ED179BD7F6F5C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FE9945E912372CDC9EE95775 /* Assets.xcassets */; };
 		55FDA79349DA8EBDE43E6E42 /* ToolbarPlacement+Platform.swift in Sources */ = {isa = PBXBuildFile; fileRef = A439E9DDD14A0A281A9B5ADA /* ToolbarPlacement+Platform.swift */; };
 		560B732FB62B4631051E636C /* RecurrenceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAC3117367C2C2A844C8B3E9 /* RecurrenceService.swift */; };
 		5714A6F46DA24A92E698FCE5 /* BuiltInView+Display.swift in Sources */ = {isa = PBXBuildFile; fileRef = F387E447C994E4A5B9425DD3 /* BuiltInView+Display.swift */; };
-		58469FB510D143F499CD6879853583C7 /* QuickFindCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 888BFA4A4EF248F8A203F948FA996098 /* QuickFindCard.swift */; };
 		585D10193D32C68C50AF1566 /* UnparseableFilesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26BDD4D968F473E179559440 /* UnparseableFilesView.swift */; };
 		590354A5503D958764690EE7 /* ExpandedTaskConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26DC654BE22CCC66514C29D8 /* ExpandedTaskConfiguration.swift */; };
+		59202631D9E4D99D3A0B1917 /* TaskChecklistMarkdownTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 612B8EC6A093F1888B0C3F27 /* TaskChecklistMarkdownTests.swift */; };
 		593081F74A9D0B8287BEDB96 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A046B1C5FE123835D2A30C64 /* OnboardingView.swift */; };
 		5938032A5F91A3F8DFE25483 /* PerspectivesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C55A88FBCCFA1897CD290AB2 /* PerspectivesView.swift */; };
 		59653B4011F21B82C4FB23EA /* ThemeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7EC59A2C6C885C3FC2C01AC /* ThemeManager.swift */; };
@@ -139,10 +141,12 @@
 		63D5BE0EEB81830BEDD2CF56 /* SecurityAndPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3547AD004598FCAE14764EA /* SecurityAndPerformanceTests.swift */; };
 		640A6C41EF8813D7842EF159 /* TaskMarkdownCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD8702E9A35B50C6DC6E0A59 /* TaskMarkdownCodec.swift */; };
 		6419DA45FA79282A23E27B67 /* TaskFileIO.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3F3FE6B980EA1FA451DA51F /* TaskFileIO.swift */; };
+		6450CDD3B72AE4964FC14E2C /* LogbookSearchEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15D4A51F9BDC65F03F25F2EF /* LogbookSearchEngine.swift */; };
 		65190A58E11D3D847CDFC242 /* FileWatcherEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BBAD8557DA5615431D5712B /* FileWatcherEvent.swift */; };
 		65FE489B738D6B34BD54FF33 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 1DFA6040C7117C0994975696 /* LaunchScreen.storyboard */; };
 		669B41A4C7EEDBDC00750C0E /* TaskMetadataIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62DA532BFF4ACE698347D0F7 /* TaskMetadataIndex.swift */; };
 		69EF7C267C4BD85B73E82C2A /* ScalarTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AAFC3FB3859DBCEAF071F29 /* ScalarTypes.swift */; };
+		6A0A485ABD0D4CB88FB65F4B /* TaskLifecycleServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7E2C32A1868654D73CCAFAE /* TaskLifecycleServiceTests.swift */; };
 		6A89C2D3B7C052DAE324E076 /* NaturalLanguageTaskParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70E4735EAF172C5DD227F11E /* NaturalLanguageTaskParser.swift */; };
 		6AAE84DE875DDE0D16684E6B /* ViewIdentifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E64DE1CD716083977227234 /* ViewIdentifier.swift */; };
 		6AD6F875EAF92A92885801D9 /* TaskFileIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A663CE0F8831EFB6579912DD /* TaskFileIdentity.swift */; };
@@ -153,7 +157,6 @@
 		6D5C60556E3CA3F4FE42733C /* VoiceRambleParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FB05ACF3871CAD533208584 /* VoiceRambleParser.swift */; };
 		6DDA2EE85B50080B8EE54E1E /* TaskLifecycleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64FD096FD3685051C3EFFE16 /* TaskLifecycleService.swift */; };
 		6FF10D9E0B12F5D030EF2F3E /* PendingWriteJournal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B33F7915C3061E9C6DBA2DC /* PendingWriteJournal.swift */; };
-		6e2f2d089c8247ef92cd10819daa4045 /* AppContainerProgressTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06d516097d75419a94110e3c49fc2812 /* AppContainerProgressTests.swift */; };
 		719C2BB870ADD08E490B23AD /* AppContainerProjectAssignmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA013479CB9D38EA88C3D4F2 /* AppContainerProjectAssignmentTests.swift */; };
 		71F8998BB99286F42F9E0DAD /* ManualOrderService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA40BA2593B0A5817CB77690 /* ManualOrderService.swift */; };
 		72A7D87BB1E3EBDA38704A47 /* TaskRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = B39B155FF663EFDF12B1E158 /* TaskRecord.swift */; };
@@ -171,6 +174,7 @@
 		78BD9DF462E696A6D9399B8C /* Diagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D08ED841E6B86D3499C2930 /* Diagnostics.swift */; };
 		799844A4AE87A8D2B0AEB815 /* FileTaskRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FDE48A2DD1A7C5DB7AD1FC4 /* FileTaskRepository.swift */; };
 		79DA47A995D6801C136E9A5B /* CalendarIntegrationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B28A19E178E17A7A8D2A33BC /* CalendarIntegrationManager.swift */; };
+		79E9B762F64EE0E627EB9E33 /* AppContainerProgressTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40A168D6D1E3A7A988156B23 /* AppContainerProgressTests.swift */; };
 		7ACD1FAD9BA4EF033085D7FA /* ManualOrderService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA40BA2593B0A5817CB77690 /* ManualOrderService.swift */; };
 		7B3C5D493320E5CE88AF83C9 /* InboxTriageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06CD181104B5C469205FE442 /* InboxTriageView.swift */; };
 		7BE4977F83A2397690A5CA05 /* FileWatcherService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FF77E6D6A02B490F11AE564 /* FileWatcherService.swift */; };
@@ -206,6 +210,8 @@
 		9B7C15E32D882302DCA16453 /* VoiceRambleParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FB05ACF3871CAD533208584 /* VoiceRambleParser.swift */; };
 		9CF1D71EF770677F88EFD967 /* PerspectiveQueryEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE11CD6CBBDA75FCEF9B5016 /* PerspectiveQueryEngine.swift */; };
 		9D72B698F6EBD150D9F8E139 /* TaskLifecycleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64FD096FD3685051C3EFFE16 /* TaskLifecycleService.swift */; };
+		9E1FCC213D6317298BB6C034 /* LogbookSearchEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15D4A51F9BDC65F03F25F2EF /* LogbookSearchEngine.swift */; };
+		9EE1788E4DD375DB891EB76A /* AppContainerDuplicateTaskTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 920D398ABDEC1501429B792F /* AppContainerDuplicateTaskTests.swift */; };
 		9F55FFB11431E43A3FF51E21 /* TaskSourceAttributionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52BE57D402F4B071F7ADB5F5 /* TaskSourceAttributionTests.swift */; };
 		A000B79EBE2D37BAB2D67580 /* NotificationTimePreferenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA90D5FBE1A233FD4014182C /* NotificationTimePreferenceTests.swift */; };
 		A0528EA691A61262ABB22417 /* RootNavigationCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9A94C82FE921590FB97500D /* RootNavigationCatalogTests.swift */; };
@@ -224,9 +230,9 @@
 		A863AAC61AE233BD54EE6C06 /* NotificationActionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C48542C05CDBE5E0A330FDF0 /* NotificationActionCoordinator.swift */; };
 		AA4D0FE9EA23F02669F97EBA /* WeeklyReviewEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B6C0BE73203312AB750876B /* WeeklyReviewEngine.swift */; };
 		AAD88A27BCD437AA7775FCB8 /* RuntimeLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1536030049BF3A64978D79E /* RuntimeLogger.swift */; };
+		AADC25C284D351DB271F5DDA /* LogbookSearchEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15D4A51F9BDC65F03F25F2EF /* LogbookSearchEngine.swift */; };
 		ABC7EC79BCE8F18B84F3728C /* TodoMDAppUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 016F4E437E77C3A7C04F9ABF /* TodoMDAppUITests.swift */; };
 		AC48C658E01E53BD4A6786A5 /* FileWatcherEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BBAD8557DA5615431D5712B /* FileWatcherEvent.swift */; };
-		AD08C861B64B4C908E1CE1E74535FE42 /* QuickFindCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 888BFA4A4EF248F8A203F948FA996098 /* QuickFindCard.swift */; };
 		AD47977A4D3FB13B90D1328C /* PerspectivesRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06E2805CDE88DB33A6DAA7BA /* PerspectivesRepository.swift */; };
 		AD586B45099B318D0FC07632 /* NaturalLanguageTaskParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70E4735EAF172C5DD227F11E /* NaturalLanguageTaskParser.swift */; };
 		ADF5069A24DA9EED7D1155C8 /* PerspectivesDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0895B0414A63242E2DC65BD5 /* PerspectivesDocument.swift */; };
@@ -309,7 +315,9 @@
 		EC2075FB17E1E7FF3481287A /* FileWatcherService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FF77E6D6A02B490F11AE564 /* FileWatcherService.swift */; };
 		EC6AB8F9131171CB181400C2 /* NotificationPlannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D7D9F3BCA10233A7D7B1198 /* NotificationPlannerTests.swift */; };
 		EC72D0219A3D8BA1B6D9A0D4 /* InboxTriageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06CD181104B5C469205FE442 /* InboxTriageView.swift */; };
+		ECFDA60E423006EDAB3DE3D1 /* LogbookSearchEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E583CE486B83473CAA8659F6 /* LogbookSearchEngineTests.swift */; };
 		ED317DD519D5B222C58A3598 /* RootNavigationCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6610505BFF0970DD488B404A /* RootNavigationCatalog.swift */; };
+		EE1716EADF9C5B42894B6687 /* QuickFindCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F367D745A31232B0F9167BA7 /* QuickFindCard.swift */; };
 		EE9C7371A07B6F5F70BBC499 /* SyncScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8CB6EFB646E5012220B7C7B /* SyncScheduler.swift */; };
 		EEE0876E47F414659742B925 /* PerspectivesDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0895B0414A63242E2DC65BD5 /* PerspectivesDocument.swift */; };
 		F240F8EE791C34A833A3389B /* TaskSourceAttribution.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3E040C1C7C81C1A130FE445 /* TaskSourceAttribution.swift */; };
@@ -392,9 +400,10 @@
 		09D62AAF099BE714A7A87240 /* YAMLValue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YAMLValue.swift; sourceTree = "<group>"; };
 		0C7E95727AD686EDD3808AAF /* NotificationPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPlanner.swift; sourceTree = "<group>"; };
 		0D4C01236146318A710F6F96 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		0E09622DE81AE3C91712B2EA /* TodoMDShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TodoMDShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		0E09622DE81AE3C91712B2EA /* TodoMDShareExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = TodoMDShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		0EEB4C61B9FA6BD89EA420AE /* TodoMDApp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TodoMDApp.entitlements; sourceTree = "<group>"; };
 		1246AB062AA424688F48A53B /* QuickFindStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickFindStoreTests.swift; sourceTree = "<group>"; };
+		15D4A51F9BDC65F03F25F2EF /* LogbookSearchEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogbookSearchEngine.swift; sourceTree = "<group>"; };
 		19B38D18ACEFD019EA557BFB /* DebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugView.swift; sourceTree = "<group>"; };
 		1B8F45D517B09A5D5AFA1EC4 /* JSONValue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONValue.swift; sourceTree = "<group>"; };
 		1BBAD8557DA5615431D5712B /* FileWatcherEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileWatcherEvent.swift; sourceTree = "<group>"; };
@@ -421,6 +430,7 @@
 		3FB05ACF3871CAD533208584 /* VoiceRambleParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceRambleParser.swift; sourceTree = "<group>"; };
 		3FBDB655875F9BCCB08FB4AE /* VoiceRambleParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceRambleParserTests.swift; sourceTree = "<group>"; };
 		3FC793DF9AD84F52D9D31E0B /* CompactTabChoiceCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompactTabChoiceCatalog.swift; sourceTree = "<group>"; };
+		40A168D6D1E3A7A988156B23 /* AppContainerProgressTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppContainerProgressTests.swift; sourceTree = "<group>"; };
 		41CDF4940C66BE3F5B035C23 /* CalendarAccessAuthorizing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarAccessAuthorizing.swift; sourceTree = "<group>"; };
 		45285C8C62FCC25C222C4668 /* IntegrationScenarioTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationScenarioTests.swift; sourceTree = "<group>"; };
 		4A86E6BF6B1F2F48066156B9 /* ProjectTriageSuggestionEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectTriageSuggestionEngineTests.swift; sourceTree = "<group>"; };
@@ -432,11 +442,12 @@
 		56FFAF6DBC4A59A8501C7F75 /* QuickFindStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickFindStore.swift; sourceTree = "<group>"; };
 		5A3DF100D74F0478D534DEFE /* AppleCalendarService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleCalendarService.swift; sourceTree = "<group>"; };
 		5A604671F22BE76296C1EF55 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		5AA5AC6D88A8E18B72F82ED4 /* TodoMDWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TodoMDWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		5AA5AC6D88A8E18B72F82ED4 /* TodoMDWidgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = TodoMDWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		5C004BFB37BB057354757BE1 /* TODO-widget-shared-storage.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "TODO-widget-shared-storage.md"; sourceTree = "<group>"; };
 		5C5590ACCD1082674490FB7D /* DateChooserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateChooserView.swift; sourceTree = "<group>"; };
 		5D8F77F42CDAD540F33ACC08 /* PerspectivesRepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerspectivesRepositoryTests.swift; sourceTree = "<group>"; };
 		5EECC60DF983568B4782CFCE /* OrderRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrderRepository.swift; sourceTree = "<group>"; };
+		612B8EC6A093F1888B0C3F27 /* TaskChecklistMarkdownTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskChecklistMarkdownTests.swift; sourceTree = "<group>"; };
 		62B34FEF46221AD741666760 /* NaturalLanguageDateParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NaturalLanguageDateParser.swift; sourceTree = "<group>"; };
 		62DA532BFF4ACE698347D0F7 /* TaskMetadataIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskMetadataIndex.swift; sourceTree = "<group>"; };
 		64FD096FD3685051C3EFFE16 /* TaskLifecycleService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskLifecycleService.swift; sourceTree = "<group>"; };
@@ -465,7 +476,7 @@
 		8259383F817A2E4856CC4845 /* RecurrenceServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecurrenceServiceTests.swift; sourceTree = "<group>"; };
 		863F54E44BD921B968B8DFB1 /* TaskIndexRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskIndexRecord.swift; sourceTree = "<group>"; };
 		8842943B4F3C24548B8355C9 /* VoiceRambleSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceRambleSheet.swift; sourceTree = "<group>"; };
-		888BFA4A4EF248F8A203F948FA996098 /* QuickFindCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickFindCard.swift; sourceTree = "<group>"; };
+		920D398ABDEC1501429B792F /* AppContainerDuplicateTaskTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppContainerDuplicateTaskTests.swift; sourceTree = "<group>"; };
 		9375254F5FA814210CAC9A13 /* TaskFilenameGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskFilenameGenerator.swift; sourceTree = "<group>"; };
 		9534A04F75287E4E846A83C5 /* TaskFilenameGeneratorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskFilenameGeneratorTests.swift; sourceTree = "<group>"; };
 		98639B01A97BD10D12C75CD3 /* TriageRulesDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TriageRulesDocument.swift; sourceTree = "<group>"; };
@@ -481,7 +492,6 @@
 		A663CE0F8831EFB6579912DD /* TaskFileIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskFileIdentity.swift; sourceTree = "<group>"; };
 		A75839B6B92A8669B0E686C3 /* ProjectMetadataRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectMetadataRepository.swift; sourceTree = "<group>"; };
 		A87CAC8E29A08C57E594D0B3 /* TaskFolderPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskFolderPreferences.swift; sourceTree = "<group>"; };
-		06d516097d75419a94110e3c49fc2812 /* AppContainerProgressTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppContainerProgressTests.swift; sourceTree = "<group>"; };
 		AA013479CB9D38EA88C3D4F2 /* AppContainerProjectAssignmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppContainerProjectAssignmentTests.swift; sourceTree = "<group>"; };
 		ABCB56B0C11890AF459AF643 /* QuickEntryConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickEntryConfiguration.swift; sourceTree = "<group>"; };
 		AC1579F964253FEB1B41FCB9 /* UserNotificationSchedulerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserNotificationSchedulerTests.swift; sourceTree = "<group>"; };
@@ -504,7 +514,7 @@
 		C4E2BFCBD61CB66DDF04581D /* PomodoroTimerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PomodoroTimerView.swift; sourceTree = "<group>"; };
 		C55A88FBCCFA1897CD290AB2 /* PerspectivesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerspectivesView.swift; sourceTree = "<group>"; };
 		C5B0360DDF96D21AAA4FD8A3 /* CodecPropertyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodecPropertyTests.swift; sourceTree = "<group>"; };
-		C7033CCF174946FBA61A5A9B /* TodoMD.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = TodoMD.app; path = TodoMDMacApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C7033CCF174946FBA61A5A9B /* TodoMD.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TodoMD.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C8CB6EFB646E5012220B7C7B /* SyncScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncScheduler.swift; sourceTree = "<group>"; };
 		CBC13596BB53C1BC01A6E6BD /* ReminderCalendarPermissionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReminderCalendarPermissionCoordinator.swift; sourceTree = "<group>"; };
 		CD4A6973D9349B5F64E6D257 /* TaskFolderLocatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskFolderLocatorTests.swift; sourceTree = "<group>"; };
@@ -518,14 +528,17 @@
 		E250F43302A846CE8279AEB6 /* AppleCalendarServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleCalendarServiceTests.swift; sourceTree = "<group>"; };
 		E33A00D8631273515F19FDA3 /* NaturalLanguageDateParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NaturalLanguageDateParserTests.swift; sourceTree = "<group>"; };
 		E3F3FE6B980EA1FA451DA51F /* TaskFileIO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskFileIO.swift; sourceTree = "<group>"; };
+		E583CE486B83473CAA8659F6 /* LogbookSearchEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogbookSearchEngineTests.swift; sourceTree = "<group>"; };
 		E9450CD4323029EE1E1CDC41 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		E9A94C82FE921590FB97500D /* RootNavigationCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootNavigationCatalogTests.swift; sourceTree = "<group>"; };
 		EAC3117367C2C2A844C8B3E9 /* RecurrenceService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecurrenceService.swift; sourceTree = "<group>"; };
 		EE0354BFD260A3CD78AE09FD /* TaskValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskValidation.swift; sourceTree = "<group>"; };
-		F26DFCD494FEA0D69C5C16BC /* TodoMDApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TodoMDApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F26DFCD494FEA0D69C5C16BC /* TodoMDApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = TodoMDApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F2D180178D92493DC79037FE /* QuickEntrySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickEntrySheet.swift; sourceTree = "<group>"; };
+		F367D745A31232B0F9167BA7 /* QuickFindCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickFindCard.swift; sourceTree = "<group>"; };
 		F387E447C994E4A5B9425DD3 /* BuiltInView+Display.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BuiltInView+Display.swift"; sourceTree = "<group>"; };
 		F5460E1202F069783CDF869B /* URLRouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLRouterTests.swift; sourceTree = "<group>"; };
+		F7E2C32A1868654D73CCAFAE /* TaskLifecycleServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskLifecycleServiceTests.swift; sourceTree = "<group>"; };
 		F7EC59A2C6C885C3FC2C01AC /* ThemeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeManager.swift; sourceTree = "<group>"; };
 		FA40BA2593B0A5817CB77690 /* ManualOrderService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualOrderService.swift; sourceTree = "<group>"; };
 		FA86B17396D04C903A974AC3 /* OrderDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrderDocument.swift; sourceTree = "<group>"; };
@@ -715,6 +728,7 @@
 		3AC226831DB80926F9A529A8 /* Domain */ = {
 			isa = PBXGroup;
 			children = (
+				15D4A51F9BDC65F03F25F2EF /* LogbookSearchEngine.swift */,
 				BE11CD6CBBDA75FCEF9B5016 /* PerspectiveQueryEngine.swift */,
 				CDBEBE2FF15BD50A4860572E /* ProjectTriageSuggestionEngine.swift */,
 				EAC3117367C2C2A844C8B3E9 /* RecurrenceService.swift */,
@@ -785,6 +799,7 @@
 				9B45972D341CEC1C9E759700 /* CompactTabSettingsTests.swift */,
 				2EA98FF4E783E692B5A3980B /* FileTaskRepositoryAndWatcherTests.swift */,
 				45285C8C62FCC25C222C4668 /* IntegrationScenarioTests.swift */,
+				E583CE486B83473CAA8659F6 /* LogbookSearchEngineTests.swift */,
 				7C96CFADE4906D564DBE8015 /* ManualOrderServiceTests.swift */,
 				E33A00D8631273515F19FDA3 /* NaturalLanguageDateParserTests.swift */,
 				B042F1A3FF1C203B53D2D32A /* NaturalLanguageParserHardeningTests.swift */,
@@ -799,8 +814,10 @@
 				A52DF31ED362F9E554A4C7F3 /* RecurrencePropertyTests.swift */,
 				8259383F817A2E4856CC4845 /* RecurrenceServiceTests.swift */,
 				A3547AD004598FCAE14764EA /* SecurityAndPerformanceTests.swift */,
+				612B8EC6A093F1888B0C3F27 /* TaskChecklistMarkdownTests.swift */,
 				9534A04F75287E4E846A83C5 /* TaskFilenameGeneratorTests.swift */,
 				CD4A6973D9349B5F64E6D257 /* TaskFolderLocatorTests.swift */,
+				F7E2C32A1868654D73CCAFAE /* TaskLifecycleServiceTests.swift */,
 				D5A109F72061E299F30215EE /* TaskMarkdownCodecTests.swift */,
 				7175ADE65B44A53A9FAC9720 /* TaskQueryEngineTests.swift */,
 				235F2BF6ECEE4676A4AE895A /* TaskReferenceServicesTests.swift */,
@@ -877,7 +894,8 @@
 		9AFF03023840D67C4EB84991 /* TodoMDAppTests */ = {
 			isa = PBXGroup;
 			children = (
-				06d516097d75419a94110e3c49fc2812 /* AppContainerProgressTests.swift */,
+				920D398ABDEC1501429B792F /* AppContainerDuplicateTaskTests.swift */,
+				40A168D6D1E3A7A988156B23 /* AppContainerProgressTests.swift */,
 				AA013479CB9D38EA88C3D4F2 /* AppContainerProjectAssignmentTests.swift */,
 				76912621FBEE983DF8977106 /* AppIconTokenTests.swift */,
 				E250F43302A846CE8279AEB6 /* AppleCalendarServiceTests.swift */,
@@ -897,7 +915,7 @@
 		C7070191858869323F9805C2 /* QuickFind */ = {
 			isa = PBXGroup;
 			children = (
-				888BFA4A4EF248F8A203F948FA996098 /* QuickFindCard.swift */,
+				F367D745A31232B0F9167BA7 /* QuickFindCard.swift */,
 				56FFAF6DBC4A59A8501C7F75 /* QuickFindStore.swift */,
 			);
 			path = QuickFind;
@@ -1112,6 +1130,7 @@
 			packageReferences = (
 				3CF68028663F4E1E9111C32D /* XCRemoteSwiftPackageReference "Yams" */,
 			);
+			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -1175,6 +1194,7 @@
 				35C9032EAD400EA6073C7E07 /* InboxRemindersImportPanel.swift in Sources */,
 				EC72D0219A3D8BA1B6D9A0D4 /* InboxTriageView.swift in Sources */,
 				3D9D6700C6D12164D0118AAF /* JSONValue.swift in Sources */,
+				6450CDD3B72AE4964FC14E2C /* LogbookSearchEngine.swift in Sources */,
 				A4695CD720D25E28603A920E /* ManualOrderService.swift in Sources */,
 				0602F615DC338EC330B1276E /* NaturalLanguageDateParser.swift in Sources */,
 				AD586B45099B318D0FC07632 /* NaturalLanguageTaskParser.swift in Sources */,
@@ -1197,8 +1217,8 @@
 				1F31046BCDEE6753D97BA5E6 /* ProjectTriageSuggestionEngine.swift in Sources */,
 				F8D512AD707FE98B0DAB566D /* QuickEntryConfiguration.swift in Sources */,
 				A12D75D433E9E2DF525A5F4C /* QuickEntrySheet.swift in Sources */,
+				541666ED7001211B69842CED /* QuickFindCard.swift in Sources */,
 				3E381011A0F3E94564C580E5 /* QuickFindStore.swift in Sources */,
-				58469FB510D143F499CD6879853583C7 /* QuickFindCard.swift in Sources */,
 				43B961A6E2DE1D5D0DD8F8AE /* RecurrenceService.swift in Sources */,
 				0DD62607318C835364F22AAE /* ReminderAccessStatus.swift in Sources */,
 				A60F279E87FA2CAEB0F84EAF /* ReminderCalendarPermissionCoordinator.swift in Sources */,
@@ -1270,6 +1290,7 @@
 				021E7FA61BD28FD396C3E65D /* InboxRemindersImportPanel.swift in Sources */,
 				7B3C5D493320E5CE88AF83C9 /* InboxTriageView.swift in Sources */,
 				25212783D2911EB494BEED33 /* JSONValue.swift in Sources */,
+				9E1FCC213D6317298BB6C034 /* LogbookSearchEngine.swift in Sources */,
 				71F8998BB99286F42F9E0DAD /* ManualOrderService.swift in Sources */,
 				7328C147CCB70FACCF604B84 /* NaturalLanguageDateParser.swift in Sources */,
 				42EB0FA50AE442DCD1F9B596 /* NaturalLanguageTaskParser.swift in Sources */,
@@ -1292,8 +1313,8 @@
 				91D1D5B5C03BD19598365DBF /* ProjectTriageSuggestionEngine.swift in Sources */,
 				E41057ADFA2D4DE00D64033D /* QuickEntryConfiguration.swift in Sources */,
 				76B6B27B85D20FA32850B660 /* QuickEntrySheet.swift in Sources */,
+				EE1716EADF9C5B42894B6687 /* QuickFindCard.swift in Sources */,
 				DED205714A030F055AB69E2F /* QuickFindStore.swift in Sources */,
-				AD08C861B64B4C908E1CE1E74535FE42 /* QuickFindCard.swift in Sources */,
 				D7462C8ECE9F6875E8FCCB17 /* RecurrenceService.swift in Sources */,
 				0F98B2E33F3FF8FE2AF0FF45 /* ReminderAccessStatus.swift in Sources */,
 				45B2C5EF4B0BC698D7EFBA91 /* ReminderCalendarPermissionCoordinator.swift in Sources */,
@@ -1349,6 +1370,7 @@
 				40F56FF4948E71E8529F03F2 /* FileWatcherEvent.swift in Sources */,
 				7BE4977F83A2397690A5CA05 /* FileWatcherService.swift in Sources */,
 				E9802B764D1692B457C50E09 /* JSONValue.swift in Sources */,
+				4FC676C9C85B9518933EAA12 /* LogbookSearchEngine.swift in Sources */,
 				7ACD1FAD9BA4EF033085D7FA /* ManualOrderService.swift in Sources */,
 				A0EAC0E3AE1E5F645AB8D969 /* NaturalLanguageDateParser.swift in Sources */,
 				6A89C2D3B7C052DAE324E076 /* NaturalLanguageTaskParser.swift in Sources */,
@@ -1395,7 +1417,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				6e2f2d089c8247ef92cd10819daa4045 /* AppContainerProgressTests.swift in Sources */,
+				9EE1788E4DD375DB891EB76A /* AppContainerDuplicateTaskTests.swift in Sources */,
+				79E9B762F64EE0E627EB9E33 /* AppContainerProgressTests.swift in Sources */,
 				719C2BB870ADD08E490B23AD /* AppContainerProjectAssignmentTests.swift in Sources */,
 				A2DA8DC806B2B1C8249BC83F /* AppIconTokenTests.swift in Sources */,
 				90B1691D10BCB08A2EC48375 /* AppleCalendarServiceTests.swift in Sources */,
@@ -1421,6 +1444,7 @@
 				A6A8284925277D1245660728 /* FileWatcherEvent.swift in Sources */,
 				EC2075FB17E1E7FF3481287A /* FileWatcherService.swift in Sources */,
 				7EABB18B02F1AADD6765C97E /* JSONValue.swift in Sources */,
+				AADC25C284D351DB271F5DDA /* LogbookSearchEngine.swift in Sources */,
 				8E16224B3AF4C55112952FC6 /* ManualOrderService.swift in Sources */,
 				4E59AA70A653B0986F4188CA /* NaturalLanguageDateParser.swift in Sources */,
 				2C84A21D680F48AD93A2A049 /* NaturalLanguageTaskParser.swift in Sources */,
@@ -1479,6 +1503,7 @@
 				D782C37DD9823A866758A592 /* CompactTabSettingsTests.swift in Sources */,
 				90E1C88B8FF7C6F96351C7F9 /* FileTaskRepositoryAndWatcherTests.swift in Sources */,
 				0EDE3758E48DF53892BD1192 /* IntegrationScenarioTests.swift in Sources */,
+				ECFDA60E423006EDAB3DE3D1 /* LogbookSearchEngineTests.swift in Sources */,
 				456D403DA748CEB57D1D27EF /* ManualOrderServiceTests.swift in Sources */,
 				47A1AE49712F37A509FCECA8 /* NaturalLanguageDateParserTests.swift in Sources */,
 				E93A521697C4C914E46EE794 /* NaturalLanguageParserHardeningTests.swift in Sources */,
@@ -1493,8 +1518,10 @@
 				FB12620F8D4B6437690A4C3C /* RecurrencePropertyTests.swift in Sources */,
 				D5EC8FAC98EDECF372A84A53 /* RecurrenceServiceTests.swift in Sources */,
 				63D5BE0EEB81830BEDD2CF56 /* SecurityAndPerformanceTests.swift in Sources */,
+				59202631D9E4D99D3A0B1917 /* TaskChecklistMarkdownTests.swift in Sources */,
 				13F33A501FB769FC623E1ED7 /* TaskFilenameGeneratorTests.swift in Sources */,
 				7DA221934C8708C6C05B439D /* TaskFolderLocatorTests.swift in Sources */,
+				6A0A485ABD0D4CB88FB65F4B /* TaskLifecycleServiceTests.swift in Sources */,
 				BF0A20576C41FE1499FCFE14 /* TaskMarkdownCodecTests.swift in Sources */,
 				B6E13C139024F1AF12754586 /* TaskQueryEngineTests.swift in Sources */,
 				FEB5E5FDC804EE8D619C009D /* TaskReferenceServicesTests.swift in Sources */,
@@ -1561,11 +1588,19 @@
 				CODE_SIGN_ENTITLEMENTS = Sources/TodoMDApp/TodoMDApp.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 58F3F2UZ62;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = com.hans.todomd.notifications.refresh;
+				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = (
+					com.hans.todomd.notifications.refresh,
+				);
 				INFOPLIST_KEY_CFBundleDisplayName = todo.md;
-				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleURLName = \"com.hans.todomd\";\n    CFBundleURLSchemes =     (\n        todomd\n    );\n}";
+				INFOPLIST_KEY_CFBundleURLTypes = (
+					{
+						CFBundleURLName = com.hans.todomd;
+						CFBundleURLSchemes = (
+							todomd,
+						);
+					},
+				);
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "todo.md uses Calendar access to show your events in Today and Upcoming.";
@@ -1573,11 +1608,27 @@
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "todo.md uses the microphone so you can dictate multiple tasks with voice ramble.";
 				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "todo.md imports tasks from Apple Reminders when you run the import.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "todo.md uses speech recognition to transcribe voice ramble into structured tasks.";
-				INFOPLIST_KEY_UIBackgroundModes = fetch;
+				INFOPLIST_KEY_UIBackgroundModes = (
+					fetch,
+				);
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = (
+					UIInterfaceOrientationPortrait,
+					UIInterfaceOrientationPortraitUpsideDown,
+					UIInterfaceOrientationLandscapeLeft,
+					UIInterfaceOrientationLandscapeRight,
+				);
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = (
+					UIInterfaceOrientationPortrait,
+					UIInterfaceOrientationPortraitUpsideDown,
+					UIInterfaceOrientationLandscapeLeft,
+					UIInterfaceOrientationLandscapeRight,
+				);
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = (
+					UIInterfaceOrientationPortrait,
+					UIInterfaceOrientationLandscapeLeft,
+					UIInterfaceOrientationLandscapeRight,
+				);
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1625,7 +1676,6 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = Sources/TodoMDWidgets/TodoMDWidgets.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 58F3F2UZ62;
 				INFOPLIST_FILE = Sources/TodoMDWidgets/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1713,7 +1763,14 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = todo.md;
-				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleURLName = \"com.hans.todomd.mac\";\n    CFBundleURLSchemes =     (\n        todomd\n    );\n}";
+				INFOPLIST_KEY_CFBundleURLTypes = (
+					{
+						CFBundleURLName = com.hans.todomd.mac;
+						CFBundleURLSchemes = (
+							todomd,
+						);
+					},
+				);
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "todo.md uses Calendar access to show your events in Today and Upcoming.";
 				INFOPLIST_KEY_NSLocationUsageDescription = "todo.md uses your location to trigger reminders when you arrive at or leave saved places.";
@@ -1735,7 +1792,6 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = Sources/TodoMDShareExtension/TodoMDShareExtension.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 58F3F2UZ62;
 				INFOPLIST_FILE = Sources/TodoMDShareExtension/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1789,7 +1845,14 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = todo.md;
-				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleURLName = \"com.hans.todomd.mac\";\n    CFBundleURLSchemes =     (\n        todomd\n    );\n}";
+				INFOPLIST_KEY_CFBundleURLTypes = (
+					{
+						CFBundleURLName = com.hans.todomd.mac;
+						CFBundleURLSchemes = (
+							todomd,
+						);
+					},
+				);
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "todo.md uses Calendar access to show your events in Today and Upcoming.";
 				INFOPLIST_KEY_NSLocationUsageDescription = "todo.md uses your location to trigger reminders when you arrive at or leave saved places.";
@@ -1811,7 +1874,6 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = Sources/TodoMDShareExtension/TodoMDShareExtension.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 58F3F2UZ62;
 				INFOPLIST_FILE = Sources/TodoMDShareExtension/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1830,7 +1892,6 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = Sources/TodoMDWidgets/TodoMDWidgets.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 58F3F2UZ62;
 				INFOPLIST_FILE = Sources/TodoMDWidgets/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1851,11 +1912,19 @@
 				CODE_SIGN_ENTITLEMENTS = Sources/TodoMDApp/TodoMDApp.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 58F3F2UZ62;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = com.hans.todomd.notifications.refresh;
+				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = (
+					com.hans.todomd.notifications.refresh,
+				);
 				INFOPLIST_KEY_CFBundleDisplayName = todo.md;
-				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleURLName = \"com.hans.todomd\";\n    CFBundleURLSchemes =     (\n        todomd\n    );\n}";
+				INFOPLIST_KEY_CFBundleURLTypes = (
+					{
+						CFBundleURLName = com.hans.todomd;
+						CFBundleURLSchemes = (
+							todomd,
+						);
+					},
+				);
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "todo.md uses Calendar access to show your events in Today and Upcoming.";
@@ -1863,11 +1932,27 @@
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "todo.md uses the microphone so you can dictate multiple tasks with voice ramble.";
 				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "todo.md imports tasks from Apple Reminders when you run the import.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "todo.md uses speech recognition to transcribe voice ramble into structured tasks.";
-				INFOPLIST_KEY_UIBackgroundModes = fetch;
+				INFOPLIST_KEY_UIBackgroundModes = (
+					fetch,
+				);
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = (
+					UIInterfaceOrientationPortrait,
+					UIInterfaceOrientationPortraitUpsideDown,
+					UIInterfaceOrientationLandscapeLeft,
+					UIInterfaceOrientationLandscapeRight,
+				);
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = (
+					UIInterfaceOrientationPortrait,
+					UIInterfaceOrientationPortraitUpsideDown,
+					UIInterfaceOrientationLandscapeLeft,
+					UIInterfaceOrientationLandscapeRight,
+				);
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = (
+					UIInterfaceOrientationPortrait,
+					UIInterfaceOrientationLandscapeLeft,
+					UIInterfaceOrientationLandscapeRight,
+				);
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

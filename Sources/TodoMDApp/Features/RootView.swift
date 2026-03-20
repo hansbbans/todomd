@@ -745,11 +745,13 @@ struct RootView: View {
     @State private var dismissibleSurfaceFrames: [String: CGRect] = [:]
     @FocusState private var inlineTaskFocused: Bool
     @Namespace private var compactQuickAddNamespace
+    @State private var logbookSearchText = ""
     @AppStorage(CompactTabSettings.leadingViewKey) private var compactPrimaryTabRawValue = CompactTabSettings.defaultLeadingView.rawValue
     @AppStorage(CompactTabSettings.trailingViewKey) private var compactSecondaryTabRawValue = CompactTabSettings.defaultTrailingView.rawValue
     @AppStorage(CompactTabSettings.leadingDisplayNameKey) private var compactPrimaryTabDisplayName = ""
     @AppStorage(CompactTabSettings.trailingDisplayNameKey) private var compactSecondaryTabDisplayName = ""
     @AppStorage("settings_pomodoro_enabled") private var pomodoroEnabled = false
+    private let logbookSearchEngine = LogbookSearchEngine()
 
     private var rootScaffold: some View {
         Group {
@@ -1111,6 +1113,9 @@ struct RootView: View {
                     resetInboxTriageMode()
                 } else {
                     refreshInboxRemindersIfVisible()
+                }
+                if selectedView != .builtIn(.logbook) {
+                    logbookSearchText = ""
                 }
                 if horizontalSizeClass == .compact {
                     syncCompactSelectedTab()
@@ -1586,6 +1591,12 @@ struct RootView: View {
                 .transition(rootScreenTransition)
             )
         }
+        if container.selectedView == .builtIn(.logbook) {
+            return AnyView(
+                logbookMainContent(records: container.filteredRecords())
+                    .transition(rootScreenTransition)
+            )
+        }
         return AnyView(
             recordsMainContent(records: container.filteredRecords())
                 .transition(rootScreenTransition)
@@ -1744,6 +1755,54 @@ struct RootView: View {
                     title: "Nothing here",
                     subtitle: "Tap + to add a task."
                 )
+                unparseableFilesSummary
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 20)
+            .padding(.bottom, 40)
+#if os(iOS)
+            .modifier(RootListContentBoundaryReporter())
+#endif
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+        }
+    }
+
+    private func logbookMainContent(records: [TaskRecord]) -> some View {
+        let filtered = logbookSearchEngine.filter(records: records, query: logbookSearchText)
+
+        return Group {
+            if records.isEmpty {
+                genericEmptyStateContent
+            } else if filtered.isEmpty {
+                logbookSearchEmptyStateContent
+            } else {
+                populatedRecordsMainContent(records: filtered)
+            }
+        }
+        .searchable(
+            text: $logbookSearchText,
+            placement: .automatic,
+            prompt: "Search title, project:, tag:, status:, before:"
+        )
+    }
+
+    private var logbookSearchEmptyStateContent: some View {
+        taskList(id: "\(container.selectedView.rawValue)-search-empty") {
+            mainHeroListRow
+
+            VStack(spacing: 12) {
+                IllustratedEmptyState(
+                    symbol: "magnifyingglass",
+                    glowColor: Color.green.opacity(0.14),
+                    title: "No logbook matches",
+                    subtitle: "Try a broader search or filters like project:, tag:, status:, before:, or after:."
+                )
+                Text("Examples: `project:Work`, `tag:errands`, `status:cancelled`, `before:2026-03-01`")
+                    .font(.footnote)
+                    .foregroundStyle(theme.textSecondaryColor)
+                    .multilineTextAlignment(.center)
                 unparseableFilesSummary
             }
             .frame(maxWidth: .infinity)
