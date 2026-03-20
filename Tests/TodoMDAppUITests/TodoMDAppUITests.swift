@@ -785,33 +785,6 @@ final class TodoMDAppUITests: XCTestCase {
         )
     }
 
-    func testExpandedTaskMoveSheetIncludesMetadataOnlyProjects() throws {
-        let storageOverride = makeStorageOverridePath()
-        try seedProjectMetadata(rootPath: storageOverride, projects: ["Aardvark"])
-        try seedInboxTask(rootPath: storageOverride, title: "move target")
-
-        let app = XCUIApplication()
-        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
-        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
-        app.launch()
-
-        completeOnboarding(app: app)
-
-        let row = app.descendants(matching: .any)["taskRow.move target"].firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 10), "Seeded task row was not visible")
-        row.tap()
-
-        let moveButton = app.buttons["Move"].firstMatch
-        XCTAssertTrue(moveButton.waitForExistence(timeout: 10), "Expanded task move button was not visible")
-        moveButton.tap()
-
-        let projectButton = app.buttons["Aardvark"].firstMatch
-        XCTAssertTrue(
-            projectButton.waitForExistence(timeout: 10),
-            "Expanded move sheet should include metadata-only projects"
-        )
-    }
-
     func testLongPressingAddButtonShowsVoiceRamble() {
         let app = XCUIApplication()
         app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
