@@ -782,8 +782,36 @@ private struct TaskDirectoryFingerprintSnapshot: Codable {
     }
 }
 
-private struct TaskRecordSnapshot: Codable {
-    var path: String
+private enum TaskSnapshotCodingKeys: String, CodingKey {
+    case path
+    case ref
+    case title
+    case status
+    case due
+    case dueTime
+    case persistentReminder
+    case deferDate
+    case scheduled
+    case priority
+    case flagged
+    case area
+    case project
+    case tags
+    case recurrence
+    case estimatedMinutes
+    case description
+    case locationReminder
+    case created
+    case modified
+    case completed
+    case assignee
+    case completedBy
+    case blockedBy
+    case source
+    case body
+}
+
+private struct TaskSnapshotFrontmatterFields {
     var ref: String?
     var title: String
     var status: TaskStatus
@@ -808,11 +836,8 @@ private struct TaskRecordSnapshot: Codable {
     var completedBy: String?
     var blockedBy: TaskBlockedBySnapshot?
     var source: String
-    var body: String
 
-    init(_ record: TaskRecord) {
-        let frontmatter = record.document.frontmatter
-        self.path = record.identity.path
+    init(_ frontmatter: TaskFrontmatterV1) {
         self.ref = frontmatter.ref
         self.title = frontmatter.title
         self.status = frontmatter.status
@@ -837,11 +862,64 @@ private struct TaskRecordSnapshot: Codable {
         self.completedBy = frontmatter.completedBy
         self.blockedBy = frontmatter.blockedBy.map(TaskBlockedBySnapshot.init)
         self.source = frontmatter.source
-        self.body = record.document.body
     }
 
-    func makeRecord() -> TaskRecord {
-        let frontmatter = TaskFrontmatterV1(
+    init(from container: KeyedDecodingContainer<TaskSnapshotCodingKeys>) throws {
+        self.ref = try container.decodeIfPresent(String.self, forKey: .ref)
+        self.title = try container.decode(String.self, forKey: .title)
+        self.status = try container.decode(TaskStatus.self, forKey: .status)
+        self.due = try container.decodeIfPresent(LocalDate.self, forKey: .due)
+        self.dueTime = try container.decodeIfPresent(LocalTime.self, forKey: .dueTime)
+        self.persistentReminder = try container.decodeIfPresent(Bool.self, forKey: .persistentReminder)
+        self.deferDate = try container.decodeIfPresent(LocalDate.self, forKey: .deferDate)
+        self.scheduled = try container.decodeIfPresent(LocalDate.self, forKey: .scheduled)
+        self.priority = try container.decode(TaskPriority.self, forKey: .priority)
+        self.flagged = try container.decode(Bool.self, forKey: .flagged)
+        self.area = try container.decodeIfPresent(String.self, forKey: .area)
+        self.project = try container.decodeIfPresent(String.self, forKey: .project)
+        self.tags = try container.decode([String].self, forKey: .tags)
+        self.recurrence = try container.decodeIfPresent(String.self, forKey: .recurrence)
+        self.estimatedMinutes = try container.decodeIfPresent(Int.self, forKey: .estimatedMinutes)
+        self.description = try container.decodeIfPresent(String.self, forKey: .description)
+        self.locationReminder = try container.decodeIfPresent(TaskLocationReminderSnapshot.self, forKey: .locationReminder)
+        self.created = try container.decode(String.self, forKey: .created)
+        self.modified = try container.decodeIfPresent(String.self, forKey: .modified)
+        self.completed = try container.decodeIfPresent(String.self, forKey: .completed)
+        self.assignee = try container.decodeIfPresent(String.self, forKey: .assignee)
+        self.completedBy = try container.decodeIfPresent(String.self, forKey: .completedBy)
+        self.blockedBy = try container.decodeIfPresent(TaskBlockedBySnapshot.self, forKey: .blockedBy)
+        self.source = try container.decode(String.self, forKey: .source)
+    }
+
+    func encode(to container: inout KeyedEncodingContainer<TaskSnapshotCodingKeys>) throws {
+        try container.encodeIfPresent(ref, forKey: .ref)
+        try container.encode(title, forKey: .title)
+        try container.encode(status, forKey: .status)
+        try container.encodeIfPresent(due, forKey: .due)
+        try container.encodeIfPresent(dueTime, forKey: .dueTime)
+        try container.encodeIfPresent(persistentReminder, forKey: .persistentReminder)
+        try container.encodeIfPresent(deferDate, forKey: .deferDate)
+        try container.encodeIfPresent(scheduled, forKey: .scheduled)
+        try container.encode(priority, forKey: .priority)
+        try container.encode(flagged, forKey: .flagged)
+        try container.encodeIfPresent(area, forKey: .area)
+        try container.encodeIfPresent(project, forKey: .project)
+        try container.encode(tags, forKey: .tags)
+        try container.encodeIfPresent(recurrence, forKey: .recurrence)
+        try container.encodeIfPresent(estimatedMinutes, forKey: .estimatedMinutes)
+        try container.encodeIfPresent(description, forKey: .description)
+        try container.encodeIfPresent(locationReminder, forKey: .locationReminder)
+        try container.encode(created, forKey: .created)
+        try container.encodeIfPresent(modified, forKey: .modified)
+        try container.encodeIfPresent(completed, forKey: .completed)
+        try container.encodeIfPresent(assignee, forKey: .assignee)
+        try container.encodeIfPresent(completedBy, forKey: .completedBy)
+        try container.encodeIfPresent(blockedBy, forKey: .blockedBy)
+        try container.encode(source, forKey: .source)
+    }
+
+    func makeFrontmatter() -> TaskFrontmatterV1 {
+        TaskFrontmatterV1(
             ref: ref,
             title: title,
             status: status,
@@ -867,99 +945,67 @@ private struct TaskRecordSnapshot: Codable {
             blockedBy: blockedBy?.makeBlockedBy(),
             source: source
         )
-        return TaskRecord(
+    }
+}
+
+private struct TaskRecordSnapshot: Codable {
+    var path: String
+    var frontmatter: TaskSnapshotFrontmatterFields
+    var body: String
+
+    init(_ record: TaskRecord) {
+        self.path = record.identity.path
+        self.frontmatter = TaskSnapshotFrontmatterFields(record.document.frontmatter)
+        self.body = record.document.body
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: TaskSnapshotCodingKeys.self)
+        self.path = try container.decode(String.self, forKey: .path)
+        self.frontmatter = try TaskSnapshotFrontmatterFields(from: container)
+        self.body = try container.decode(String.self, forKey: .body)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: TaskSnapshotCodingKeys.self)
+        try container.encode(path, forKey: .path)
+        try frontmatter.encode(to: &container)
+        try container.encode(body, forKey: .body)
+    }
+
+    func makeRecord() -> TaskRecord {
+        TaskRecord(
             identity: TaskFileIdentity(path: path),
-            document: TaskDocument(frontmatter: frontmatter, body: body)
+            document: TaskDocument(frontmatter: frontmatter.makeFrontmatter(), body: body)
         )
     }
 }
 
 private struct TaskLaunchRecordSnapshot: Codable {
     var path: String
-    var ref: String?
-    var title: String
-    var status: TaskStatus
-    var due: LocalDate?
-    var dueTime: LocalTime?
-    var persistentReminder: Bool?
-    var deferDate: LocalDate?
-    var scheduled: LocalDate?
-    var priority: TaskPriority
-    var flagged: Bool
-    var area: String?
-    var project: String?
-    var tags: [String]
-    var recurrence: String?
-    var estimatedMinutes: Int?
-    var description: String?
-    var locationReminder: TaskLocationReminderSnapshot?
-    var created: String
-    var modified: String?
-    var completed: String?
-    var assignee: String?
-    var completedBy: String?
-    var blockedBy: TaskBlockedBySnapshot?
-    var source: String
+    var frontmatter: TaskSnapshotFrontmatterFields
 
     init(_ record: TaskRecord) {
-        let snapshot = TaskRecordSnapshot(record)
-        self.path = snapshot.path
-        self.ref = snapshot.ref
-        self.title = snapshot.title
-        self.status = snapshot.status
-        self.due = snapshot.due
-        self.dueTime = snapshot.dueTime
-        self.persistentReminder = snapshot.persistentReminder
-        self.deferDate = snapshot.deferDate
-        self.scheduled = snapshot.scheduled
-        self.priority = snapshot.priority
-        self.flagged = snapshot.flagged
-        self.area = snapshot.area
-        self.project = snapshot.project
-        self.tags = snapshot.tags
-        self.recurrence = snapshot.recurrence
-        self.estimatedMinutes = snapshot.estimatedMinutes
-        self.description = snapshot.description
-        self.locationReminder = snapshot.locationReminder
-        self.created = snapshot.created
-        self.modified = snapshot.modified
-        self.completed = snapshot.completed
-        self.assignee = snapshot.assignee
-        self.completedBy = snapshot.completedBy
-        self.blockedBy = snapshot.blockedBy
-        self.source = snapshot.source
+        self.path = record.identity.path
+        self.frontmatter = TaskSnapshotFrontmatterFields(record.document.frontmatter)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: TaskSnapshotCodingKeys.self)
+        self.path = try container.decode(String.self, forKey: .path)
+        self.frontmatter = try TaskSnapshotFrontmatterFields(from: container)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: TaskSnapshotCodingKeys.self)
+        try container.encode(path, forKey: .path)
+        try frontmatter.encode(to: &container)
     }
 
     func makeRecord() -> TaskRecord {
-        let frontmatter = TaskFrontmatterV1(
-            ref: ref,
-            title: title,
-            status: status,
-            due: due,
-            dueTime: dueTime,
-            persistentReminder: persistentReminder,
-            defer: deferDate,
-            scheduled: scheduled,
-            priority: priority,
-            flagged: flagged,
-            area: area,
-            project: project,
-            tags: tags,
-            recurrence: recurrence,
-            estimatedMinutes: estimatedMinutes,
-            description: description,
-            locationReminder: locationReminder?.makeLocationReminder(),
-            created: DateCoding.decode(created) ?? .distantPast,
-            modified: modified.flatMap(DateCoding.decode),
-            completed: completed.flatMap(DateCoding.decode),
-            assignee: assignee,
-            completedBy: completedBy,
-            blockedBy: blockedBy?.makeBlockedBy(),
-            source: source
-        )
-        return TaskRecord(
+        TaskRecord(
             identity: TaskFileIdentity(path: path),
-            document: TaskDocument(frontmatter: frontmatter, body: "")
+            document: TaskDocument(frontmatter: frontmatter.makeFrontmatter(), body: "")
         )
     }
 }
