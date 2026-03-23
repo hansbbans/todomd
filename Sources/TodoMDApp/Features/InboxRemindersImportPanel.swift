@@ -72,38 +72,12 @@ struct InboxRemindersImportPanel: View {
         colorScheme == .dark ? Color.white.opacity(0.94) : theme.textPrimaryColor
     }
 
-    private var cardGradient: LinearGradient {
-        if colorScheme == .dark {
-            return LinearGradient(
-                colors: [
-                    Color(red: 0.15, green: 0.17, blue: 0.21),
-                    Color(red: 0.11, green: 0.12, blue: 0.16)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        }
-
-        return LinearGradient(
-            colors: [
-                theme.surfaceColor.opacity(0.98),
-                theme.backgroundColor.opacity(0.96)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-    }
-
-    private var cardBorderColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.06) : theme.textSecondaryColor.opacity(0.14)
-    }
-
     private var iconBackgroundColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.16) : theme.textSecondaryColor.opacity(0.12)
+        colorScheme == .dark ? theme.backgroundColor.opacity(0.92) : theme.backgroundColor.opacity(0.96)
     }
 
     private var iconForegroundColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.78) : theme.textSecondaryColor
+        colorScheme == .dark ? Color.white.opacity(0.8) : theme.accentColor
     }
 
     private func reminderCard(_ reminder: ReminderImportItem) -> some View {
@@ -133,14 +107,13 @@ struct InboxRemindersImportPanel: View {
             .padding(.vertical, 16)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(cardGradient)
+                ThingsSurfaceBackdrop(
+                    kind: .elevatedCard,
+                    theme: theme,
+                    colorScheme: colorScheme
+                )
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(cardBorderColor, lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.24 : 0.08), radius: 16, y: 8)
+            .clipShape(RoundedRectangle(cornerRadius: ThingsSurfaceKind.elevatedCard.cornerRadius, style: .continuous))
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("inbox.remindersImport.row.\(reminder.id)")
         }

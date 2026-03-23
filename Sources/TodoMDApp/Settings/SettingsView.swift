@@ -19,17 +19,34 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .integrations:
-            "Integrations"
+            "Setup"
         case .appearance:
             "Appearance"
         case .notifications:
-            "Notifications"
+            "Alerts"
         case .taskBehavior:
-            "Task Behavior"
+            "Capture & Lists"
         case .storage:
             "Storage"
         case .maintenance:
-            "Maintenance"
+            "Troubleshooting"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .integrations:
+            "Connect Reminders and Calendar, then fix permissions when they drift."
+        case .appearance:
+            "Adjust color mode and the compact tab bar without disturbing the main workspace."
+        case .notifications:
+            "Choose when todo.md should remind you and how persistent those nudges should be."
+        case .taskBehavior:
+            "Set quick capture defaults, visible fields, and which tools stay close."
+        case .storage:
+            "Pick the task folder this session should read and where iCloud defaults should live."
+        case .maintenance:
+            "Refresh the workspace, inspect conflicts, and handle files the parser rejected."
         }
     }
 
@@ -130,6 +147,8 @@ struct SettingsView: View {
     @Bindable var quickFindStore: QuickFindStore   // injected from RootView
 
     @EnvironmentObject private var container: AppContainer
+    @EnvironmentObject private var theme: ThemeManager
+    @Environment(\.colorScheme) private var colorScheme
 
     @AppStorage("settings_notification_hour") private var notificationHour = 9
     @AppStorage("settings_notification_minute") private var notificationMinute = 0
@@ -172,58 +191,61 @@ struct SettingsView: View {
 
     var body: some View {
         List {
-            NavigationLink {
-                integrationsSettingsView
-            } label: {
-                Label(SettingsSection.integrations.title, systemImage: SettingsSection.integrations.systemImage)
-            }
-            .accessibilityIdentifier("settings.section.\(SettingsSection.integrations.rawValue)")
-
-            NavigationLink {
-                appearanceSettingsView
-            } label: {
-                Label(SettingsSection.appearance.title, systemImage: SettingsSection.appearance.systemImage)
-            }
-            .accessibilityIdentifier("settings.section.\(SettingsSection.appearance.rawValue)")
-
-            NavigationLink {
-                notificationsSettingsView
-            } label: {
-                Label(SettingsSection.notifications.title, systemImage: SettingsSection.notifications.systemImage)
-            }
-            .accessibilityIdentifier("settings.section.\(SettingsSection.notifications.rawValue)")
-
-            NavigationLink {
-                taskBehaviorSettingsView
-            } label: {
-                Label(SettingsSection.taskBehavior.title, systemImage: SettingsSection.taskBehavior.systemImage)
-            }
-            .accessibilityIdentifier("settings.section.\(SettingsSection.taskBehavior.rawValue)")
-
-            NavigationLink {
-                storageSettingsView
-            } label: {
-                Label(SettingsSection.storage.title, systemImage: SettingsSection.storage.systemImage)
-            }
-            .accessibilityIdentifier("settings.section.\(SettingsSection.storage.rawValue)")
-
-            NavigationLink {
-                maintenanceSettingsView
-            } label: {
-                Label(SettingsSection.maintenance.title, systemImage: SettingsSection.maintenance.systemImage)
-            }
-            .accessibilityIdentifier("settings.section.\(SettingsSection.maintenance.rawValue)")
-
             Section {
+                SettingsIntroCard()
+            }
+            .listRowInsets(EdgeInsets(top: 10, leading: 20, bottom: 8, trailing: 20))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+
+            Section("Get Started") {
+                settingsNavigationRow(section: .integrations) {
+                    integrationsSettingsView
+                }
+                settingsNavigationRow(section: .taskBehavior) {
+                    taskBehaviorSettingsView
+                }
+                settingsNavigationRow(section: .notifications) {
+                    notificationsSettingsView
+                }
+            }
+
+            Section("Workspace") {
+                settingsNavigationRow(section: .appearance) {
+                    appearanceSettingsView
+                }
+                settingsNavigationRow(section: .storage) {
+                    storageSettingsView
+                }
+            }
+
+            Section("Support") {
+                settingsNavigationRow(section: .maintenance) {
+                    maintenanceSettingsView
+                }
+
                 NavigationLink {
                     DebugView()
                 } label: {
-                    Label("Debug", systemImage: "ladybug")
-                        .foregroundStyle(.secondary)
+                    SettingsOverviewCard(
+                        title: "Debug",
+                        subtitle: "Inspect diagnostics and development tools.",
+                        detail: "For development and support only.",
+                        systemImage: "ladybug",
+                        tint: theme.textSecondaryColor
+                    )
                 }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("settings.section.debug")
+                .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
             }
         }
         .navigationTitle("Settings")
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(theme.backgroundColor)
         .fileImporter(
             isPresented: $showingFolderPicker,
             allowedContentTypes: [.folder],
@@ -254,10 +276,21 @@ struct SettingsView: View {
                 compactTabDisplayNameDraft = normalized
             }
         }
+#if canImport(UserNotifications)
+        .task {
+            await refreshNotificationAuthorizationStatus()
+        }
+#endif
     }
 
     private var integrationsSettingsView: some View {
         Form {
+            Section {
+                Text("Connect the Apple services you want todo.md to pull from, then keep those permissions healthy.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Reminders") {
                 Toggle("Reminders", isOn: remindersToggleBinding)
                     .accessibilityIdentifier("settings.integrations.remindersToggle")
@@ -585,7 +618,7 @@ struct SettingsView: View {
                     }
                 }
             #endif
-            Section {
+            Section("Reminder Defaults") {
                 DatePicker(
                     "Default time",
                     selection: Binding(
@@ -653,11 +686,17 @@ struct SettingsView: View {
 
     private var taskBehaviorSettingsView: some View {
         Form {
+            Section {
+                Text("Tune how new tasks land, what stays visible in quick capture, and how compact browsing behaves.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Quick Find") {
                 Toggle("Include tasks in recents", isOn: $quickFindStore.recordTasks)
             }
 
-            Section("Scheduling") {
+            Section("List Rhythm") {
                 DatePicker(
                     "Evening starts at",
                     selection: Binding(
@@ -668,7 +707,7 @@ struct SettingsView: View {
                 )
             }
 
-            Section {
+            Section("Capture Defaults") {
                 Toggle("Archive completed", isOn: $archiveCompleted)
 
                 Picker("Completed retention", selection: $completedRetention) {
@@ -759,6 +798,12 @@ struct SettingsView: View {
     private var storageSettingsView: some View {
         Form {
             Section {
+                Text("Choose where your task files live. Changes take effect immediately in the current session.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 TextField("Default iCloud folder name", text: $iCloudFolderName)
                     .modifier(SettingsNoAutocapitalization())
 
@@ -794,6 +839,12 @@ struct SettingsView: View {
     private var maintenanceSettingsView: some View {
         Form {
             Section {
+                Text("Refresh the workspace, repair indexes, and inspect anything the app could not read cleanly.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Refresh & Repair") {
                 Button("Sync now") {
                     container.refresh()
                 }
@@ -801,7 +852,9 @@ struct SettingsView: View {
                 Button("Rebuild local index") {
                     container.rebuildIndex()
                 }
+            }
 
+            Section("Inspect Files") {
                 NavigationLink("Conflict resolution") {
                     ConflictResolutionView()
                 }
@@ -812,6 +865,101 @@ struct SettingsView: View {
             }
         }
         .navigationTitle(SettingsSection.maintenance.title)
+    }
+
+    @ViewBuilder
+    private func settingsNavigationRow<Destination: View>(
+        section: SettingsSection,
+        @ViewBuilder destination: () -> Destination
+    ) -> some View {
+        NavigationLink {
+            destination()
+        } label: {
+            SettingsOverviewCard(
+                title: section.title,
+                subtitle: section.subtitle,
+                detail: summaryText(for: section),
+                systemImage: section.systemImage,
+                tint: accentColor(for: section)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("settings.section.\(section.rawValue)")
+        .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+    }
+
+    private func accentColor(for section: SettingsSection) -> Color {
+        switch section {
+        case .integrations:
+            theme.accentColor
+        case .appearance:
+            .indigo
+        case .notifications:
+            .orange
+        case .taskBehavior:
+            .blue
+        case .storage:
+            .teal
+        case .maintenance:
+            .red
+        }
+    }
+
+    private func summaryText(for section: SettingsSection) -> String {
+        switch section {
+        case .integrations:
+            let enabledServices = [remindersImportEnabled, calendarEnabled].filter { $0 }.count
+            if enabledServices == 0 {
+                return "No Apple services connected yet."
+            }
+            let remindersText = remindersImportEnabled ? "Reminders on" : nil
+            let calendarText = calendarEnabled ? "Calendar on" : nil
+            return [remindersText, calendarText].compactMap { $0 }.joined(separator: " • ")
+        case .appearance:
+            let modeLabel: String = switch appearanceMode {
+            case "light": "Light mode"
+            case "dark": "Dark mode"
+            default: "Follow system"
+            }
+            let tabLabel = compactTabDisplayNameText(for: .primary)
+            if tabLabel.isEmpty {
+                return "\(modeLabel) • Inbox, Today, and Areas stay pinned"
+            }
+            return "\(modeLabel) • \(tabLabel) is pinned in slot 4"
+        case .notifications:
+            #if canImport(UserNotifications)
+                let permissionLabel: String = switch notificationAuthorizationStatus {
+                case .authorized, .provisional, .ephemeral:
+                    "Notifications ready"
+                case .denied:
+                    "Notifications blocked"
+                default:
+                    "Permission not granted"
+                }
+            #else
+                let permissionLabel = "Notifications"
+            #endif
+            let time = String(format: "%02d:%02d", notificationHour, notificationMinute)
+            return "\(permissionLabel) • Default time \(time)"
+        case .taskBehavior:
+            let destination = quickEntryDefaultView == BuiltInView.today.rawValue ? "Today" :
+                (quickEntryDefaultView == BuiltInView.anytime.rawValue ? "Anytime" : "Inbox")
+            return "Quick entry opens in \(destination) • \(pomodoroEnabled ? "Pomodoro on" : "Pomodoro off")"
+        case .storage:
+            if let selectedFolderPath, !selectedFolderPath.isEmpty {
+                return URL(fileURLWithPath: selectedFolderPath).lastPathComponent
+            }
+            return "Automatic iCloud folder • \(iCloudFolderName)"
+        case .maintenance:
+            let conflicts = container.conflicts.count
+            let diagnostics = container.diagnostics.count
+            if conflicts == 0, diagnostics == 0 {
+                return "No active file issues."
+            }
+            return "\(conflicts) conflict\(conflicts == 1 ? "" : "s") • \(diagnostics) unreadable file\(diagnostics == 1 ? "" : "s")"
+        }
     }
 
     private func color(for hex: String) -> Color {
@@ -1160,5 +1308,88 @@ private struct SettingsNoAutocapitalization: ViewModifier {
         #else
             content
         #endif
+    }
+}
+
+private struct SettingsIntroCard: View {
+    @EnvironmentObject private var theme: ThemeManager
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Set up how todo.md works for you.")
+                .font(.system(.title3, design: .rounded).weight(.semibold))
+                .foregroundStyle(theme.textPrimaryColor)
+            Text("Start with capture and alerts, then come back for storage or troubleshooting when you need them.")
+                .font(.subheadline)
+                .foregroundStyle(theme.textSecondaryColor)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+        .background(
+            ThingsSurfaceBackdrop(
+                kind: .elevatedCard,
+                theme: theme,
+                colorScheme: colorScheme
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: ThingsSurfaceKind.elevatedCard.cornerRadius, style: .continuous))
+    }
+}
+
+private struct SettingsOverviewCard: View {
+    @EnvironmentObject private var theme: ThemeManager
+    @Environment(\.colorScheme) private var colorScheme
+
+    let title: String
+    let subtitle: String
+    let detail: String
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: systemImage)
+                .font(.system(.title3, design: .rounded).weight(.semibold))
+                .foregroundStyle(tint)
+                .frame(width: 24, height: 24)
+                .padding(10)
+                .background(
+                    Circle()
+                        .fill(tint.opacity(colorScheme == .dark ? 0.22 : 0.12))
+                )
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title)
+                    .font(.system(.headline, design: .rounded).weight(.semibold))
+                    .foregroundStyle(theme.textPrimaryColor)
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(theme.textSecondaryColor)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(detail)
+                    .font(.footnote)
+                    .foregroundStyle(theme.textTertiaryColor)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(theme.textTertiaryColor)
+                .padding(.top, 6)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+        .background(
+            ThingsSurfaceBackdrop(
+                kind: .elevatedCard,
+                theme: theme,
+                colorScheme: colorScheme
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: ThingsSurfaceKind.elevatedCard.cornerRadius, style: .continuous))
     }
 }

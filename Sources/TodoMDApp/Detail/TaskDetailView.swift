@@ -3,7 +3,6 @@ import SwiftUI
 private enum ExpandedRow: Equatable {
     case due
     case scheduled
-    case tags
     case estimate
     case assignee
     case blockedBy
@@ -11,6 +10,7 @@ private enum ExpandedRow: Equatable {
 
 struct TaskDetailView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var container: AppContainer
     @EnvironmentObject private var theme: ThemeManager
 
@@ -57,6 +57,7 @@ struct TaskDetailView: View {
                     Image(systemName: "doc.on.doc")
                 }
                 .accessibilityIdentifier("taskDetail.duplicateButton")
+                .accessibilityLabel("Duplicate task")
             }
             ToolbarItem(placement: .appTrailingAction) {
                 Button(role: .destructive) {
@@ -64,6 +65,7 @@ struct TaskDetailView: View {
                 } label: {
                     Image(systemName: "trash")
                 }
+                .accessibilityLabel("Delete task")
             }
         }
         .onAppear {
@@ -110,203 +112,188 @@ struct TaskDetailView: View {
     }
 
     private var headerSection: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Button {
-                guard var s = editState else { return }
-                s.status = s.status == .done ? .todo : .done
-                editState = s
-            } label: {
-                Image(systemName: editState?.status == .done ? "checkmark.circle.fill" : "circle")
-                    .font(.title2)
-                    .foregroundStyle(editState?.status == .done ? theme.accentColor : theme.textSecondaryColor)
-            }
-            .buttonStyle(.plain)
-            .padding(.top, 4)
+        taskDetailCard {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top, spacing: 12) {
+                    Button {
+                        guard var s = editState else { return }
+                        s.status = s.status == .done ? .todo : .done
+                        editState = s
+                    } label: {
+                        Image(systemName: editState?.status == .done ? "checkmark.circle.fill" : "circle")
+                            .font(.title2)
+                            .foregroundStyle(editState?.status == .done ? theme.accentColor : theme.textSecondaryColor)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 4)
+                    .accessibilityLabel(editState?.status == .done ? "Mark task as not done" : "Mark task complete")
 
-            VStack(alignment: .leading, spacing: 4) {
-                TextField("Title", text: binding(\.title), axis: .vertical)
-                    .font(.system(.title2, design: .rounded).weight(.semibold))
-                    .foregroundStyle(theme.textPrimaryColor)
+                    VStack(alignment: .leading, spacing: 6) {
+                        TextField("Title", text: binding(\.title), axis: .vertical)
+                            .font(.system(.title2, design: .rounded).weight(.semibold))
+                            .foregroundStyle(theme.textPrimaryColor)
 
-                if let ref = editState?.ref, !ref.isEmpty {
-                    Text(ref)
-                        .font(.caption)
-                        .foregroundStyle(theme.textSecondaryColor)
+                        if let ref = editState?.ref, !ref.isEmpty {
+                            Text(ref)
+                                .font(.caption)
+                                .foregroundStyle(theme.textSecondaryColor)
+                        }
+                    }
                 }
+
+                taskDetailPrimaryActionRow
             }
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 16)
+        .padding(.top, 16)
+    }
+
+    private var taskDetailPrimaryActionRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                taskDetailPill(
+                    title: editState?.status.rawValue.capitalized ?? "Status",
+                    systemImage: "circle.badge.checkmark",
+                    tint: theme.accentColor
+                ) {
+                    cycleStatus()
+                }
+
+                taskDetailPill(
+                    title: editState?.priority == TaskPriority.none ? "Priority" : (editState?.priority.rawValue.capitalized ?? "Priority"),
+                    systemImage: "flag",
+                    tint: editState?.priority == .high ? .red : theme.accentColor
+                ) {
+                    cyclePriority()
+                }
+
+                taskDetailPill(
+                    title: editState?.flagged == true ? "Flagged" : "Flag",
+                    systemImage: editState?.flagged == true ? "star.fill" : "star",
+                    tint: editState?.flagged == true ? .yellow : theme.textSecondaryColor
+                ) {
+                    guard var s = editState else { return }
+                    s.flagged.toggle()
+                    editState = s
+                }
+            }
+            .padding(.vertical, 2)
+        }
     }
 
     private var notesSection: some View {
-        ZStack(alignment: .topLeading) {
-            if notesText.isEmpty {
-                Text("Add notes...")
-                    .font(.body)
-                    .foregroundStyle(theme.textSecondaryColor)
-                    .padding(.top, 8)
-                    .padding(.leading, 4)
-                    .allowsHitTesting(false)
+        taskDetailCard {
+            VStack(alignment: .leading, spacing: 12) {
+                taskDetailSectionTitle("Notes")
+
+                taskDetailInsetSurface(minHeight: 120) {
+                    ZStack(alignment: .topLeading) {
+                        if notesText.isEmpty {
+                            Text("Add notes...")
+                                .font(.body)
+                                .foregroundStyle(theme.textSecondaryColor)
+                                .padding(.top, 2)
+                                .padding(.leading, 2)
+                                .allowsHitTesting(false)
+                        }
+                        TextEditor(text: notesBinding)
+                            .font(.body)
+                            .foregroundStyle(theme.textPrimaryColor)
+                            .scrollContentBackground(.hidden)
+                    }
+                }
             }
-            TextEditor(text: notesBinding)
-                .font(.body)
-                .foregroundStyle(theme.textPrimaryColor)
-                .frame(minHeight: 72)
-                .scrollContentBackground(.hidden)
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 12)
     }
 
-    private var corePropertiesSection: some View {
-        VStack(spacing: 0) {
-            // Status
-            Button(action: cycleStatus) {
-                HStack(spacing: 12) {
-                    Image(systemName: "circle.badge.checkmark")
-                        .frame(width: 20)
-                        .foregroundStyle(.secondary)
-                    Text("Status")
-                        .foregroundStyle(.primary)
-                    Spacer()
-                    Text(editState?.status.rawValue.capitalized ?? "—")
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-            }
-            .buttonStyle(.plain)
-            Divider().padding(.leading, 52)
+    private var focusDetailsSection: some View {
+        taskDetailCard {
+            VStack(alignment: .leading, spacing: 16) {
+                taskDetailSectionTitle("Details")
 
-            // Priority
-            Button(action: cyclePriority) {
-                HStack(spacing: 12) {
-                    Image(systemName: "flag")
-                        .frame(width: 20)
-                        .foregroundStyle(.secondary)
-                    Text("Priority")
-                        .foregroundStyle(.primary)
-                    Spacer()
-                    Text(editState?.priority == TaskPriority
-                        .none ? "—" : (editState?.priority.rawValue.capitalized ?? "—"))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-            }
-            .buttonStyle(.plain)
-            Divider().padding(.leading, 52)
+                VStack(alignment: .leading, spacing: 12) {
+                    taskDetailSummaryButton(
+                        label: "When",
+                        value: editState.map { scheduledDateText($0) } ?? "Anytime",
+                        systemImage: "calendar.badge.clock",
+                        accessibilityIdentifier: "taskDetail.row.when"
+                    ) {
+                        showingScheduledDateEditor = true
+                    }
 
-            // Flag
-            Button {
-                guard var s = editState else { return }
-                s.flagged.toggle()
-                editState = s
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: editState?.flagged == true ? "star.fill" : "star")
-                        .frame(width: 20)
-                        .foregroundStyle(editState?.flagged == true ? .yellow : .secondary)
-                    Text("Flagged")
-                        .foregroundStyle(.primary)
-                    Spacer()
-                    Text(editState?.flagged == true ? "Yes" : "—")
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-            }
-            .buttonStyle(.plain)
-            Divider().padding(.leading, 52)
+                    taskDetailSummaryButton(
+                        label: "Deadline",
+                        value: editState.map { dueDateText($0) } ?? "No deadline",
+                        systemImage: "calendar",
+                        accessibilityIdentifier: "taskDetail.row.due"
+                    ) {
+                        showingDueDateEditor = true
+                    }
 
-            // When (Scheduled)
-            Button {
-                showingScheduledDateEditor = true
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "calendar.badge.clock")
-                        .frame(width: 20)
-                        .foregroundStyle(.secondary)
-                    Text("When")
-                        .foregroundStyle(.primary)
-                    Spacer()
-                    Text(editState.map { scheduledDateText($0) } ?? "")
-                        .foregroundStyle((editState.map { scheduledDateText($0) } ?? "").isEmpty ? .tertiary : .secondary)
-                        .lineLimit(1)
-                }
-                .contentShape(Rectangle())
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-            }
-            .buttonStyle(.plain)
-            .taskDetailAccessibilityIdentifier("taskDetail.row.when")
-            .sheet(isPresented: $showingScheduledDateEditor) {
-                scheduledDateEditorSheet
-            }
-            Divider().padding(.leading, 52)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(alignment: .firstTextBaseline) {
+                            taskDetailFieldLabel("Project")
+                            Spacer()
+                            Text("Inbox when blank")
+                                .font(.caption)
+                                .foregroundStyle(theme.textSecondaryColor)
+                        }
 
-            // Deadline (Due)
-            Button {
-                showingDueDateEditor = true
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "calendar")
-                        .frame(width: 20)
-                        .foregroundStyle(.secondary)
-                    Text("Deadline")
-                        .foregroundStyle(.primary)
-                    Spacer()
-                    Text(editState.map { dueDateText($0) } ?? "")
-                        .foregroundStyle((editState.map { dueDateText($0) } ?? "").isEmpty ? .tertiary : .secondary)
-                        .lineLimit(1)
-                }
-                .contentShape(Rectangle())
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-            }
-            .buttonStyle(.plain)
-            .taskDetailAccessibilityIdentifier("taskDetail.row.due")
-            .sheet(isPresented: $showingDueDateEditor) {
-                dueDateEditorSheet
-            }
-            Divider().padding(.leading, 52)
+                        taskDetailInsetSurface {
+                            TextField("Inbox", text: projectBinding)
+                                .accessibilityIdentifier("taskDetail.field.project")
+                        }
+                    }
 
-            // Tags
-            PropertyRow(
-                icon: "tag",
-                label: "Tags",
-                valueText: editState?.tagsText ?? "",
-                isExpanded: expandedRow == .tags,
-                onTap: { expandedRow = expandedRow == .tags ? nil : .tags }
-            ) {
-                VStack(alignment: .leading, spacing: 8) {
-                    let tags = (editState?.tagsText ?? "").split(separator: ",")
-                        .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-                    if !tags.isEmpty {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 80))], spacing: 6) {
-                            ForEach(tags, id: \.self) { tag in
-                                HStack(spacing: 4) {
-                                    Text(tag).font(.caption)
-                                    Button { removeTag(tag) } label: {
-                                        Image(systemName: "xmark").font(.caption2)
+                    VStack(alignment: .leading, spacing: 10) {
+                        taskDetailFieldLabel("Tags")
+
+                        let tags = currentTags()
+                        VStack(alignment: .leading, spacing: 12) {
+                            if !tags.isEmpty {
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 8) {
+                                        ForEach(tags, id: \.self) { tag in
+                                            HStack(spacing: 6) {
+                                                Text("#\(tag)")
+                                                    .font(.caption.weight(.medium))
+                                                Button { removeTag(tag) } label: {
+                                                    Image(systemName: "xmark")
+                                                        .font(.caption2.weight(.bold))
+                                                }
+                                                .buttonStyle(.plain)
+                                                .accessibilityLabel("Remove tag \(tag)")
+                                            }
+                                            .padding(.horizontal, 10)
+                                            .padding(.vertical, 6)
+                                            .background(theme.surfaceColor.opacity(0.9))
+                                            .clipShape(Capsule())
+                                        }
                                     }
+                                    .padding(.vertical, 2)
                                 }
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(theme.surfaceColor)
-                                .clipShape(Capsule())
+                            }
+
+                            taskDetailInsetSurface {
+                                HStack(spacing: 10) {
+                                    TextField("Add tag", text: $newTagText)
+                                        .onSubmit { addTag() }
+                                    Button("Add", action: addTag)
+                                        .disabled(newTagText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                                }
                             }
                         }
                     }
-                    HStack {
-                        TextField("Add tag", text: $newTagText)
-                            .onSubmit { addTag() }
-                        Button("Add", action: addTag)
-                            .disabled(newTagText.isEmpty)
-                    }
                 }
             }
+        }
+        .padding(.horizontal, 20)
+        .sheet(isPresented: $showingScheduledDateEditor) {
+            scheduledDateEditorSheet
+        }
+        .sheet(isPresented: $showingDueDateEditor) {
+            dueDateEditorSheet
         }
     }
 
@@ -315,184 +302,277 @@ struct TaskDetailView: View {
     }
 
     private var checklistSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("Checklist")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(theme.textSecondaryColor)
-                Spacer()
-                if !checklistItems.isEmpty {
-                    Text("\(checklistItems.filter(\.isCompleted).count)/\(checklistItems.count)")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(theme.textSecondaryColor)
+        taskDetailCard {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    taskDetailSectionTitle("Checklist")
+                    Spacer()
+                    if !checklistItems.isEmpty {
+                        Text("\(checklistItems.filter(\.isCompleted).count)/\(checklistItems.count)")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(theme.textSecondaryColor)
+                    }
                 }
-            }
 
-            if checklistItems.isEmpty {
-                Text("No checklist items yet.")
-                    .font(.footnote)
-                    .foregroundStyle(theme.textSecondaryColor)
-            } else {
-                VStack(spacing: 10) {
-                    ForEach(checklistItems) { item in
-                        checklistRow(item)
+                if checklistItems.isEmpty {
+                    Text("No checklist items yet.")
+                        .font(.footnote)
+                        .foregroundStyle(theme.textSecondaryColor)
+                } else {
+                    VStack(spacing: 10) {
+                        ForEach(checklistItems) { item in
+                            checklistRow(item)
+                        }
+                    }
+                }
+
+                taskDetailInsetSurface {
+                    HStack(spacing: 10) {
+                        TextField("Add checklist item", text: $newChecklistItemText)
+                            .onSubmit(addChecklistItem)
+
+                        Button("Add", action: addChecklistItem)
+                            .disabled(newChecklistItemText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                 }
             }
-
-            HStack(spacing: 10) {
-                TextField("Add checklist item", text: $newChecklistItemText)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit(addChecklistItem)
-
-                Button("Add", action: addChecklistItem)
-                    .disabled(newChecklistItemText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 14)
     }
 
     private var moreDetailsSection: some View {
-        DisclosureGroup(isExpanded: $expandedMetadata) {
-            VStack(spacing: 0) {
-                // Assignee
-                PropertyRow(
-                    icon: "person",
-                    label: "Assignee",
-                    valueText: editState?.assignee ?? "",
-                    isExpanded: expandedRow == .assignee,
-                    onTap: { expandedRow = expandedRow == .assignee ? nil : .assignee }
-                ) {
-                    TextField("Assignee", text: binding(\.assignee))
-                        .textFieldStyle(.roundedBorder)
-                }
+        taskDetailCard {
+            DisclosureGroup(isExpanded: $expandedMetadata) {
+                VStack(spacing: 10) {
+                    PropertyRow(
+                        icon: "person",
+                        label: "Assignee",
+                        valueText: editState?.assignee ?? "",
+                        isExpanded: expandedRow == .assignee,
+                        onTap: { expandedRow = expandedRow == .assignee ? nil : .assignee }
+                    ) {
+                        TextField("Assignee", text: binding(\.assignee))
+                            .textFieldStyle(.roundedBorder)
+                    }
 
-                // Blocked by
-                PropertyRow(
-                    icon: "link",
-                    label: "Blocked by",
-                    valueText: editState?.blockedByRefsText ?? "",
-                    isExpanded: expandedRow == .blockedBy,
-                    onTap: { expandedRow = expandedRow == .blockedBy ? nil : .blockedBy }
-                ) {
-                    TextField("Refs (comma-separated)", text: binding(\.blockedByRefsText))
-                        .textFieldStyle(.roundedBorder)
-                }
+                    PropertyRow(
+                        icon: "link",
+                        label: "Blocked by",
+                        valueText: editState?.blockedByRefsText ?? "",
+                        isExpanded: expandedRow == .blockedBy,
+                        onTap: { expandedRow = expandedRow == .blockedBy ? nil : .blockedBy }
+                    ) {
+                        TextField("Refs (comma-separated)", text: binding(\.blockedByRefsText))
+                            .textFieldStyle(.roundedBorder)
+                    }
 
-                // Project — always-expanded inline text field
-                PropertyRow(
-                    icon: "folder",
-                    label: "Project",
-                    valueText: editState?.project ?? "",
-                    isExpanded: true,
-                    onTap: {}
-                ) {
-                    TextField("Project", text: projectBinding)
-                        .textFieldStyle(.roundedBorder)
-                        .accessibilityIdentifier("taskDetail.field.project")
-                }
+                    PropertyRow(
+                        icon: "timer",
+                        label: "Estimate",
+                        valueText: editState?.hasEstimatedMinutes == true ? "\(editState!.estimatedMinutes) min" : "",
+                        isExpanded: expandedRow == .estimate,
+                        onTap: { expandedRow = expandedRow == .estimate ? nil : .estimate }
+                    ) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Toggle("Set estimate", isOn: binding(\.hasEstimatedMinutes))
+                            if editState?.hasEstimatedMinutes == true {
+                                Stepper(
+                                    "\(editState?.estimatedMinutes ?? 15) minutes",
+                                    value: binding(\.estimatedMinutes),
+                                    in: 5 ... 480,
+                                    step: 5
+                                )
+                            }
+                        }
+                    }
 
-                // Estimate
-                PropertyRow(
-                    icon: "timer",
-                    label: "Estimate",
-                    valueText: editState?.hasEstimatedMinutes == true ? "\(editState!.estimatedMinutes) min" : "",
-                    isExpanded: expandedRow == .estimate,
-                    onTap: { expandedRow = expandedRow == .estimate ? nil : .estimate }
-                ) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Toggle("Set estimate", isOn: binding(\.hasEstimatedMinutes))
-                        if editState?.hasEstimatedMinutes == true {
-                            Stepper(
-                                "\(editState?.estimatedMinutes ?? 15) minutes",
-                                value: binding(\.estimatedMinutes),
-                                in: 5 ... 480,
-                                step: 5
+                    Button {
+                        expandedLocationReminder = true
+                    } label: {
+                        taskDetailMetadataRow(
+                            icon: "location",
+                            label: "Location",
+                            value: editState?.hasLocationReminder == true ? locationSummary() : nil
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    if let s = editState {
+                        taskDetailMetadataRow(
+                            icon: "info.circle",
+                            label: "Created",
+                            value: s.createdAt.formatted(date: .abbreviated, time: .omitted)
+                        )
+
+                        if let modified = s.modifiedAt {
+                            taskDetailMetadataRow(
+                                icon: "pencil.circle",
+                                label: "Updated",
+                                value: modified.formatted(date: .abbreviated, time: .omitted)
                             )
                         }
                     }
                 }
-
-                // Location
-                Button {
-                    expandedLocationReminder = true
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "location")
-                            .frame(width: 20)
-                            .foregroundStyle(.secondary)
-                        Text("Location")
-                            .foregroundStyle(.primary)
-                        Spacer()
-                        Text(editState?.hasLocationReminder == true ? locationSummary() : "—")
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    .contentShape(Rectangle())
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
-                }
-                .buttonStyle(.plain)
-                Divider().padding(.leading, 52)
-
-                // Read-only metadata
-                if let s = editState {
-                    HStack(spacing: 12) {
-                        Image(systemName: "info.circle")
-                            .frame(width: 20)
-                            .foregroundStyle(.secondary)
-                        Text("Created")
-                            .foregroundStyle(.primary)
-                        Spacer()
-                        Text(s.createdAt, style: .date)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
-                    Divider().padding(.leading, 52)
-
-                    if let modified = s.modifiedAt {
-                        HStack(spacing: 12) {
-                            Image(systemName: "pencil.circle")
-                                .frame(width: 20)
-                                .foregroundStyle(.secondary)
-                            Text("Updated")
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            Text(modified, style: .date)
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 12)
-                        Divider().padding(.leading, 52)
-                    }
-                }
+            } label: {
+                Text("More Details")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(theme.textSecondaryColor)
             }
-        } label: {
-            Text("More details")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(theme.textSecondaryColor)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 14)
         }
+        .padding(.horizontal, 20)
     }
 
     private var unifiedView: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 18) {
                 headerSection
-                Divider()
-                checklistSection
-                Divider()
                 notesSection
-                Divider()
-                corePropertiesSection
+                focusDetailsSection
+                checklistSection
                 moreDetailsSection
             }
             .padding(.bottom, 40)
         }
         .background(theme.backgroundColor.ignoresSafeArea())
+    }
+
+    @ViewBuilder
+    private func taskDetailCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .padding(.horizontal, 18)
+            .padding(.vertical, 16)
+            .background(
+                ThingsSurfaceBackdrop(
+                    kind: .elevatedCard,
+                    theme: theme,
+                    colorScheme: colorScheme
+                )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: ThingsSurfaceKind.elevatedCard.cornerRadius, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func taskDetailInsetSurface<Content: View>(
+        minHeight: CGFloat? = nil,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .topLeading)
+            .background(
+                ThingsSurfaceBackdrop(
+                    kind: .inset,
+                    theme: theme,
+                    colorScheme: colorScheme
+                )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: ThingsSurfaceKind.inset.cornerRadius, style: .continuous))
+    }
+
+    private func taskDetailSectionTitle(_ title: String) -> some View {
+        Text(title)
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(theme.textSecondaryColor)
+    }
+
+    private func taskDetailFieldLabel(_ title: String) -> some View {
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(theme.textSecondaryColor)
+            .textCase(.uppercase)
+    }
+
+    private func taskDetailPill(
+        title: String,
+        systemImage: String,
+        tint: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                .foregroundStyle(tint)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(theme.surfaceColor.opacity(0.92))
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule()
+                        .stroke(tint.opacity(0.22), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func taskDetailSummaryButton(
+        label: String,
+        value: String,
+        systemImage: String,
+        accessibilityIdentifier: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: systemImage)
+                    .frame(width: 20)
+                    .foregroundStyle(theme.textSecondaryColor)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(label)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(theme.textPrimaryColor)
+                    Text(value)
+                        .font(.footnote)
+                        .foregroundStyle(theme.textSecondaryColor)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.textTertiaryColor)
+            }
+            .contentShape(Rectangle())
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(
+                ThingsSurfaceBackdrop(
+                    kind: .inset,
+                    theme: theme,
+                    colorScheme: colorScheme
+                )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: ThingsSurfaceKind.inset.cornerRadius, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(accessibilityIdentifier)
+    }
+
+    private func taskDetailMetadataRow(
+        icon: String,
+        label: String,
+        value: String?
+    ) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .frame(width: 20)
+                .foregroundStyle(theme.textSecondaryColor)
+            Text(label)
+                .foregroundStyle(theme.textPrimaryColor)
+            Spacer()
+            Text((value?.isEmpty == false ? value : "—") ?? "—")
+                .foregroundStyle(theme.textSecondaryColor)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(
+            ThingsSurfaceBackdrop(
+                kind: .inset,
+                theme: theme,
+                colorScheme: colorScheme
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: ThingsSurfaceKind.inset.cornerRadius, style: .continuous))
     }
 
     private var dueDateEditorSheet: some View {
@@ -676,7 +756,7 @@ struct TaskDetailView: View {
     }
 
     private func dueDateText(_ s: TaskEditState) -> String {
-        guard s.hasDue else { return "" }
+        guard s.hasDue else { return "No deadline" }
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = s.hasDueTime ? .short : .none
@@ -684,7 +764,7 @@ struct TaskDetailView: View {
     }
 
     private func scheduledDateText(_ s: TaskEditState) -> String {
-        guard s.hasScheduled else { return "" }
+        guard s.hasScheduled else { return "Anytime" }
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .none
@@ -1042,6 +1122,8 @@ private struct PropertyRow<Content: View>: View {
     let accessibilityIdentifier: String?
     let onTap: () -> Void
     @ViewBuilder let expandedContent: () -> Content
+    @EnvironmentObject private var theme: ThemeManager
+    @Environment(\.colorScheme) private var colorScheme
 
     init(
         icon: String,
@@ -1062,21 +1144,21 @@ private struct PropertyRow<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: isExpanded ? 12 : 0) {
             Button(action: onTap) {
                 HStack(spacing: 12) {
                     Image(systemName: icon)
                         .frame(width: 20)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(theme.textSecondaryColor)
                     Text(label)
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(theme.textPrimaryColor)
                     Spacer()
                     Text(valueText.isEmpty ? "—" : valueText)
-                        .foregroundStyle(valueText.isEmpty ? .tertiary : .secondary)
+                        .foregroundStyle(valueText.isEmpty ? theme.textTertiaryColor : theme.textSecondaryColor)
                         .lineLimit(1)
                 }
                 .contentShape(Rectangle())
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 14)
                 .padding(.vertical, 12)
             }
             .buttonStyle(.plain)
@@ -1084,13 +1166,18 @@ private struct PropertyRow<Content: View>: View {
 
             if isExpanded {
                 expandedContent()
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 12)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 14)
             }
-
-            Divider()
-                .padding(.leading, 52)
         }
+        .background(
+            ThingsSurfaceBackdrop(
+                kind: .inset,
+                theme: theme,
+                colorScheme: colorScheme
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: ThingsSurfaceKind.inset.cornerRadius, style: .continuous))
     }
 }
 

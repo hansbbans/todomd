@@ -1,7 +1,9 @@
 import SwiftUI
 
 struct QuickEntrySheet: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var container: AppContainer
     @EnvironmentObject private var theme: ThemeManager
     @AppStorage("settings_quick_entry_default_view") private var quickEntryDefaultView = BuiltInView.inbox.rawValue
@@ -31,6 +33,10 @@ struct QuickEntrySheet: View {
     @State private var reminderDraftDate = Date()
     @State private var didApplyDefaults = false
     @State private var showAllFields = false
+    @State private var showingDetails = false
+    @State private var focusTask: Task<Void, Never>?
+
+    @FocusState private var quickEntryTitleFocused: Bool
 
     private let descriptionInputHeight: CGFloat = 44
 
@@ -55,11 +61,36 @@ struct QuickEntrySheet: View {
     }
 
     private var supportsDueInputs: Bool {
-        activeFieldSet.contains(.dueDate) || activeFieldSet.contains(.reminder)
+        activeFieldSet.contains(.dueDate)
+            || activeFieldSet.contains(.reminder)
+            || hasDueDate
+            || hasDueTime
+            || quickEntryDefaultDateMode != .none
     }
 
     private var canSubmit: Bool {
         !quickEntryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var trimmedQuickEntryText: String {
+        quickEntryText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var hasVisibleMetadata: Bool {
+        hasDueDate
+            || hasDueTime
+            || hasScheduledDate
+            || hasScheduledTime
+            || !recurrence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || flagged
+            || priorityOverride != nil
+            || !parsedTags(from: tagsText).isEmpty
+            || selectedArea != nil
+            || selectedProject != nil
+    }
+
+    private var shouldShowDetails: Bool {
+        showingDetails || (trimmedQuickEntryText.isEmpty && hasVisibleMetadata)
     }
 
     private var whenChipTitle: String {
@@ -126,16 +157,44 @@ struct QuickEntrySheet: View {
         return "Inbox"
     }
 
+    private var destinationSymbol: String {
+        if selectedProject != nil {
+            return "folder"
+        }
+        if selectedArea != nil {
+            return "square.grid.2x2"
+        }
+        return "tray"
+    }
+
+    private var displayedDetailFields: [QuickEntryField] {
+        displayedFields.filter { $0 != .project }
+    }
+
+    private var detailsAnimation: Animation {
+        reduceMotion ? .easeOut(duration: 0.12) : .smooth(duration: 0.2)
+    }
+
+    private var detailsTransition: AnyTransition {
+        reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity)
+    }
+
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 18) {
                 descriptionField
-                configurableFieldsRow
+
+                if shouldShowDetails {
+                    detailsSection
+                        .transition(detailsTransition)
+                }
+
                 Spacer(minLength: 0)
-                destinationRow
+                actionRow
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
+            .background(theme.backgroundColor.ignoresSafeArea())
             .navigationTitle("Quick Entry")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -169,6 +228,11 @@ struct QuickEntrySheet: View {
         .presentationDetents([.fraction(0.58), .large])
         .onAppear {
             applyInitialDefaultsIfNeeded()
+            scheduleTitleFocus()
+        }
+        .onDisappear {
+            focusTask?.cancel()
+            focusTask = nil
         }
         .sheet(isPresented: $showingDueDateEditor) {
             dueDateEditor
@@ -200,40 +264,93 @@ struct QuickEntrySheet: View {
     }
 
     private var descriptionField: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center, spacing: 12) {
                 RoundedRectangle(cornerRadius: 3)
                     .fill(theme.accentColor)
                     .frame(width: 4, height: descriptionInputHeight)
 
-                TextField("Description", text: $quickEntryText)
+                TextField("New To-Do", text: $quickEntryText)
                     .font(.system(.title2, design: .rounded).weight(.regular))
                     .modifier(QuickEntryAutocapitalization(sentences: true))
                     .autocorrectionDisabled(false)
                     .submitLabel(.done)
                     .onSubmit { if canSubmit { addTask() } }
                     .frame(maxWidth: CGFloat.infinity, minHeight: descriptionInputHeight, alignment: Alignment.leading)
+                    .focused($quickEntryTitleFocused)
                     .accessibilityIdentifier("quickEntry.titleField")
             }
             .accessibilityIdentifier("quickEntry.titleField")
-            .padding(.horizontal, 18)
-            .padding(.vertical, 14)
+
+            if shouldShowDetails {
+                Text("Optional details stay tucked underneath the task.")
+                    .font(.footnote)
+                    .foregroundStyle(theme.textSecondaryColor)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if hasVisibleMetadata || !trimmedQuickEntryText.isEmpty {
+                collapsedQuickActionsRow
+            } else {
+                Text("Type the task. Everything else can wait.")
+                    .font(.footnote)
+                    .foregroundStyle(theme.textSecondaryColor)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
         .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(theme.surfaceColor.opacity(0.9))
+            ThingsSurfaceBackdrop(
+                kind: .elevatedCard,
+                theme: theme,
+                colorScheme: colorScheme
+            )
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(theme.textSecondaryColor.opacity(0.2), lineWidth: 1)
+        .clipShape(RoundedRectangle(cornerRadius: ThingsSurfaceKind.elevatedCard.cornerRadius, style: .continuous))
+    }
+
+    private var detailsSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Text("Optional Details")
+                    .font(.system(.footnote, design: .rounded).weight(.semibold))
+                    .foregroundStyle(theme.textSecondaryColor)
+                    .textCase(.uppercase)
+
+                Spacer()
+
+                if !hasVisibleMetadata {
+                    Button("Keep Simple") {
+                        withAnimation(detailsAnimation) {
+                            showingDetails = false
+                            showAllFields = false
+                        }
+                    }
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(theme.textSecondaryColor)
+                    .buttonStyle(.plain)
+                }
+            }
+
+            configurableFieldsRow
+            detailDestinationRow
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+        .background(
+            ThingsSurfaceBackdrop(
+                kind: .elevatedCard,
+                theme: theme,
+                colorScheme: colorScheme
+            )
         )
+        .clipShape(RoundedRectangle(cornerRadius: ThingsSurfaceKind.elevatedCard.cornerRadius, style: .continuous))
     }
 
     @ViewBuilder
     private var configurableFieldsRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
-                ForEach(displayedFields, id: \.self) { field in
+                ForEach(displayedDetailFields, id: \.self) { field in
                     fieldChip(field)
                 }
                 showAllFieldsButton
@@ -246,23 +363,15 @@ struct QuickEntrySheet: View {
         Button {
             showAllFields.toggle()
         } label: {
-            Text("...")
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-                .foregroundStyle(showAllFields ? theme.accentColor : theme.textPrimaryColor)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(theme.surfaceColor.opacity(0.94))
-                )
-                .overlay(
-                    Capsule(style: .continuous)
-                        .stroke(showAllFields ? theme.accentColor.opacity(0.45) : theme.textSecondaryColor.opacity(0.32), lineWidth: 1)
-                )
+            chipLabel(
+                title: showAllFields ? "Fewer" : "More",
+                systemImage: "slider.horizontal.3",
+                isActive: showAllFields
+            )
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("quickEntry.showAllFieldsButton")
-        .accessibilityLabel(showAllFields ? "Show default fields" : "Show all fields")
+        .accessibilityLabel(showAllFields ? "Show fewer details" : "Show more details")
     }
 
     @ViewBuilder
@@ -406,16 +515,80 @@ struct QuickEntrySheet: View {
         }
     }
 
-    private var destinationRow: some View {
+    private var detailDestinationRow: some View {
         HStack(spacing: 12) {
+            Text("Save To")
+                .font(.system(.footnote, design: .rounded).weight(.semibold))
+                .foregroundStyle(theme.textSecondaryColor)
+
+            Spacer()
+
             Menu {
                 destinationMenuActions
             } label: {
                 Label(destinationLabel, systemImage: "tray")
                     .font(.system(.body, design: .rounded).weight(.semibold))
                     .foregroundStyle(theme.textPrimaryColor)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(theme.surfaceColor.opacity(0.94))
+                    )
+                    .overlay(
+                        Capsule(style: .continuous)
+                            .stroke(theme.textSecondaryColor.opacity(0.24), lineWidth: 1)
+                    )
             }
+        }
+    }
 
+    private var collapsedQuickActionsRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                Button {
+                    showingDueDateEditor = true
+                } label: {
+                    chipLabelDeadline(
+                        title: deadlineChipTitle,
+                        isActive: hasDueDate,
+                        isOverdue: isDeadlineOverdue
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("quickEntry.quickDateButton")
+
+                Menu {
+                    destinationMenuActions
+                } label: {
+                    chipLabel(
+                        title: destinationLabel,
+                        systemImage: destinationSymbol,
+                        isActive: selectedArea != nil || selectedProject != nil
+                    )
+                }
+                .accessibilityIdentifier("quickEntry.quickDestinationButton")
+
+                Button {
+                    withAnimation(detailsAnimation) {
+                        showingDetails = true
+                    }
+                } label: {
+                    chipLabel(
+                        title: "More",
+                        systemImage: "slider.horizontal.3",
+                        isActive: false
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("quickEntry.revealDetailsButton")
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    private var actionRow: some View {
+        HStack(spacing: 12) {
             Spacer()
 
             HStack(spacing: 10) {
@@ -682,6 +855,17 @@ struct QuickEntrySheet: View {
             hasDueDate = false
         }
         hasDueTime = false
+        showingDetails = hasVisibleMetadata
+    }
+
+    private func scheduleTitleFocus() {
+        focusTask?.cancel()
+        focusTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 140_000_000)
+            guard !Task.isCancelled else { return }
+            quickEntryTitleFocused = true
+            focusTask = nil
+        }
     }
 
     private func prepareReminderDraft() {

@@ -59,6 +59,8 @@ private enum PomodoroPhase: String {
 
 struct PomodoroTimerView: View {
     let header: AnyView?
+    @Environment(\.colorScheme) private var colorScheme
+    @EnvironmentObject private var theme: ThemeManager
     @AppStorage("settings_pomodoro_mode") private var modeRawValue = PomodoroPreset.standard.rawValue
     @AppStorage("settings_pomodoro_auto_start_next") private var autoStartNext = false
     @AppStorage("settings_pomodoro_phase") private var phaseRawValue = PomodoroPhase.focus.rawValue
@@ -67,6 +69,7 @@ struct PomodoroTimerView: View {
     @AppStorage("settings_pomodoro_end_timestamp") private var endTimestamp = 0.0
 
     @State private var now = Date()
+    @ScaledMetric(relativeTo: .largeTitle) private var timerFontSize = 56
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     init(header: AnyView? = nil) {
@@ -75,66 +78,20 @@ struct PomodoroTimerView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
+            VStack(alignment: .leading, spacing: 24) {
                 if let header {
                     header
                 }
 
-                VStack(alignment: .leading, spacing: 20) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(currentPhase.title)
-                            .font(.title3.weight(.semibold))
-
-                        Text(formattedTime(displayedRemainingSeconds))
-                            .font(.system(size: 56, weight: .bold, design: .monospaced))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        ProgressView(value: progressValue)
-                            .tint(currentPhase == .focus ? .blue : .green)
-
-                        Text(currentPhase == .focus ? "Stay on task." : "Take a short break.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    HStack(spacing: 10) {
-                        Button(isRunning ? "Pause" : "Start") {
-                            isRunning ? pauseTimer() : startTimer()
-                        }
-                        .buttonStyle(.borderedProminent)
-
-                        Button("Reset") {
-                            resetTimer()
-                        }
-                        .buttonStyle(.bordered)
-
-                        Button("Skip Break") {
-                            skipBreak()
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(currentPhase != .breakTime)
-                    }
-
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Session")
-                            .font(.headline)
-
-                        Picker("Session preset", selection: $modeRawValue) {
-                            ForEach(PomodoroPreset.allCases) { preset in
-                                Text(preset.title).tag(preset.rawValue)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-
-                        Toggle("Auto-start next session", isOn: $autoStartNext)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                timerCard
+                controlsCard
+                sessionCard
             }
             .padding(.horizontal, header == nil ? 16 : 24)
-            .padding(.top, header == nil ? 16 : 72)
+            .padding(.top, header == nil ? 18 : 72)
             .padding(.bottom, 108)
         }
+        .background(theme.backgroundColor.ignoresSafeArea())
         .onAppear {
             sanitizeState(referenceDate: Date())
         }
@@ -145,6 +102,166 @@ struct PomodoroTimerView: View {
         .onChange(of: modeRawValue) { _, _ in
             applyPresetChange()
         }
+    }
+
+    private var timerCard: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .top, spacing: 12) {
+                Label(currentPhase.title, systemImage: currentPhase == .focus ? "flame.fill" : "cup.and.saucer.fill")
+                    .font(.headline)
+                    .foregroundStyle(phaseTint)
+
+                Spacer(minLength: 0)
+
+                Text(isRunning ? "Running" : "Paused")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.textSecondaryColor)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(theme.backgroundColor.opacity(colorScheme == .dark ? 0.82 : 0.94))
+                    )
+            }
+
+            Text(formattedTime(displayedRemainingSeconds))
+                .font(.system(size: timerFontSize, weight: .bold, design: .monospaced))
+                .foregroundStyle(theme.textPrimaryColor)
+                .minimumScaleFactor(0.55)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityLabel(accessibilityRemainingTime)
+
+            ProgressView(value: progressValue)
+                .tint(phaseTint)
+                .accessibilityLabel("Session progress")
+                .accessibilityValue(Text(progressValue.formatted(.percent.precision(.fractionLength(0)))))
+
+            Text(phaseSummary)
+                .font(.subheadline)
+                .foregroundStyle(theme.textSecondaryColor)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text(currentPresetSummary)
+                .font(.footnote)
+                .foregroundStyle(theme.textTertiaryColor)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 18)
+        .background(
+            ThingsSurfaceBackdrop(
+                kind: .elevatedCard,
+                theme: theme,
+                colorScheme: colorScheme
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: ThingsSurfaceKind.elevatedCard.cornerRadius, style: .continuous))
+    }
+
+    private var controlsCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Controls")
+                .font(.headline)
+                .foregroundStyle(theme.textPrimaryColor)
+
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) {
+                    startPauseButton
+                    resetButton
+                    skipBreakButton
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    startPauseButton
+                    resetButton
+                    skipBreakButton
+                }
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 18)
+        .background(
+            ThingsSurfaceBackdrop(
+                kind: .elevatedCard,
+                theme: theme,
+                colorScheme: colorScheme
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: ThingsSurfaceKind.elevatedCard.cornerRadius, style: .continuous))
+    }
+
+    private var sessionCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Session")
+                .font(.headline)
+                .foregroundStyle(theme.textPrimaryColor)
+
+            Picker("Session preset", selection: $modeRawValue) {
+                ForEach(PomodoroPreset.allCases) { preset in
+                    Text(preset.title).tag(preset.rawValue)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Toggle("Start the next session automatically", isOn: $autoStartNext)
+
+            Text("Standard runs 25 minutes of focus with a 5 minute break. Double Stack runs 50 and 10.")
+                .font(.footnote)
+                .foregroundStyle(theme.textSecondaryColor)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 18)
+        .background(
+            ThingsSurfaceBackdrop(
+                kind: .elevatedCard,
+                theme: theme,
+                colorScheme: colorScheme
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: ThingsSurfaceKind.elevatedCard.cornerRadius, style: .continuous))
+    }
+
+    private var startPauseButton: some View {
+        Button(isRunning ? "Pause Session" : "Start Session", systemImage: isRunning ? "pause.fill" : "play.fill") {
+            isRunning ? pauseTimer() : startTimer()
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+    }
+
+    private var resetButton: some View {
+        Button("Reset", systemImage: "arrow.counterclockwise", action: resetTimer)
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+    }
+
+    private var skipBreakButton: some View {
+        Button("Skip Break", systemImage: "forward.fill", action: skipBreak)
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .disabled(currentPhase != .breakTime)
+    }
+
+    private var phaseTint: Color {
+        currentPhase == .focus ? theme.accentColor : .green
+    }
+
+    private var phaseSummary: String {
+        currentPhase == .focus
+            ? "Stay with one task until the timer ends."
+            : "Take a short reset before you start another focus block."
+    }
+
+    private var currentPresetSummary: String {
+        "\(currentPreset.focusSeconds / 60) minutes of focus, \(currentPreset.breakSeconds / 60) minute break."
+    }
+
+    private var accessibilityRemainingTime: String {
+        let totalSeconds = displayedRemainingSeconds
+        let minutes = totalSeconds / 60
+        let seconds = totalSeconds % 60
+        return "\(minutes) minute\(minutes == 1 ? "" : "s"), \(seconds) second\(seconds == 1 ? "" : "s") remaining"
     }
 
     private var currentPreset: PomodoroPreset {

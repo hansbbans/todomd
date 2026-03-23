@@ -320,17 +320,17 @@ private struct RootViewInsetGroupedListStyle: ViewModifier {
     }
 }
 
-#if os(iOS)
-private enum RootPullToSearchCoordinateSpace {
-    static let name = "rootPullToSearchScrollArea"
-}
-
 private enum RootDismissibleSurfaceID {
     static let inlineTaskComposer = "inlineTaskComposer"
 
     static func expandedTask(_ path: String) -> String {
         "expandedTask:\(path)"
     }
+}
+
+#if os(iOS)
+private enum RootPullToSearchCoordinateSpace {
+    static let name = "rootPullToSearchScrollArea"
 }
 
 private struct RootListContentMaxYPreferenceKey: PreferenceKey {
@@ -707,6 +707,7 @@ struct RootView: View {
     @State private var isCreatingTask = false
     @State private var compactComposerContentVisible = false
     @State private var inlineTaskDraft = InlineTaskDraft()
+    @State private var inlineTaskNotesVisible = false
     @State private var expandedInlineTaskPanel: InlineTaskPanel?
     @State private var showingInlineTaskDateModal = false
     @State private var inlineComposerTransitionTask: Task<Void, Never>?
@@ -785,6 +786,11 @@ struct RootView: View {
                     expandedTaskDateModalOverlay(target: target)
                 }
             }
+            .overlay {
+                if shouldShowCompactInlineTaskComposer {
+                    compactInlineTaskComposerOverlay
+                }
+            }
             .sheet(isPresented: $showingQuickEntry) {
                 QuickEntrySheet()
             }
@@ -801,7 +807,8 @@ struct RootView: View {
                             QuickFindCard(
                                 query: $universalSearchText,
                                 store: quickFindStore,
-                                maxHeight: geo.size.height * 0.55,
+                                maxHeight: geo.size.height * 0.68,
+                                hasSuggestedContent: hasRootSearchPreQuerySuggestions,
                                 onDismiss: { dismissRootSearch() },
                                 onSelectRecent: { item in
                                     switch item.destination {
@@ -815,12 +822,15 @@ struct RootView: View {
                                         DispatchQueue.main.async { openFullTaskEditor(path: path) }
                                     }
                                 },
+                                suggestedContent: {
+                                    rootSearchPreQueryContent()
+                                },
                                 resultsContent: { query in
                                     AnyView(rootSearchResultsContent(query: query))
                                 }
                             )
                             .padding(.horizontal, 16)
-                            .padding(.top, 60)
+                            .padding(.top, ThingsSurfaceLayout.quickFindTopPadding)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                         }
                     }
@@ -1432,7 +1442,8 @@ struct RootView: View {
                 Button {
                     commitInlineTaskComposer()
                 } label: {
-                    Image(systemName: "checkmark.circle.fill")
+                    Label("Add Task", systemImage: "checkmark.circle.fill")
+                        .labelStyle(.iconOnly)
                         .font(.title3)
                 }
                 .disabled(!canCommitInlineTask)
@@ -1718,8 +1729,8 @@ struct RootView: View {
                 unparseableFilesSummary
             }
             .frame(maxWidth: .infinity)
-            .padding(.top, container.isCalendarConnected ? 10 : 24)
-            .padding(.bottom, 40)
+            .padding(.top, ThingsSurfaceLayout.emptyStateTopPadding)
+            .padding(.bottom, ThingsSurfaceLayout.emptyStateBottomPadding)
 #if os(iOS)
             .modifier(RootListContentBoundaryReporter())
 #endif
@@ -1747,8 +1758,8 @@ struct RootView: View {
                 unparseableFilesSummary
             }
             .frame(maxWidth: .infinity)
-            .padding(.top, 20)
-            .padding(.bottom, 40)
+            .padding(.top, ThingsSurfaceLayout.emptyStateTopPadding)
+            .padding(.bottom, ThingsSurfaceLayout.emptyStateBottomPadding)
 #if os(iOS)
             .modifier(RootListContentBoundaryReporter())
 #endif
@@ -1772,8 +1783,8 @@ struct RootView: View {
                 unparseableFilesSummary
             }
             .frame(maxWidth: .infinity)
-            .padding(.top, 20)
-            .padding(.bottom, 40)
+            .padding(.top, ThingsSurfaceLayout.emptyStateTopPadding)
+            .padding(.bottom, ThingsSurfaceLayout.emptyStateBottomPadding)
 #if os(iOS)
             .modifier(RootListContentBoundaryReporter())
 #endif
@@ -1820,8 +1831,8 @@ struct RootView: View {
                 unparseableFilesSummary
             }
             .frame(maxWidth: .infinity)
-            .padding(.top, 20)
-            .padding(.bottom, 40)
+            .padding(.top, ThingsSurfaceLayout.emptyStateTopPadding)
+            .padding(.bottom, ThingsSurfaceLayout.emptyStateBottomPadding)
 #if os(iOS)
             .modifier(RootListContentBoundaryReporter())
 #endif
@@ -1919,9 +1930,9 @@ struct RootView: View {
                 )
             }
         }
-            .padding(.horizontal, 24)
-            .padding(.top, 72)
-            .padding(.bottom, mainHeroBottomPadding)
+            .padding(.horizontal, ThingsSurfaceLayout.heroHorizontalPadding)
+            .padding(.top, ThingsSurfaceLayout.heroTopPadding)
+            .padding(.bottom, ThingsSurfaceLayout.heroBottomPadding)
 #if os(iOS)
             .modifier(RootPullToSearchTopMarker())
             .modifier(RootListContentBoundaryReporter())
@@ -1929,13 +1940,6 @@ struct RootView: View {
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
-    }
-
-    private var mainHeroBottomPadding: CGFloat {
-        if container.selectedView == .builtIn(.today), container.isCalendarConnected {
-            return 4
-        }
-        return 12
     }
 
     private var rootScreenTransition: AnyTransition {
@@ -1993,9 +1997,9 @@ struct RootView: View {
 
     private var todayCalendarCardListRow: some View {
         TodayCalendarCard(events: container.calendarTodayEvents)
-            .padding(.horizontal, 24)
-            .padding(.top, 2)
-            .padding(.bottom, 14)
+            .padding(.horizontal, ThingsSurfaceLayout.heroHorizontalPadding)
+            .padding(.top, ThingsSurfaceLayout.supportingCardTopPadding)
+            .padding(.bottom, ThingsSurfaceLayout.supportingCardBottomPadding)
 #if os(iOS)
             .modifier(RootListContentBoundaryReporter())
 #endif
@@ -2018,7 +2022,11 @@ struct RootView: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     inlineTaskExpandedTitleField
-                    inlineTaskExpandedNotesField
+                    if inlineTaskNotesVisible || !inlineTaskDraft.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        inlineTaskExpandedNotesField
+                    } else {
+                        inlineTaskRevealNotesButton
+                    }
                     inlineTaskComposerDetectedMetadata
                 }
 
@@ -2039,31 +2047,14 @@ struct RootView: View {
         .padding(.top, 17)
         .padding(.bottom, 16)
         .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(inlineTaskComposerCardGradient)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color.white.opacity(colorScheme == .dark ? 0.035 : 0.18),
-                                    Color.clear,
-                                    Color.black.opacity(colorScheme == .dark ? 0.08 : 0.02)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                )
+            ThingsSurfaceBackdrop(
+                kind: .elevatedCard,
+                theme: theme,
+                colorScheme: colorScheme
+            )
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(inlineTaskComposerBorderColor, lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.3 : 0.12), radius: 28, y: 16)
-        .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.17 : 0.05), radius: 12, y: 5)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.horizontal, ThingsSurfaceLayout.floatingCardHorizontalInset)
+        .padding(.vertical, ThingsSurfaceLayout.floatingCardVerticalInset)
         .listRowInsets(EdgeInsets())
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
@@ -2131,30 +2122,19 @@ struct RootView: View {
         .frame(minHeight: 86, alignment: .topLeading)
     }
 
-    private var inlineTaskComposerCardGradient: LinearGradient {
-        if colorScheme == .dark {
-            return LinearGradient(
-                colors: [
-                    Color(red: 0.11, green: 0.12, blue: 0.16),
-                    Color(red: 0.08, green: 0.09, blue: 0.12)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+    private var inlineTaskRevealNotesButton: some View {
+        Button {
+            withAnimation(.smooth(duration: 0.18)) {
+                inlineTaskNotesVisible = true
+            }
+        } label: {
+            Label("Add note", systemImage: "text.alignleft")
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .foregroundStyle(theme.textSecondaryColor)
+                .padding(.vertical, 4)
         }
-
-        return LinearGradient(
-            colors: [
-                theme.surfaceColor.opacity(0.98),
-                theme.backgroundColor.opacity(0.96)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-    }
-
-    private var inlineTaskComposerBorderColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.06) : theme.textSecondaryColor.opacity(0.16)
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("inlineTask.addNoteButton")
     }
 
     private var inlineTaskComposerNoteTextColor: Color {
@@ -2210,9 +2190,12 @@ struct RootView: View {
 
                     VStack(alignment: .leading, spacing: 10) {
                         TextField("New To-Do", text: $inlineTaskDraft.title)
+                            .modifier(RootViewWordsAutocapitalization())
+                            .textFieldStyle(.plain)
                             .font(.system(size: 17, weight: .regular))
                             .foregroundStyle(compactComposerPrimaryTextColor)
                             .focused($inlineTaskFocused)
+                            .lineLimit(1)
                             .submitLabel(.done)
                             .accessibilityIdentifier("inlineTask.titleField")
                             .onAppear {
@@ -2225,7 +2208,13 @@ struct RootView: View {
                                 commitInlineTaskComposer()
                             }
 
-                        Text("Notes")
+                        if inlineTaskNotesVisible || !inlineTaskDraft.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            compactInlineTaskNotesField
+                        } else {
+                            compactInlineTaskRevealNotesButton
+                        }
+
+                        Text("Add details only if you need them.")
                             .font(.system(size: 15, weight: .regular))
                             .foregroundStyle(compactComposerSecondaryTextColor)
                     }
@@ -2248,52 +2237,61 @@ struct RootView: View {
         }
         .scrollBounceBehavior(.basedOnSize)
         .frame(maxWidth: .infinity, maxHeight: maxHeight, alignment: .topLeading)
+        .allowsHitTesting(compactComposerContentVisible)
+        .accessibilityHidden(!compactComposerContentVisible)
         .opacity(compactComposerContentVisible ? 1 : 0.001)
         .offset(y: compactComposerContentVisible ? 0 : 10)
         .scaleEffect(compactComposerContentVisible ? 1 : 0.978, anchor: .bottomTrailing)
+        .accessibilityIdentifier("inlineTask.row")
         .background(
-            ZStack {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(compactComposerBackgroundColor)
-
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                compactComposerHighlightColor,
-                                compactComposerLowlightColor
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                .white.opacity(0.045),
-                                .clear,
-                                .black.opacity(0.14)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .strokeBorder(compactComposerBorderColor, lineWidth: 1)
-            }
+            ThingsSurfaceBackdrop(
+                kind: .compactOverlay,
+                theme: theme,
+                colorScheme: colorScheme
+            )
             .matchedGeometryEffect(
                 id: "compactQuickAddShell",
                 in: compactQuickAddNamespace,
                 properties: .frame,
                 anchor: .bottomTrailing
             )
-            .shadow(color: .black.opacity(0.34), radius: 28, x: 0, y: 16)
-            .shadow(color: .black.opacity(0.18), radius: 10, x: 0, y: 4)
         )
-        .animation(.easeOut(duration: 0.18), value: compactComposerContentVisible)
+        .animation(ThingsSurfaceMotion.overlayClose, value: compactComposerContentVisible)
+    }
+
+    private var compactInlineTaskNotesField: some View {
+        ZStack(alignment: .topLeading) {
+            if inlineTaskDraft.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text("Notes")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(compactComposerSecondaryTextColor)
+                    .padding(.top, 1)
+            }
+
+            TextField("", text: $inlineTaskDraft.description, axis: .vertical)
+                .modifier(RootViewWordsAutocapitalization())
+                .textFieldStyle(.plain)
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(compactComposerPrimaryTextColor)
+                .lineLimit(1...4)
+                .accessibilityIdentifier("inlineTask.notesField")
+        }
+        .frame(minHeight: 56, alignment: .topLeading)
+    }
+
+    private var compactInlineTaskRevealNotesButton: some View {
+        Button {
+            withAnimation(.smooth(duration: 0.18)) {
+                inlineTaskNotesVisible = true
+            }
+        } label: {
+            Label("Add note", systemImage: "text.alignleft")
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .foregroundStyle(compactComposerPrimaryTextColor)
+                .padding(.vertical, 4)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("inlineTask.addNoteButton")
     }
 
     private var inlineTaskAccessoryBar: some View {
@@ -2343,23 +2341,39 @@ struct RootView: View {
         .accessibilityValue(inlineTaskDateLabel)
     }
 
+    @ViewBuilder
     private func inlineTaskProjectAccessoryMenu(
         activeTint: Color,
         inactiveTint: Color
     ) -> some View {
         let isActive = inlineTaskDraft.project != nil || inlineTaskDraft.area != nil
-        return Menu {
-            inlineTaskProjectMenuContent
-        } label: {
-            InlineTaskAccessoryIconLabel(
-                systemImage: "list.bullet",
-                tint: isActive ? activeTint : inactiveTint
-            )
+        if horizontalSizeClass == .compact {
+            Button {
+                toggleInlineTaskPanel(.destination)
+            } label: {
+                InlineTaskAccessoryIconLabel(
+                    systemImage: "list.bullet",
+                    tint: isActive ? activeTint : inactiveTint
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("inlineTask.projectMenuButton")
+            .accessibilityLabel("Project")
+            .accessibilityValue(inlineTaskDestinationLabel)
+        } else {
+            Menu {
+                inlineTaskProjectMenuContent
+            } label: {
+                InlineTaskAccessoryIconLabel(
+                    systemImage: "list.bullet",
+                    tint: isActive ? activeTint : inactiveTint
+                )
+            }
+            .menuIndicator(.hidden)
+            .accessibilityIdentifier("inlineTask.projectMenuButton")
+            .accessibilityLabel("Project")
+            .accessibilityValue(inlineTaskDestinationLabel)
         }
-        .menuIndicator(.hidden)
-        .accessibilityIdentifier("inlineTask.projectMenuButton")
-        .accessibilityLabel("Project")
-        .accessibilityValue(inlineTaskDestinationLabel)
     }
 
     private func inlineTaskTagsAccessoryButton(
@@ -2407,22 +2421,6 @@ struct RootView: View {
         return compactComposerIconColor
     }
 
-    private var compactComposerBackgroundColor: Color {
-        Color(.sRGB, red: 0.1059, green: 0.1294, blue: 0.1569, opacity: 0.985)
-    }
-
-    private var compactComposerHighlightColor: Color {
-        Color(.sRGB, red: 0.1333, green: 0.1569, blue: 0.1882, opacity: 0.94)
-    }
-
-    private var compactComposerLowlightColor: Color {
-        Color(.sRGB, red: 0.0941, green: 0.1137, blue: 0.1373, opacity: 0.98)
-    }
-
-    private var compactComposerBorderColor: Color {
-        Color.white.opacity(0.045)
-    }
-
     private var compactComposerPrimaryTextColor: Color {
         Color.white.opacity(0.92)
     }
@@ -2451,20 +2449,12 @@ struct RootView: View {
         Color.white.opacity(0.48)
     }
 
-    private var inlineComposerMetadataBackgroundColor: Color {
-        horizontalSizeClass == .compact ? compactComposerBackgroundColor.opacity(0.98) : theme.surfaceColor
-    }
-
     private var inlineComposerMetadataPrimaryTextColor: Color {
         horizontalSizeClass == .compact ? compactComposerPrimaryTextColor : theme.textPrimaryColor
     }
 
     private var inlineComposerMetadataSecondaryTextColor: Color {
         horizontalSizeClass == .compact ? compactComposerSecondaryTextColor : theme.textSecondaryColor
-    }
-
-    private var inlineComposerMetadataBorderColor: Color {
-        horizontalSizeClass == .compact ? Color.white.opacity(0.08) : theme.textSecondaryColor.opacity(0.12)
     }
 
     private var compactInlineTaskAccessoryBar: some View {
@@ -2501,7 +2491,8 @@ struct RootView: View {
                     InlineTaskOptionButton(
                         title: "Inbox",
                         isSelected: inlineTaskDraft.project == nil && inlineTaskDraft.area == nil,
-                        tint: theme.accentColor
+                        tint: theme.accentColor,
+                        accessibilityIdentifier: "inlineTask.projectMenuItem.Inbox"
                     ) {
                         inlineTaskDraft.project = nil
                         inlineTaskDraft.area = nil
@@ -2511,7 +2502,8 @@ struct RootView: View {
                         InlineTaskOptionButton(
                             title: currentArea,
                             isSelected: inlineTaskDraft.area == currentArea && inlineTaskDraft.project == nil,
-                            tint: theme.accentColor
+                            tint: theme.accentColor,
+                            accessibilityIdentifier: "inlineTask.projectMenuItem.\(currentArea)"
                         ) {
                             inlineTaskDraft.area = currentArea
                             inlineTaskDraft.project = nil
@@ -2522,7 +2514,8 @@ struct RootView: View {
                         InlineTaskOptionButton(
                             title: project,
                             isSelected: inlineTaskDraft.project == project,
-                            tint: theme.accentColor
+                            tint: theme.accentColor,
+                            accessibilityIdentifier: "inlineTask.projectMenuItem.\(project)"
                         ) {
                             inlineTaskDraft.project = project
                             inlineTaskDraft.area = nil
@@ -2841,12 +2834,11 @@ struct RootView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(horizontalSizeClass == .compact ? Color.white.opacity(0.12) : theme.backgroundColor)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(inlineComposerMetadataBorderColor, lineWidth: 1)
+            ThingsSurfaceBackdrop(
+                kind: .inset,
+                theme: theme,
+                colorScheme: colorScheme
+            )
         )
     }
 
@@ -2892,12 +2884,11 @@ struct RootView: View {
         }
         .padding(14)
         .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(inlineComposerMetadataBackgroundColor)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(inlineComposerMetadataBorderColor, lineWidth: 1)
+            ThingsSurfaceBackdrop(
+                kind: .inset,
+                theme: theme,
+                colorScheme: colorScheme
+            )
         )
     }
 
@@ -3138,14 +3129,13 @@ struct RootView: View {
             .filter { matchesQuery($0.label, query: query) }
         let matchingWorkflows = RootWorkflowEntry.allCases.filter { matchesQuery($0.label, query: query) }
 
-        if tasks.isEmpty
-            && tags.isEmpty
-            && areas.isEmpty
-            && projects.isEmpty
-            && builtInViews.isEmpty
-            && perspectives.isEmpty
-            && matchingWorkflows.isEmpty
-        {
+        let hasNavigationResults = !areas.isEmpty
+            || !projects.isEmpty
+            || !builtInViews.isEmpty
+            || !perspectives.isEmpty
+            || !matchingWorkflows.isEmpty
+
+        if tasks.isEmpty && tags.isEmpty && !hasNavigationResults {
             ContentUnavailableView(
                 "No Results",
                 systemImage: "magnifyingglass",
@@ -3159,7 +3149,7 @@ struct RootView: View {
             .listRowSeparator(.hidden)
         } else {
             if !builtInViews.isEmpty {
-                Section("Sections") {
+                Section("Lists") {
                     ForEach(builtInViews, id: \.view.rawValue) { item in
                         searchDestinationButton(
                             view: item.view,
@@ -3184,19 +3174,7 @@ struct RootView: View {
                 }
             }
 
-            if !tags.isEmpty {
-                Section("Tags") {
-                    ForEach(tags, id: \.self) { tag in
-                        searchDestinationButton(
-                            view: .tag(tag),
-                            label: "#\(tag)",
-                            icon: "number"
-                        )
-                    }
-                }
-            }
-
-            if !areas.isEmpty || !matchingWorkflows.isEmpty {
+            if !matchingWorkflows.isEmpty {
                 Section("Workflows") {
                     ForEach(matchingWorkflows) { workflow in
                         switch workflow {
@@ -3218,6 +3196,11 @@ struct RootView: View {
                             }
                         }
                     }
+                }
+            }
+
+            if !areas.isEmpty {
+                Section("Areas") {
                     ForEach(areas, id: \.self) { area in
                         searchDestinationButton(
                             view: .area(area),
@@ -3242,6 +3225,18 @@ struct RootView: View {
                 }
             }
 
+            if !tags.isEmpty {
+                Section("Tags") {
+                    ForEach(tags, id: \.self) { tag in
+                        searchDestinationButton(
+                            view: .tag(tag),
+                            label: "#\(tag)",
+                            icon: "number"
+                        )
+                    }
+                }
+            }
+
             if !tasks.isEmpty {
                 Section("Tasks") {
                     ForEach(tasks) { record in
@@ -3250,6 +3245,194 @@ struct RootView: View {
                 }
             }
         }
+    }
+
+    private var rootSearchCurrentContextEntry: RootNavigationEntry? {
+        switch container.selectedView {
+        case .builtIn(.inbox), .builtIn(.today), .builtIn(.upcoming), .builtIn(.review), .browse:
+            return nil
+        case .builtIn(let builtInView):
+            return RootNavigationEntry(
+                view: .builtIn(builtInView),
+                label: builtInView.displayTitle,
+                icon: builtInView.displaySystemImage
+            )
+        case .project(let project):
+            return RootNavigationEntry(view: .project(project), label: project, icon: container.projectIconSymbol(for: project))
+        case .area(let area):
+            return RootNavigationEntry(view: .area(area), label: area, icon: "square.grid.2x2")
+        case .tag(let tag):
+            return RootNavigationEntry(view: .tag(tag), label: "#\(tag)", icon: "number")
+        case .custom:
+            guard let name = container.perspectiveName(for: container.selectedView) else { return nil }
+            return RootNavigationEntry(view: container.selectedView, label: name, icon: "list.bullet")
+        }
+    }
+
+    private var rootSearchQuickJumpEntries: [RootNavigationEntry] {
+        let entries = [
+            RootNavigationEntry(view: .builtIn(.inbox), label: "Inbox", icon: BuiltInView.inbox.displaySystemImage),
+            RootNavigationEntry(view: .builtIn(.today), label: "Today", icon: BuiltInView.today.displaySystemImage),
+            RootNavigationEntry(view: .builtIn(.upcoming), label: "Upcoming", icon: BuiltInView.upcoming.displaySystemImage),
+            RootNavigationEntry(view: .builtIn(.review), label: "Review", icon: BuiltInView.review.displaySystemImage),
+            RootNavigationEntry(view: .browse, label: "Browse", icon: "square.grid.2x2")
+        ]
+        return entries.filter { $0.view != container.selectedView }
+    }
+
+    private var rootSearchSuggestedTasks: [TaskRecord] {
+        let todayRecords = container.todaySections().flatMap(\.records)
+        if !todayRecords.isEmpty {
+            return Array(todayRecords.prefix(3))
+        }
+
+        let currentViewRecords = container.filteredRecords()
+            .filter { $0.document.frontmatter.status != .done && $0.document.frontmatter.status != .cancelled }
+        if !currentViewRecords.isEmpty {
+            return Array(currentViewRecords.prefix(3))
+        }
+
+        return Array(container.upcomingSections().flatMap(\.records).prefix(3))
+    }
+
+    private var rootSearchContextualRecords: [TaskRecord] {
+        let activeCurrentViewRecords = container.filteredRecords()
+            .filter { $0.document.frontmatter.status != .done && $0.document.frontmatter.status != .cancelled }
+        if !activeCurrentViewRecords.isEmpty {
+            return activeCurrentViewRecords
+        }
+
+        return container.records.filter {
+            $0.document.frontmatter.status != .done && $0.document.frontmatter.status != .cancelled
+        }
+    }
+
+    private var rootSearchSuggestedProjects: [String] {
+        let contextualProjects = rankedRootSearchValues(
+            rootSearchContextualRecords.compactMap { trimmedRootSearchValue($0.document.frontmatter.project) },
+            limit: 3
+        )
+        if !contextualProjects.isEmpty {
+            return contextualProjects
+        }
+        return Array(container.allProjects().prefix(3))
+    }
+
+    private var rootSearchSuggestedAreas: [String] {
+        let contextualAreas = rankedRootSearchValues(
+            rootSearchContextualRecords.compactMap { trimmedRootSearchValue($0.document.frontmatter.area) },
+            limit: 2
+        )
+        if !contextualAreas.isEmpty {
+            return contextualAreas
+        }
+        return Array(container.availableAreas().prefix(2))
+    }
+
+    private var rootSearchSuggestedTags: [String] {
+        let contextualTags = rankedRootSearchValues(
+            rootSearchContextualRecords.flatMap(\.document.frontmatter.tags),
+            limit: 4
+        )
+        if !contextualTags.isEmpty {
+            return contextualTags
+        }
+        return Array(container.availableTags().prefix(4))
+    }
+
+    private var hasRootSearchPreQuerySuggestions: Bool {
+        rootSearchCurrentContextEntry != nil
+            || !rootSearchQuickJumpEntries.isEmpty
+            || !rootSearchSuggestedProjects.isEmpty
+            || !rootSearchSuggestedAreas.isEmpty
+            || !rootSearchSuggestedTags.isEmpty
+            || !rootSearchSuggestedTasks.isEmpty
+    }
+
+    @ViewBuilder
+    private func rootSearchPreQueryContent() -> some View {
+        if rootSearchCurrentContextEntry != nil || !rootSearchQuickJumpEntries.isEmpty {
+            Section("Jump Back In") {
+                if let currentContextEntry = rootSearchCurrentContextEntry {
+                    searchDestinationButton(
+                        view: currentContextEntry.view,
+                        label: currentContextEntry.label,
+                        icon: currentContextEntry.icon,
+                        accessibilityIdentifier: "quickFind.suggested.currentView"
+                    )
+                }
+
+                ForEach(rootSearchQuickJumpEntries, id: \.view.rawValue) { entry in
+                    searchDestinationButton(
+                        view: entry.view,
+                        label: entry.label,
+                        icon: entry.icon,
+                        accessibilityIdentifier: "quickFind.suggested.goTo.\(entry.view.rawValue)"
+                    )
+                }
+            }
+        }
+
+        if !rootSearchSuggestedProjects.isEmpty || !rootSearchSuggestedAreas.isEmpty {
+            Section("Suggested Lists") {
+                ForEach(rootSearchSuggestedProjects, id: \.self) { project in
+                    searchDestinationButton(
+                        view: .project(project),
+                        label: project,
+                        icon: container.projectIconSymbol(for: project),
+                        tintHex: container.projectColorHex(for: project),
+                        fallbackIcon: "folder"
+                    )
+                }
+
+                ForEach(rootSearchSuggestedAreas, id: \.self) { area in
+                    searchDestinationButton(
+                        view: .area(area),
+                        label: area,
+                        icon: "square.grid.2x2"
+                    )
+                }
+            }
+        }
+
+        if !rootSearchSuggestedTags.isEmpty {
+            Section("Popular Tags") {
+                ForEach(rootSearchSuggestedTags, id: \.self) { tag in
+                    searchDestinationButton(
+                        view: .tag(tag),
+                        label: "#\(tag)",
+                        icon: "number"
+                    )
+                }
+            }
+        }
+
+        if !rootSearchSuggestedTasks.isEmpty {
+            Section("Up Next") {
+                ForEach(rootSearchSuggestedTasks) { record in
+                    searchTaskResultButton(record)
+                }
+            }
+        }
+    }
+
+    private func rankedRootSearchValues(_ values: [String], limit: Int) -> [String] {
+        let counts = Dictionary(values.map { ($0, 1) }, uniquingKeysWith: +)
+        return counts
+            .sorted { lhs, rhs in
+                if lhs.value == rhs.value {
+                    return lhs.key.localizedCaseInsensitiveCompare(rhs.key) == .orderedAscending
+                }
+                return lhs.value > rhs.value
+            }
+            .prefix(limit)
+            .map(\.key)
+    }
+
+    private func trimmedRootSearchValue(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private var projectColorChoices: [ProjectColorChoice] {
@@ -3559,7 +3742,8 @@ struct RootView: View {
         label: String,
         icon: String,
         tintHex: String? = nil,
-        fallbackIcon: String? = nil
+        fallbackIcon: String? = nil,
+        accessibilityIdentifier: String? = nil
     ) -> some View {
         let tint = color(forHex: tintHex) ?? theme.accentColor
         let resolvedFallback = fallbackIcon ?? (icon.isEmpty ? "questionmark.circle" : icon)
@@ -3587,6 +3771,7 @@ struct RootView: View {
             }
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier(accessibilityIdentifier ?? "root.search.destination.\(view.rawValue)")
     }
 
     private func searchActionButton(
@@ -3742,7 +3927,7 @@ struct RootView: View {
     }
 
     private var shouldRenderInlineTaskComposerInList: Bool {
-        shouldRenderInlineTaskComposer
+        shouldRenderInlineTaskComposer && horizontalSizeClass != .compact
     }
 
     private var shouldShowCompactInlineTaskComposer: Bool {
@@ -3758,11 +3943,11 @@ struct RootView: View {
     }
 
     private var compactComposerOpenAnimation: Animation {
-        .spring(response: 0.32, dampingFraction: 0.84, blendDuration: 0.12)
+        ThingsSurfaceMotion.overlayOpen
     }
 
     private var compactComposerCloseAnimation: Animation {
-        .spring(response: 0.24, dampingFraction: 0.94, blendDuration: 0.1)
+        ThingsSurfaceMotion.overlayClose
     }
 
     private var floatingAddButton: some View {
@@ -4042,6 +4227,7 @@ struct RootView: View {
         inlineTaskFocusTask?.cancel()
         inlineTaskFocusTask = nil
         inlineTaskDraft = defaultInlineTaskDraft(for: container.selectedView)
+        inlineTaskNotesVisible = false
         expandedInlineTaskPanel = nil
         showingInlineTaskDateModal = false
         compactComposerContentVisible = horizontalSizeClass != .compact
@@ -4061,6 +4247,7 @@ struct RootView: View {
         }
 
         inlineTaskDraft = defaultInlineTaskDraft(for: container.selectedView)
+        inlineTaskNotesVisible = false
         expandedInlineTaskPanel = nil
         showingInlineTaskDateModal = false
         inlineAutoDatePhrase = nil
@@ -4101,6 +4288,7 @@ struct RootView: View {
                     isCreatingTask = false
                 }
                 inlineTaskDraft = InlineTaskDraft()
+                inlineTaskNotesVisible = false
                 inlineAutoDatePhrase = nil
                 inlineComposerTransitionTask = nil
             }
@@ -4109,6 +4297,7 @@ struct RootView: View {
                 isCreatingTask = false
             }
             inlineTaskDraft = InlineTaskDraft()
+            inlineTaskNotesVisible = false
             inlineAutoDatePhrase = nil
         }
         inlineTaskFocused = false
@@ -5316,6 +5505,7 @@ private struct ExpandedTaskRow: View {
     private struct MetadataSegment {
         let text: String
         let color: Color
+        let accessibilityText: String?
     }
 
     private enum Field: Hashable {
@@ -5453,12 +5643,17 @@ private struct ExpandedTaskRow: View {
         .padding(.trailing, isExpanded ? 17 : 16)
         .padding(.top, isExpanded ? 17 : 13)
         .padding(.bottom, isExpanded ? 16 : 13)
-        .background(expandedBackground)
-        .overlay(expandedBorder)
-        .shadow(color: isExpanded ? Color.black.opacity(colorScheme == .dark ? 0.3 : 0.12) : .clear, radius: 28, y: 16)
-        .shadow(color: isExpanded ? Color.black.opacity(colorScheme == .dark ? 0.17 : 0.05) : .clear, radius: 12, y: 5)
-        .padding(.horizontal, isExpanded ? 10 : 0)
-        .padding(.vertical, isExpanded ? 7 : 0)
+        .background {
+            if isExpanded {
+                ThingsSurfaceBackdrop(
+                    kind: .elevatedCard,
+                    theme: theme,
+                    colorScheme: colorScheme
+                )
+            }
+        }
+        .padding(.horizontal, isExpanded ? ThingsSurfaceLayout.floatingCardHorizontalInset : 0)
+        .padding(.vertical, isExpanded ? ThingsSurfaceLayout.floatingCardVerticalInset : 0)
         .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .zIndex(isExpanded ? 1 : 0)
         .onTapGesture {
@@ -5493,7 +5688,9 @@ private struct ExpandedTaskRow: View {
     }
 
     private func collapsedTextContent(frontmatter: TaskFrontmatterV1) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+        let segments = metadataSegments(for: frontmatter)
+
+        return VStack(alignment: .leading, spacing: 3) {
             Text(frontmatter.title)
                 .font(.body)
                 .fontWeight(.regular)
@@ -5501,10 +5698,17 @@ private struct ExpandedTaskRow: View {
                 .strikethrough(isCompleting, color: theme.textSecondaryColor)
                 .lineLimit(2)
 
-            if let metadataText = metadataLine(frontmatter: frontmatter) {
+            if let metadataText = metadataLine(segments: segments) {
                 metadataText
                     .font(.footnote)
                     .lineLimit(1)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel(metadataAccessibilityLabel(for: segments))
+                    .accessibilityChildren {
+                        ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                            Text(segment.accessibilityText ?? segment.text)
+                        }
+                    }
             }
         }
     }
@@ -5627,65 +5831,12 @@ private struct ExpandedTaskRow: View {
         }
         .padding(4)
         .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(expandedFooterBarGradient)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(expandedFooterBorderColor, lineWidth: 1)
-        )
-    }
-
-    private var expandedBackground: some View {
-        RoundedRectangle(cornerRadius: 24, style: .continuous)
-            .fill(isExpanded ? expandedCardGradient : LinearGradient(colors: [.clear], startPoint: .top, endPoint: .bottom))
-            .overlay {
-                if isExpanded {
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color.white.opacity(colorScheme == .dark ? 0.035 : 0.18),
-                                    Color.clear,
-                                    Color.black.opacity(colorScheme == .dark ? 0.08 : 0.02)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                }
-            }
-    }
-
-    private var expandedBorder: some View {
-        RoundedRectangle(cornerRadius: 24, style: .continuous)
-            .stroke(isExpanded ? expandedBorderColor : .clear, lineWidth: 1)
-    }
-
-    private var expandedCardGradient: LinearGradient {
-        if colorScheme == .dark {
-            return LinearGradient(
-                colors: [
-                    Color(red: 0.11, green: 0.12, blue: 0.16),
-                    Color(red: 0.08, green: 0.09, blue: 0.12)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+            ThingsSurfaceBackdrop(
+                kind: .inset,
+                theme: theme,
+                colorScheme: colorScheme
             )
-        }
-
-        return LinearGradient(
-            colors: [
-                theme.surfaceColor.opacity(0.98),
-                theme.backgroundColor.opacity(0.96)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
         )
-    }
-
-    private var expandedBorderColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.06) : theme.textSecondaryColor.opacity(0.16)
     }
 
     private var expandedDividerColor: Color {
@@ -5743,32 +5894,6 @@ private struct ExpandedTaskRow: View {
         colorScheme == .dark ? Color.white.opacity(0.92) : theme.textPrimaryColor
     }
 
-    private var expandedFooterBarGradient: LinearGradient {
-        if colorScheme == .dark {
-            return LinearGradient(
-                colors: [
-                    Color.white.opacity(0.055),
-                    Color.white.opacity(0.03)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        }
-
-        return LinearGradient(
-            colors: [
-                theme.surfaceColor.opacity(0.92),
-                theme.backgroundColor.opacity(0.88)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-    }
-
-    private var expandedFooterBorderColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.07) : theme.textSecondaryColor.opacity(0.12)
-    }
-
     private var expandedFooterDividerColor: Color {
         colorScheme == .dark ? Color.white.opacity(0.08) : theme.textSecondaryColor.opacity(0.12)
     }
@@ -5790,8 +5915,7 @@ private struct ExpandedTaskRow: View {
         return theme.accentColor
     }
 
-    private func metadataLine(frontmatter: TaskFrontmatterV1) -> Text? {
-        let segments = metadataSegments(for: frontmatter)
+    private func metadataLine(segments: [MetadataSegment]) -> Text? {
         guard let first = segments.first else { return nil }
 
         var combined = Text(first.text).foregroundColor(first.color)
@@ -5807,10 +5931,10 @@ private struct ExpandedTaskRow: View {
 
         if let project = frontmatter.project?.trimmingCharacters(in: .whitespacesAndNewlines),
            !project.isEmpty {
-            segments.append(MetadataSegment(text: project, color: theme.textSecondaryColor))
+            segments.append(MetadataSegment(text: project, color: theme.textSecondaryColor, accessibilityText: nil))
         } else if let area = frontmatter.area?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !area.isEmpty {
-            segments.append(MetadataSegment(text: area, color: theme.textSecondaryColor))
+            segments.append(MetadataSegment(text: area, color: theme.textSecondaryColor, accessibilityText: nil))
         }
 
         if let segment = deadlineSegment(for: frontmatter) {
@@ -5818,15 +5942,15 @@ private struct ExpandedTaskRow: View {
         }
 
         if let completionText = completionDisplayText(for: frontmatter) {
-            segments.append(MetadataSegment(text: completionText, color: theme.textSecondaryColor))
+            segments.append(MetadataSegment(text: completionText, color: theme.textSecondaryColor, accessibilityText: nil))
         }
 
         if let recurrenceText = recurrenceDisplayText(for: frontmatter) {
-            segments.append(MetadataSegment(text: recurrenceText, color: theme.textSecondaryColor))
+            segments.append(MetadataSegment(text: recurrenceText, color: theme.textSecondaryColor, accessibilityText: nil))
         }
 
         segments.append(contentsOf: frontmatter.tags.prefix(2).map {
-            MetadataSegment(text: "#\($0)", color: theme.textSecondaryColor)
+            MetadataSegment(text: "#\($0)", color: theme.textSecondaryColor, accessibilityText: nil)
         })
         return segments
     }
@@ -5834,7 +5958,7 @@ private struct ExpandedTaskRow: View {
     private func deadlineSegment(for frontmatter: TaskFrontmatterV1) -> MetadataSegment? {
         guard let due = frontmatter.due else { return nil }
         guard let dueDate = date(from: due, time: nil) else {
-            return MetadataSegment(text: due.isoString, color: theme.textSecondaryColor)
+            return MetadataSegment(text: due.isoString, color: theme.textSecondaryColor, accessibilityText: due.isoString)
         }
 
         let today = Calendar.current.startOfDay(for: Date())
@@ -5851,16 +5975,25 @@ private struct ExpandedTaskRow: View {
         if days <= 0 {
             // Due today or overdue
             return MetadataSegment(text: "◆ Deadline \(dateLabel)",
-                                   color: Color(red: 1.0, green: 0.23, blue: 0.19))
+                                   color: Color(red: 1.0, green: 0.23, blue: 0.19),
+                                   accessibilityText: dateLabel)
         } else if days <= 3 {
             // 1–3 days away
             return MetadataSegment(text: "◆ Deadline \(dateLabel)",
-                                   color: Color(red: 1.0, green: 0.62, blue: 0.04))
+                                   color: Color(red: 1.0, green: 0.62, blue: 0.04),
+                                   accessibilityText: dateLabel)
         } else {
             // Far future — plain due text
             return MetadataSegment(text: dueDisplayText(for: frontmatter) ?? due.isoString,
-                                   color: isOverdue(frontmatter) ? theme.overdueColor : theme.textSecondaryColor)
+                                   color: isOverdue(frontmatter) ? theme.overdueColor : theme.textSecondaryColor,
+                                   accessibilityText: dueDisplayText(for: frontmatter) ?? due.isoString)
         }
+    }
+
+    private func metadataAccessibilityLabel(for segments: [MetadataSegment]) -> String {
+        segments
+            .map { $0.accessibilityText ?? $0.text }
+            .joined(separator: ", ")
     }
 
     private func dueDisplayText(for frontmatter: TaskFrontmatterV1) -> String? {
@@ -6726,11 +6859,27 @@ private struct InlineTaskOptionButton: View {
     let title: String
     let isSelected: Bool
     let tint: Color
+    let accessibilityIdentifier: String?
     let action: () -> Void
     @EnvironmentObject private var theme: ThemeManager
 
+    init(
+        title: String,
+        isSelected: Bool,
+        tint: Color,
+        accessibilityIdentifier: String? = nil,
+        action: @escaping () -> Void
+    ) {
+        self.title = title
+        self.isSelected = isSelected
+        self.tint = tint
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.action = action
+    }
+
+    @ViewBuilder
     var body: some View {
-        Button(action: action) {
+        let button = Button(action: action) {
             Text(title)
                 .font(.caption)
                 .padding(.horizontal, 10)
@@ -6742,6 +6891,12 @@ private struct InlineTaskOptionButton: View {
                 .foregroundStyle(isSelected ? tint : theme.textSecondaryColor)
         }
         .buttonStyle(.plain)
+
+        if let accessibilityIdentifier {
+            button.accessibilityIdentifier(accessibilityIdentifier)
+        } else {
+            button
+        }
     }
 }
 
