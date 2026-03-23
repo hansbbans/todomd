@@ -1,14 +1,12 @@
 // Sources/TodoMDApp/Features/QuickFind/QuickFindCard.swift
 import SwiftUI
 
-struct QuickFindCard<Results: View, SuggestedContent: View>: View {
+struct QuickFindCard<Results: View>: View {
     @Binding var query: String
     var store: QuickFindStore
     var maxHeight: CGFloat
-    var hasSuggestedContent: Bool
     var onDismiss: () -> Void
     var onSelectRecent: (RecentItem) -> Void
-    @ViewBuilder var suggestedContent: () -> SuggestedContent
     @ViewBuilder var resultsContent: (String) -> Results
 
     @EnvironmentObject private var theme: ThemeManager
@@ -98,23 +96,6 @@ struct QuickFindCard<Results: View, SuggestedContent: View>: View {
 
     private var preQueryContent: some View {
         Group {
-            Section {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Jump back in")
-                        .font(.system(.title3, design: .rounded).weight(.semibold))
-                        .foregroundStyle(theme.textPrimaryColor)
-                    Text("Open a list, return to something recent, or pick up the next task.")
-                        .font(.footnote)
-                        .foregroundStyle(theme.textSecondaryColor)
-                }
-                .padding(.vertical, 4)
-            }
-            .listRowInsets(EdgeInsets(top: 10, leading: 14, bottom: 6, trailing: 14))
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
-
-            suggestedContent()
-
             if !store.displayedPinned.isEmpty {
                 Section("Pinned") {
                     ForEach(store.displayedPinned, id: \.destination) { pinned in
@@ -131,7 +112,7 @@ struct QuickFindCard<Results: View, SuggestedContent: View>: View {
                 }
             }
 
-            if !hasSuggestedContent && store.displayedPinned.isEmpty && store.displayedRecent.isEmpty {
+            if store.displayedPinned.isEmpty && store.displayedRecent.isEmpty {
                 Text("Quickly find tasks, lists, tags…")
                     .font(.subheadline)
                     .foregroundStyle(.tertiary)

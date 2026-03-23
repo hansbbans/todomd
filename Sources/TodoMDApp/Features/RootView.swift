@@ -724,8 +724,6 @@ struct RootView: View {
     @State private var pendingExpandedTaskPath: String?
     @State private var expandedTaskScrollTask: Task<Void, Never>?
     @State private var inlineComposerScrollTask: Task<Void, Never>?
-    @State private var rootSearchHydrationTask: Task<Void, Never>?
-    @State private var rootSearchDeferredSuggestionsReady = false
     @State private var swipeAddProjectPath: String?
     @State private var editingPerspective: PerspectiveDefinition?
     @State private var builtInRulesTarget: BuiltInRulesTarget?
@@ -780,9 +778,6 @@ struct RootView: View {
     private var rootPresentedView: some View {
         rootScaffold
             .background(theme.backgroundColor.ignoresSafeArea())
-            .onChange(of: universalSearchText) { _, newValue in
-                handleUniversalSearchTextChanged(newValue)
-            }
             .overlay {
                 if usesFloatingExpandedTaskDateModal, let target = expandedTaskDateTarget {
                     expandedTaskDateModalOverlay(target: target)
@@ -805,7 +800,6 @@ struct RootView: View {
                                 query: $universalSearchText,
                                 store: quickFindStore,
                                 maxHeight: geo.size.height * 0.68,
-                                hasSuggestedContent: hasRootSearchImmediateSuggestions || hasRootSearchDeferredSuggestions,
                                 onDismiss: { dismissRootSearch() },
                                 onSelectRecent: { item in
                                     switch item.destination {
@@ -818,9 +812,6 @@ struct RootView: View {
                                         dismissRootSearch()
                                         DispatchQueue.main.async { openFullTaskEditor(path: path) }
                                     }
-                                },
-                                suggestedContent: {
-                                    rootSearchPreQueryContent(includeDeferredSuggestions: rootSearchDeferredSuggestionsReady)
                                 },
                                 resultsContent: { query in
                                     AnyView(rootSearchResultsContent(query: query))
@@ -3120,19 +3111,11 @@ struct RootView: View {
     private func rootSearchResultsContent(query: String) -> some View {
         let tasks = container.searchRecords(query: query)
         let tags = container.availableTags().filter { matchesQuery($0, query: query) }
-        let areas = container.availableAreas().filter { matchesQuery($0, query: query) }
         let projects = container.allProjects().filter { matchesQuery($0, query: query) }
         let perspectives = container.perspectives.filter { matchesQuery($0.name, query: query) }
-        let builtInViews = RootNavigationCatalog
-            .searchableBuiltInEntries(pomodoroEnabled: pomodoroEnabled)
-            .filter { matchesQuery($0.label, query: query) }
-        let matchingWorkflows = RootWorkflowEntry.allCases.filter { matchesQuery($0.label, query: query) }
 
-        let hasNavigationResults = !areas.isEmpty
-            || !projects.isEmpty
-            || !builtInViews.isEmpty
+        let hasNavigationResults = !projects.isEmpty
             || !perspectives.isEmpty
-            || !matchingWorkflows.isEmpty
 
         if tasks.isEmpty && tags.isEmpty && !hasNavigationResults {
             ContentUnavailableView(
@@ -3147,18 +3130,6 @@ struct RootView: View {
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
         } else {
-            if !builtInViews.isEmpty {
-                Section("Lists") {
-                    ForEach(builtInViews, id: \.view.rawValue) { item in
-                        searchDestinationButton(
-                            view: item.view,
-                            label: item.label,
-                            icon: item.icon
-                        )
-                    }
-                }
-            }
-
             if !perspectives.isEmpty {
                 Section("Perspectives") {
                     ForEach(perspectives) { perspective in
@@ -3168,43 +3139,6 @@ struct RootView: View {
                             icon: perspective.icon,
                             tintHex: perspective.color,
                             fallbackIcon: "list.bullet"
-                        )
-                    }
-                }
-            }
-
-            if !matchingWorkflows.isEmpty {
-                Section("Workflows") {
-                    ForEach(matchingWorkflows) { workflow in
-                        switch workflow {
-                        case .inboxTriage:
-                            searchActionButton(
-                                label: workflow.label,
-                                icon: workflow.icon,
-                                accessibilityIdentifier: workflow.searchAccessibilityIdentifier
-                            ) {
-                                toggleInboxTriageMode()
-                            }
-                        case .review:
-                            if let view = workflow.destinationView {
-                                searchDestinationButton(
-                                    view: view,
-                                    label: workflow.label,
-                                    icon: workflow.icon
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            if !areas.isEmpty {
-                Section("Areas") {
-                    ForEach(areas, id: \.self) { area in
-                        searchDestinationButton(
-                            view: .area(area),
-                            label: area,
-                            icon: "square.grid.2x2"
                         )
                     }
                 }
@@ -3246,198 +3180,6 @@ struct RootView: View {
         }
     }
 
-    private var rootSearchCurrentContextEntry: RootNavigationEntry? {
-        switch container.selectedView {
-        case .builtIn(.inbox), .builtIn(.today), .builtIn(.upcoming), .builtIn(.review), .browse:
-            return nil
-        case .builtIn(let builtInView):
-            return RootNavigationEntry(
-                view: .builtIn(builtInView),
-                label: builtInView.displayTitle,
-                icon: builtInView.displaySystemImage
-            )
-        case .project(let project):
-            return RootNavigationEntry(view: .project(project), label: project, icon: container.projectIconSymbol(for: project))
-        case .area(let area):
-            return RootNavigationEntry(view: .area(area), label: area, icon: "square.grid.2x2")
-        case .tag(let tag):
-            return RootNavigationEntry(view: .tag(tag), label: "#\(tag)", icon: "number")
-        case .custom:
-            guard let name = container.perspectiveName(for: container.selectedView) else { return nil }
-            return RootNavigationEntry(view: container.selectedView, label: name, icon: "list.bullet")
-        }
-    }
-
-    private var rootSearchQuickJumpEntries: [RootNavigationEntry] {
-        let entries = [
-            RootNavigationEntry(view: .builtIn(.inbox), label: "Inbox", icon: BuiltInView.inbox.displaySystemImage),
-            RootNavigationEntry(view: .builtIn(.today), label: "Today", icon: BuiltInView.today.displaySystemImage),
-            RootNavigationEntry(view: .builtIn(.upcoming), label: "Upcoming", icon: BuiltInView.upcoming.displaySystemImage),
-            RootNavigationEntry(view: .builtIn(.review), label: "Review", icon: BuiltInView.review.displaySystemImage),
-            RootNavigationEntry(view: .browse, label: "Browse", icon: "square.grid.2x2")
-        ]
-        return entries.filter { $0.view != container.selectedView }
-    }
-
-    private var rootSearchSuggestedTasks: [TaskRecord] {
-        let todayRecords = container.todaySections().flatMap(\.records)
-        if !todayRecords.isEmpty {
-            return Array(todayRecords.prefix(3))
-        }
-
-        let currentViewRecords = container.filteredRecords()
-            .filter { $0.document.frontmatter.status != .done && $0.document.frontmatter.status != .cancelled }
-        if !currentViewRecords.isEmpty {
-            return Array(currentViewRecords.prefix(3))
-        }
-
-        return Array(container.upcomingSections().flatMap(\.records).prefix(3))
-    }
-
-    private var rootSearchContextualRecords: [TaskRecord] {
-        let activeCurrentViewRecords = container.filteredRecords()
-            .filter { $0.document.frontmatter.status != .done && $0.document.frontmatter.status != .cancelled }
-        if !activeCurrentViewRecords.isEmpty {
-            return activeCurrentViewRecords
-        }
-
-        return container.records.filter {
-            $0.document.frontmatter.status != .done && $0.document.frontmatter.status != .cancelled
-        }
-    }
-
-    private var rootSearchSuggestedProjects: [String] {
-        let contextualProjects = rankedRootSearchValues(
-            rootSearchContextualRecords.compactMap { trimmedRootSearchValue($0.document.frontmatter.project) },
-            limit: 3
-        )
-        if !contextualProjects.isEmpty {
-            return contextualProjects
-        }
-        return Array(container.allProjects().prefix(3))
-    }
-
-    private var rootSearchSuggestedAreas: [String] {
-        let contextualAreas = rankedRootSearchValues(
-            rootSearchContextualRecords.compactMap { trimmedRootSearchValue($0.document.frontmatter.area) },
-            limit: 2
-        )
-        if !contextualAreas.isEmpty {
-            return contextualAreas
-        }
-        return Array(container.availableAreas().prefix(2))
-    }
-
-    private var rootSearchSuggestedTags: [String] {
-        let contextualTags = rankedRootSearchValues(
-            rootSearchContextualRecords.flatMap(\.document.frontmatter.tags),
-            limit: 4
-        )
-        if !contextualTags.isEmpty {
-            return contextualTags
-        }
-        return Array(container.availableTags().prefix(4))
-    }
-
-    private var hasRootSearchImmediateSuggestions: Bool {
-        rootSearchCurrentContextEntry != nil
-            || !rootSearchQuickJumpEntries.isEmpty
-    }
-
-    private var hasRootSearchDeferredSuggestions: Bool {
-        rootSearchDeferredSuggestionsReady && (
-            !rootSearchSuggestedProjects.isEmpty
-                || !rootSearchSuggestedAreas.isEmpty
-                || !rootSearchSuggestedTags.isEmpty
-                || !rootSearchSuggestedTasks.isEmpty
-        )
-    }
-
-    @ViewBuilder
-    private func rootSearchPreQueryContent(includeDeferredSuggestions: Bool) -> some View {
-        if rootSearchCurrentContextEntry != nil || !rootSearchQuickJumpEntries.isEmpty {
-            Section("Jump Back In") {
-                if let currentContextEntry = rootSearchCurrentContextEntry {
-                    searchDestinationButton(
-                        view: currentContextEntry.view,
-                        label: currentContextEntry.label,
-                        icon: currentContextEntry.icon,
-                        accessibilityIdentifier: "quickFind.suggested.currentView"
-                    )
-                }
-
-                ForEach(rootSearchQuickJumpEntries, id: \.view.rawValue) { entry in
-                    searchDestinationButton(
-                        view: entry.view,
-                        label: entry.label,
-                        icon: entry.icon,
-                        accessibilityIdentifier: "quickFind.suggested.goTo.\(entry.view.rawValue)"
-                    )
-                }
-            }
-        }
-
-        if includeDeferredSuggestions && (!rootSearchSuggestedProjects.isEmpty || !rootSearchSuggestedAreas.isEmpty) {
-            Section("Suggested Lists") {
-                ForEach(rootSearchSuggestedProjects, id: \.self) { project in
-                    searchDestinationButton(
-                        view: .project(project),
-                        label: project,
-                        icon: container.projectIconSymbol(for: project),
-                        tintHex: container.projectColorHex(for: project),
-                        fallbackIcon: "folder"
-                    )
-                }
-
-                ForEach(rootSearchSuggestedAreas, id: \.self) { area in
-                    searchDestinationButton(
-                        view: .area(area),
-                        label: area,
-                        icon: "square.grid.2x2"
-                    )
-                }
-            }
-        }
-
-        if includeDeferredSuggestions && !rootSearchSuggestedTags.isEmpty {
-            Section("Popular Tags") {
-                ForEach(rootSearchSuggestedTags, id: \.self) { tag in
-                    searchDestinationButton(
-                        view: .tag(tag),
-                        label: "#\(tag)",
-                        icon: "number"
-                    )
-                }
-            }
-        }
-
-        if includeDeferredSuggestions && !rootSearchSuggestedTasks.isEmpty {
-            Section("Up Next") {
-                ForEach(rootSearchSuggestedTasks) { record in
-                    searchTaskResultButton(record)
-                }
-            }
-        }
-    }
-
-    private func rankedRootSearchValues(_ values: [String], limit: Int) -> [String] {
-        let counts = Dictionary(values.map { ($0, 1) }, uniquingKeysWith: +)
-        return counts
-            .sorted { lhs, rhs in
-                if lhs.value == rhs.value {
-                    return lhs.key.localizedCaseInsensitiveCompare(rhs.key) == .orderedAscending
-                }
-                return lhs.value > rhs.value
-            }
-            .prefix(limit)
-            .map(\.key)
-    }
-
-    private func trimmedRootSearchValue(_ value: String?) -> String? {
-        guard let value else { return nil }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
 
     private var projectColorChoices: [ProjectColorChoice] {
         [
@@ -4668,55 +4410,14 @@ struct RootView: View {
     }
 
     @MainActor
-    private func cancelRootSearchHydration() {
-        rootSearchHydrationTask?.cancel()
-        rootSearchHydrationTask = nil
-    }
-
-    @MainActor
-    private func scheduleRootSearchHydrationIfNeeded() {
-        let normalizedQuery = universalSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isRootSearchPresented, normalizedQuery.isEmpty, !rootSearchDeferredSuggestionsReady else { return }
-
-        cancelRootSearchHydration()
-        rootSearchHydrationTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 90_000_000)
-            guard !Task.isCancelled,
-                  isRootSearchPresented,
-                  universalSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                rootSearchHydrationTask = nil
-                return
-            }
-            rootSearchDeferredSuggestionsReady = true
-            rootSearchHydrationTask = nil
-        }
-    }
-
-    @MainActor
-    private func handleUniversalSearchTextChanged(_ newValue: String) {
-        guard isRootSearchPresented else { return }
-        let normalizedQuery = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        if normalizedQuery.isEmpty {
-            scheduleRootSearchHydrationIfNeeded()
-        } else {
-            cancelRootSearchHydration()
-        }
-    }
-
-    @MainActor
     private func presentRootSearch(resetQuery: Bool = true) {
         if resetQuery { universalSearchText = "" }
-        cancelRootSearchHydration()
-        rootSearchDeferredSuggestionsReady = false
         withAnimation(.easeOut(duration: 0.22)) {
             isRootSearchPresented = true
         }
-        scheduleRootSearchHydrationIfNeeded()
     }
 
     private func dismissRootSearch() {
-        cancelRootSearchHydration()
-        rootSearchDeferredSuggestionsReady = false
         universalSearchText = ""
         withAnimation(.easeIn(duration: 0.18)) {
             isRootSearchPresented = false

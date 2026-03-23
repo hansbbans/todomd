@@ -137,8 +137,8 @@ struct QuickFindStoreTests {
         #expect(store.pinnedSearches.count == 1)
     }
 
-    @Test("pin caps at three entries")
-    func pin_capsAtThree() throws {
+    @Test("pin caps at five entries")
+    func pin_capsAtFive() throws {
         let (store, defaults, suiteName) = try makeStore()
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
@@ -146,8 +146,10 @@ struct QuickFindStoreTests {
         store.pin(item("B", destination: .view("today")))
         store.pin(item("C", destination: .view("anytime")))
         store.pin(item("D", destination: .view("someday")))
-        #expect(store.pinnedSearches.count == 3)
-        #expect(!store.pinnedSearches.contains(where: { $0.label == "D" }))
+        store.pin(item("E", destination: .view("flagged")))
+        store.pin(item("F", destination: .view("review")))
+        #expect(store.pinnedSearches.count == 5)
+        #expect(!store.pinnedSearches.contains(where: { $0.label == "F" }))
     }
 
     @Test("pin does not modify recentSearches")
