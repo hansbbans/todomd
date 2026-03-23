@@ -102,7 +102,7 @@ final class QuickFindStore {
             .map { $0 }
     }
 
-    var isPinFull: Bool { pinnedSearches.count >= 3 }
+    var isPinFull: Bool { pinnedSearches.count >= 5 }
 
     // MARK: - Mutations
 
@@ -117,7 +117,7 @@ final class QuickFindStore {
     }
 
     func pin(_ item: RecentItem) {
-        guard pinnedSearches.count < 3 else { return }
+        guard pinnedSearches.count < 5 else { return }
         guard !pinnedSearches.contains(where: { $0.destination == item.destination }) else { return }
         pinnedSearches.insert(item, at: 0)
         persist()
