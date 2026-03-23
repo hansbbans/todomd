@@ -85,10 +85,17 @@ final class NaturalLanguagePerspectiveParserTests: XCTestCase {
             relativeTo: referenceDate
         )
         let rules = flattenedRules(result.rules)
+        let dueRule = rules.first { $0.field == .due && $0.operator == .onOrBefore }
 
         XCTAssertEqual(result.rules.operator, .and)
         XCTAssertTrue(rules.contains { $0.field == .project && $0.operator == .equals && $0.stringValue == "Tl" })
-        XCTAssertTrue(rules.contains { $0.field == .due && $0.operator == .onOrBefore && $0.stringValue == "2026-03-06" })
+        XCTAssertEqual(
+            dueRule?.value,
+            .object([
+                "op": .string("date_phrase"),
+                "phrase": .string("upcoming friday")
+            ])
+        )
         XCTAssertTrue(rules.contains { $0.field == .status && $0.operator == .notEquals && $0.stringValue == TaskStatus.done.rawValue })
         XCTAssertEqual(result.confidence, 1)
         XCTAssertFalse(result.requiresCloudFallback)
@@ -100,10 +107,17 @@ final class NaturalLanguagePerspectiveParserTests: XCTestCase {
             relativeTo: referenceDate
         )
         let rules = flattenedRules(result.rules)
+        let dueRule = rules.first { $0.field == .due && $0.operator == .on }
 
         XCTAssertEqual(result.rules.operator, .and)
         XCTAssertTrue(rules.contains { $0.field == .project && $0.operator == .equals && $0.stringValue == "Tl" })
-        XCTAssertTrue(rules.contains { $0.field == .due && $0.operator == .on && $0.stringValue == "2026-03-06" })
+        XCTAssertEqual(
+            dueRule?.value,
+            .object([
+                "op": .string("date_phrase"),
+                "phrase": .string("this upcoming friday")
+            ])
+        )
         XCTAssertEqual(result.confidence, 1)
         XCTAssertFalse(result.requiresCloudFallback)
     }
@@ -114,12 +128,20 @@ final class NaturalLanguagePerspectiveParserTests: XCTestCase {
             relativeTo: referenceDate
         )
         let rules = flattenedRules(result.rules)
+        let dueRule = rules.first { $0.field == .due && $0.operator == .onOrBefore }
 
         XCTAssertEqual(result.rules.operator, .and)
         XCTAssertTrue(rules.contains { $0.field == .project && $0.operator == .equals && $0.stringValue == "Tl" })
-        XCTAssertTrue(rules.contains { $0.field == .due && $0.operator == .onOrBefore && $0.stringValue == "2026-03-06" })
+        XCTAssertEqual(
+            dueRule?.value,
+            .object([
+                "op": .string("date_phrase"),
+                "phrase": .string("upcoming friday")
+            ])
+        )
         XCTAssertEqual(result.confidence, 1)
         XCTAssertFalse(result.requiresCloudFallback)
+        XCTAssertEqual(result.summary, "Showing tasks where in project Tl and due on or before upcoming friday.")
     }
 
     func testUpcomingWeekdayParsesInDateParser() {

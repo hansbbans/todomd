@@ -317,13 +317,70 @@ public struct PerspectiveRule: Codable, Equatable, Identifiable, Sendable {
                 return bool ? "true" : "false"
             case .array(let values):
                 return values.compactMap(\.stringValue).joined(separator: ",")
-            case .null, .none, .object:
+            case .object(let object):
+                if let phrase = object["phrase"]?.stringValue {
+                    return phrase
+                }
+                if let op = object["op"]?.stringValue,
+                   ["today", "tomorrow", "yesterday"].contains(op.lowercased()) {
+                    return op
+                }
+                return ""
+            case .null, .none:
                 return ""
             }
         }
         set {
             let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            value = trimmed.isEmpty ? nil : .string(trimmed)
+            guard !trimmed.isEmpty else {
+                value = nil
+                return
+            }
+
+            if isDateField, let relativePhrase = Self.relativeWeekdayPhrase(from: trimmed) {
+                value = .object([
+                    "op": .string("date_phrase"),
+                    "phrase": .string(relativePhrase)
+                ])
+            } else {
+                value = .string(trimmed)
+            }
+        }
+    }
+
+    private var isDateField: Bool {
+        switch field {
+        case .due, .scheduled, .defer, .created, .completed, .modified:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func relativeWeekdayPhrase(from value: String) -> String? {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let tokens = normalized.split(separator: " ").map(String.init)
+        guard !tokens.isEmpty else { return nil }
+
+        let weekdays: Set<String> = [
+            "sun", "sunday",
+            "mon", "monday",
+            "tue", "tues", "tuesday",
+            "wed", "weds", "wednesday",
+            "thu", "thur", "thurs", "thursday",
+            "fri", "friday",
+            "sat", "saturday"
+        ]
+
+        switch tokens.count {
+        case 1:
+            return weekdays.contains(tokens[0]) ? normalized : nil
+        case 2:
+            return ["next", "this", "upcoming"].contains(tokens[0]) && weekdays.contains(tokens[1]) ? normalized : nil
+        case 3:
+            return tokens[0] == "this" && ["next", "upcoming"].contains(tokens[1]) && weekdays.contains(tokens[2]) ? normalized : nil
+        default:
+            return nil
         }
     }
 
@@ -1017,13 +1074,37 @@ public struct PerspectiveQueryEngine {
         today: LocalDate
     ) -> Set<String>? {
         guard rule.isEnabled else { return nil }
+        guard let probeValue = indexedProbeValue(for: rule, today: today) else { return nil }
         let matchingPaths = index.paths { entry in
-            guard let result = entry.matches(field: rule.field, operator: rule.operator, value: rule.stringValue) else {
+            guard let result = entry.matches(field: rule.field, operator: rule.operator, value: probeValue) else {
                 return false
             }
             return result
         }
         return matchingPaths.isEmpty ? [] : Set(matchingPaths)
+    }
+
+    private func indexedProbeValue(for rule: PerspectiveRule, today: LocalDate) -> String? {
+        switch rule.field {
+        case .due:
+            return indexedDueProbeValue(for: rule, today: today)
+        case .status, .priority, .flagged, .area, .project, .source, .ref, .assignee, .tags, .recurrence:
+            return rule.stringValue
+        default:
+            return nil
+        }
+    }
+
+    private func indexedDueProbeValue(for rule: PerspectiveRule, today: LocalDate) -> String? {
+        switch rule.operator {
+        case .isSet, .isNotNil, .isNotSet, .isNil:
+            return ""
+        case .equals, .on, .before, .after, .onOrBefore:
+            guard let probe = dateOperands(rule.value, today: today).single else { return nil }
+            return probe.isoString
+        default:
+            return nil
+        }
     }
 
     private func compareBlockedBy(_ value: TaskBlockedBy?, rule: PerspectiveRule) -> Bool? {
@@ -1346,9 +1427,32 @@ public struct PerspectiveQueryEngine {
             let lower = min(today, start)
             let upper = max(today, start)
             return DateOperands(single: today, range: lower...upper)
+        case "date_phrase":
+            guard let phrase = object["phrase"]?.stringValue,
+                  let referenceDate = referenceDate(for: today) else { return nil }
+            let parser = NaturalLanguageDateParser(calendar: perspectiveCalendar)
+            guard let parsed = parser.parse(phrase, relativeTo: referenceDate) else { return nil }
+            return DateOperands(single: parsed, range: parsed...parsed)
         default:
             return nil
         }
+    }
+
+    private var perspectiveCalendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        return calendar
+    }
+
+    private func referenceDate(for date: LocalDate) -> Date? {
+        var components = DateComponents()
+        components.calendar = perspectiveCalendar
+        components.timeZone = perspectiveCalendar.timeZone
+        components.year = date.year
+        components.month = date.month
+        components.day = date.day
+        components.hour = 12
+        return perspectiveCalendar.date(from: components)
     }
 
     private func adding(days: Int, to date: LocalDate) -> LocalDate? {
