@@ -178,7 +178,7 @@ private let hardeningPerspectiveCases: [NaturalLanguagePerspectiveCase] = [
         expectedTopLevelOperator: .and,
         expectedRules: [
             .init(field: .project, operator: .equals, stringValue: "Tl"),
-            .init(field: .due, operator: .on, stringValue: "2026-03-06")
+            .init(field: .due, operator: .on, stringValue: "this upcoming friday")
         ],
         expectedNestedOperators: [],
         expectedConfidence: 1,
@@ -190,7 +190,7 @@ private let hardeningPerspectiveCases: [NaturalLanguagePerspectiveCase] = [
         expectedTopLevelOperator: .and,
         expectedRules: [
             .init(field: .project, operator: .equals, stringValue: "Tl"),
-            .init(field: .due, operator: .onOrBefore, stringValue: "2026-03-06")
+            .init(field: .due, operator: .onOrBefore, stringValue: "upcoming friday")
         ],
         expectedNestedOperators: [],
         expectedConfidence: 1,
@@ -202,7 +202,7 @@ private let hardeningPerspectiveCases: [NaturalLanguagePerspectiveCase] = [
         expectedTopLevelOperator: .and,
         expectedRules: [
             .init(field: .project, operator: .equals, stringValue: "Tl"),
-            .init(field: .due, operator: .onOrBefore, stringValue: "2026-03-06"),
+            .init(field: .due, operator: .onOrBefore, stringValue: "upcoming friday"),
             .init(field: .status, operator: .notEquals, stringValue: TaskStatus.done.rawValue)
         ],
         expectedNestedOperators: [],

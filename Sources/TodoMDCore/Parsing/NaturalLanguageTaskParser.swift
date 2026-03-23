@@ -784,10 +784,42 @@ public struct NaturalLanguagePerspectiveParser {
         if ["today", "tomorrow", "yesterday"].contains(normalized) {
             return .string(normalized)
         }
+        if isRelativeWeekdayPhrase(normalized) {
+            return .object([
+                "op": .string("date_phrase"),
+                "phrase": .string(normalized)
+            ])
+        }
         if let parsed = dateParser.parse(normalized, relativeTo: referenceDate) {
             return .string(parsed.isoString)
         }
         return nil
+    }
+
+    private func isRelativeWeekdayPhrase(_ phrase: String) -> Bool {
+        let tokens = phrase.split(separator: " ").map(String.init)
+        guard !tokens.isEmpty else { return false }
+
+        let weekdays: Set<String> = [
+            "sun", "sunday",
+            "mon", "monday",
+            "tue", "tues", "tuesday",
+            "wed", "weds", "wednesday",
+            "thu", "thur", "thurs", "thursday",
+            "fri", "friday",
+            "sat", "saturday"
+        ]
+
+        if tokens.count == 1 {
+            return weekdays.contains(tokens[0])
+        }
+        if tokens.count == 2 {
+            return ["next", "this", "upcoming"].contains(tokens[0]) && weekdays.contains(tokens[1])
+        }
+        if tokens.count == 3 {
+            return tokens[0] == "this" && ["next", "upcoming"].contains(tokens[1]) && weekdays.contains(tokens[2])
+        }
+        return false
     }
 
     private func scopedPhrase(in query: String, after prefix: String) -> String? {
