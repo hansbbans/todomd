@@ -1077,7 +1077,9 @@ final class AppContainer: ObservableObject {
     func searchRecords(query: String, limit: Int = 150) -> [TaskRecord] {
         let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return [] }
-        let candidatePaths = Set(metadataIndex.candidatePaths(forSearchQuery: normalized))
+        let candidatePaths = metadataIndex.candidatePaths(forSearchQuery: normalized)
+        guard !candidatePaths.isEmpty else { return [] }
+
         let matches = candidatePaths.compactMap { canonicalByPath[$0] }
         let ordered = manualOrderService.ordered(records: matches, view: selectedView)
         if ordered.count <= limit {
@@ -1123,21 +1125,25 @@ final class AppContainer: ObservableObject {
     }
 
     func allProjects() -> [String] {
-        let taskProjects = allIndexedRecords.compactMap { $0.document.frontmatter.project?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        let combined = taskProjects + userProjects
+        let combined = metadataIndex.distinctProjects() + userProjects
 
-        var unique: [String] = []
+        var uniqueByKey: [String: String] = [:]
+        uniqueByKey.reserveCapacity(combined.count)
+
         for project in combined {
-            let exists = unique.contains {
-                $0.compare(project, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
-            }
-            if !exists {
-                unique.append(project)
+            let normalizedProject = project.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedProject.isEmpty else { continue }
+
+            let comparisonKey = normalizedProject.folding(
+                options: [.caseInsensitive, .diacriticInsensitive],
+                locale: .current
+            )
+            if uniqueByKey[comparisonKey] == nil {
+                uniqueByKey[comparisonKey] = normalizedProject
             }
         }
 
-        return unique.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        return uniqueByKey.values.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
     func inboxProjectSuggestion(path: String) -> ProjectTriageSuggestion? {
@@ -2358,7 +2364,6 @@ final class AppContainer: ObservableObject {
             return false
         }
 
-        let trimmedInput = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let mergedTags = normalizeTags(parsed.tags + tags)
         createTask(
             title: parsed.title,
@@ -2372,7 +2377,7 @@ final class AppContainer: ObservableObject {
             priorityOverride: priority,
             flagged: flagged,
             area: area,
-            project: project,
+            project: project ?? parsed.project,
             description: description,
             defaultView: defaultView
         )

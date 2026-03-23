@@ -414,13 +414,6 @@ private struct RootPullToSearchIndicator: View {
         min(max(progress, 0), 1.2)
     }
 
-    private var progressAnimation: Animation {
-        if reduceMotion {
-            return .easeOut(duration: 0.12)
-        }
-        return .interactiveSpring(response: 0.18, dampingFraction: 0.84, blendDuration: 0.08)
-    }
-
     private var armedAnimation: Animation {
         if reduceMotion {
             return .easeOut(duration: 0.12)
@@ -461,7 +454,6 @@ private struct RootPullToSearchIndicator: View {
         .scaleEffect(panelScale)
         .offset(y: verticalOffset)
         .opacity(panelOpacity)
-        .animation(progressAnimation, value: progress)
         .animation(armedAnimation, value: isArmed)
         .accessibilityHidden(true)
     }
@@ -711,6 +703,8 @@ struct RootView: View {
     @State private var expandedInlineTaskPanel: InlineTaskPanel?
     @State private var showingInlineTaskDateModal = false
     @State private var inlineComposerTransitionTask: Task<Void, Never>?
+    @State private var inlineTaskTitleParseTask: Task<Void, Never>?
+    @State private var inlineTaskAvailableProjects: [String] = []
     @State private var showingProjectSettingsSheet = false
     @State private var editingProjectOriginalName = ""
     @State private var editingProjectName = ""
@@ -730,6 +724,8 @@ struct RootView: View {
     @State private var pendingExpandedTaskPath: String?
     @State private var expandedTaskScrollTask: Task<Void, Never>?
     @State private var inlineComposerScrollTask: Task<Void, Never>?
+    @State private var rootSearchHydrationTask: Task<Void, Never>?
+    @State private var rootSearchDeferredSuggestionsReady = false
     @State private var swipeAddProjectPath: String?
     @State private var editingPerspective: PerspectiveDefinition?
     @State private var builtInRulesTarget: BuiltInRulesTarget?
@@ -738,6 +734,9 @@ struct RootView: View {
     @State private var inboxTriagePinnedPath: String?
     @State private var inlineAutoDatePhrase: String?
     @State private var inlineTaskTitleMutationInFlight = false
+    @State private var inlineTaskHasManualProjectSelection = false
+    @State private var inlineTaskHasManualDueSelection = false
+    @State private var inlineTaskHasManualTagsSelection = false
     @State private var showingInlineVoiceRamble = false
     @State private var inlineAddButtonLongPressTriggered = false
     @State private var inlineAddButtonLongPressTask: Task<Void, Never>?
@@ -781,14 +780,12 @@ struct RootView: View {
     private var rootPresentedView: some View {
         rootScaffold
             .background(theme.backgroundColor.ignoresSafeArea())
+            .onChange(of: universalSearchText) { _, newValue in
+                handleUniversalSearchTextChanged(newValue)
+            }
             .overlay {
                 if usesFloatingExpandedTaskDateModal, let target = expandedTaskDateTarget {
                     expandedTaskDateModalOverlay(target: target)
-                }
-            }
-            .overlay {
-                if shouldShowCompactInlineTaskComposer {
-                    compactInlineTaskComposerOverlay
                 }
             }
             .sheet(isPresented: $showingQuickEntry) {
@@ -808,7 +805,7 @@ struct RootView: View {
                                 query: $universalSearchText,
                                 store: quickFindStore,
                                 maxHeight: geo.size.height * 0.68,
-                                hasSuggestedContent: hasRootSearchPreQuerySuggestions,
+                                hasSuggestedContent: hasRootSearchImmediateSuggestions || hasRootSearchDeferredSuggestions,
                                 onDismiss: { dismissRootSearch() },
                                 onSelectRecent: { item in
                                     switch item.destination {
@@ -823,7 +820,7 @@ struct RootView: View {
                                     }
                                 },
                                 suggestedContent: {
-                                    rootSearchPreQueryContent()
+                                    rootSearchPreQueryContent(includeDeferredSuggestions: rootSearchDeferredSuggestionsReady)
                                 },
                                 resultsContent: { query in
                                     AnyView(rootSearchResultsContent(query: query))
@@ -1384,6 +1381,16 @@ struct RootView: View {
             .toolbar {
                 detailToolbar
             }
+            .overlay {
+                if shouldShowDockedInlineTaskComposer {
+                    TapOutsideDismissBackdrop(
+                        fillColor: Color.black.opacity(0.001),
+                        accessibilityIdentifier: "inlineTask.backdrop"
+                    ) {
+                        cancelInlineTaskComposer()
+                    }
+                }
+            }
             .safeAreaInset(edge: .bottom) {
                 if shouldShowExpandedTaskBottomBar {
                     expandedTaskBottomBar
@@ -1391,6 +1398,8 @@ struct RootView: View {
                         .padding(.top, 8)
                         .padding(.bottom, 4)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else if shouldShowDockedInlineTaskComposer {
+                    dockedInlineTaskComposer
                 } else if shouldReserveFloatingAddButtonSpace {
                     Color.clear
                         .frame(height: 92)
@@ -2145,42 +2154,6 @@ struct RootView: View {
         colorScheme == .dark ? Color.white.opacity(0.3) : theme.textSecondaryColor.opacity(0.7)
     }
 
-    private var compactInlineTaskComposerOverlay: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .bottom) {
-                TapOutsideDismissBackdrop(
-                    fillColor: Color.black.opacity(0.001),
-                    accessibilityIdentifier: "inlineTask.backdrop",
-                    onDismiss: cancelInlineTaskComposer
-                )
-
-                compactInlineTaskComposerCard(
-                    maxHeight: max(
-                        220,
-                        min(
-                            geometry.size.height - geometry.safeAreaInsets.top - geometry.safeAreaInsets.bottom - 24,
-                            520
-                        )
-                    )
-                )
-                .padding(.horizontal, 12)
-                .padding(.bottom, max(10, geometry.safeAreaInsets.bottom + 4))
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-        }
-        .transition(
-            .asymmetric(
-                insertion: .offset(x: 34, y: 144)
-                    .combined(with: .scale(scale: 0.92, anchor: .bottomTrailing))
-                    .combined(with: .opacity),
-                removal: .offset(x: 28, y: 120)
-                    .combined(with: .scale(scale: 0.96, anchor: .bottomTrailing))
-                    .combined(with: .opacity)
-            )
-        )
-        .zIndex(3)
-    }
-
     private func compactInlineTaskComposerCard(maxHeight: CGFloat) -> some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
@@ -2199,7 +2172,7 @@ struct RootView: View {
                             .submitLabel(.done)
                             .accessibilityIdentifier("inlineTask.titleField")
                             .onAppear {
-                                scheduleInlineTaskFocus(after: 140_000_000)
+                                scheduleInlineTaskFocus(after: 20_000_000)
                             }
                             .onChange(of: inlineTaskDraft.title) { _, newValue in
                                 handleInlineTaskTitleChanged(newValue)
@@ -2245,7 +2218,7 @@ struct RootView: View {
         .accessibilityIdentifier("inlineTask.row")
         .background(
             ThingsSurfaceBackdrop(
-                kind: .compactOverlay,
+                kind: floatingComposerSurfaceKind,
                 theme: theme,
                 colorScheme: colorScheme
             )
@@ -2422,15 +2395,15 @@ struct RootView: View {
     }
 
     private var compactComposerPrimaryTextColor: Color {
-        Color.white.opacity(0.92)
+        horizontalSizeClass == .compact ? Color.white.opacity(0.92) : theme.textPrimaryColor
     }
 
     private var compactComposerSecondaryTextColor: Color {
-        Color.white.opacity(0.34)
+        horizontalSizeClass == .compact ? Color.white.opacity(0.34) : theme.textSecondaryColor
     }
 
     private var compactComposerIconColor: Color {
-        Color.white.opacity(0.42)
+        horizontalSizeClass == .compact ? Color.white.opacity(0.42) : theme.textSecondaryColor.opacity(0.9)
     }
 
     private var compactComposerIconActiveColor: Color {
@@ -2442,11 +2415,15 @@ struct RootView: View {
     }
 
     private var compactComposerFlagTint: Color {
-        Color(.sRGB, red: 0.969, green: 0.604, blue: 0.22, opacity: 1)
+        horizontalSizeClass == .compact ? Color(.sRGB, red: 0.969, green: 0.604, blue: 0.22, opacity: 1) : theme.flaggedColor
     }
 
     private var compactComposerCheckboxColor: Color {
-        Color.white.opacity(0.48)
+        horizontalSizeClass == .compact ? Color.white.opacity(0.48) : theme.textSecondaryColor.opacity(0.6)
+    }
+
+    private var floatingComposerSurfaceKind: ThingsSurfaceKind {
+        horizontalSizeClass == .compact ? .compactOverlay : .elevatedCard
     }
 
     private var inlineComposerMetadataPrimaryTextColor: Color {
@@ -2494,8 +2471,7 @@ struct RootView: View {
                         tint: theme.accentColor,
                         accessibilityIdentifier: "inlineTask.projectMenuItem.Inbox"
                     ) {
-                        inlineTaskDraft.project = nil
-                        inlineTaskDraft.area = nil
+                        applyInlineTaskDestination(project: nil, area: nil, isManual: true)
                     }
 
                     if let currentArea = defaultInlineTaskDraft(for: container.selectedView).area {
@@ -2505,8 +2481,7 @@ struct RootView: View {
                             tint: theme.accentColor,
                             accessibilityIdentifier: "inlineTask.projectMenuItem.\(currentArea)"
                         ) {
-                            inlineTaskDraft.area = currentArea
-                            inlineTaskDraft.project = nil
+                            applyInlineTaskDestination(project: nil, area: currentArea, isManual: true)
                         }
                     }
 
@@ -2517,8 +2492,7 @@ struct RootView: View {
                             tint: theme.accentColor,
                             accessibilityIdentifier: "inlineTask.projectMenuItem.\(project)"
                         ) {
-                            inlineTaskDraft.project = project
-                            inlineTaskDraft.area = nil
+                            applyInlineTaskDestination(project: project, area: nil, isManual: true)
                         }
                     }
                 }
@@ -2526,7 +2500,16 @@ struct RootView: View {
 
         case .tags:
             VStack(alignment: .leading, spacing: 8) {
-                TextField("Tags", text: $inlineTaskDraft.tagsText)
+                TextField(
+                    "Tags",
+                    text: Binding(
+                        get: { inlineTaskDraft.tagsText },
+                        set: { newValue in
+                            inlineTaskDraft.tagsText = newValue
+                            inlineTaskHasManualTagsSelection = true
+                        }
+                    )
+                )
                     .font(.footnote)
                     .modifier(RootViewNeverAutocapitalization())
                     .autocorrectionDisabled()
@@ -2540,7 +2523,7 @@ struct RootView: View {
                                     isSelected: inlineTaskDraft.normalizedTags.contains(tag),
                                     tint: theme.accentColor
                                 ) {
-                                    appendInlineTag(tag)
+                                    appendInlineTag(tag, isManualEdit: true)
                                 }
                             }
                         }
@@ -2583,9 +2566,11 @@ struct RootView: View {
             set: { hasDate in
                 if hasDate {
                     if inlineTaskDraft.dueDate == nil {
+                        inlineTaskHasManualDueSelection = true
                         setInlineTaskDueDate(Calendar.current.startOfDay(for: Date()))
                     }
                 } else {
+                    inlineTaskHasManualDueSelection = true
                     setInlineTaskDueDate(nil)
                 }
             }
@@ -2596,6 +2581,7 @@ struct RootView: View {
         Binding(
             get: { inlineTaskDraft.dueDate ?? Calendar.current.startOfDay(for: Date()) },
             set: { date in
+                inlineTaskHasManualDueSelection = true
                 setInlineTaskDueDate(Calendar.current.startOfDay(for: date))
             }
         )
@@ -2605,6 +2591,7 @@ struct RootView: View {
         Binding(
             get: { inlineTaskDraft.dueDate != nil && inlineTaskDraft.hasDueTime },
             set: { hasDueTime in
+                inlineTaskHasManualDueSelection = true
                 inlineTaskDraft.hasDueTime = hasDueTime && inlineTaskDraft.dueDate != nil
                 inlineAutoDatePhrase = nil
             }
@@ -2615,6 +2602,7 @@ struct RootView: View {
         Binding(
             get: { inlineTaskDraft.dueTime },
             set: { time in
+                inlineTaskHasManualDueSelection = true
                 inlineTaskDraft.dueTime = time
                 inlineAutoDatePhrase = nil
             }
@@ -2635,8 +2623,7 @@ struct RootView: View {
     private var inlineTaskProjectMenuContent: some View {
         Button {
             expandedInlineTaskPanel = nil
-            inlineTaskDraft.project = nil
-            inlineTaskDraft.area = nil
+            applyInlineTaskDestination(project: nil, area: nil, isManual: true)
         } label: {
             inlineTaskProjectMenuRow(
                 title: "Inbox",
@@ -2651,8 +2638,7 @@ struct RootView: View {
                 ForEach(areas, id: \.self) { area in
                     Button {
                         expandedInlineTaskPanel = nil
-                        inlineTaskDraft.area = area
-                        inlineTaskDraft.project = nil
+                        applyInlineTaskDestination(project: nil, area: area, isManual: true)
                     } label: {
                         inlineTaskProjectMenuRow(
                             title: area,
@@ -2670,8 +2656,7 @@ struct RootView: View {
                 ForEach(projects, id: \.self) { project in
                     Button {
                         expandedInlineTaskPanel = nil
-                        inlineTaskDraft.project = project
-                        inlineTaskDraft.area = nil
+                        applyInlineTaskDestination(project: project, area: nil, isManual: true)
                     } label: {
                         inlineTaskProjectMenuRow(
                             title: project,
@@ -2815,7 +2800,22 @@ struct RootView: View {
         inlineAutoDatePhrase = nil
     }
 
+    private func applyInlineTaskDestination(project: String?, area: String?, isManual: Bool) {
+        if isManual {
+            inlineTaskHasManualProjectSelection = true
+        }
+        inlineTaskDraft.project = project
+        inlineTaskDraft.area = area
+    }
+
     private func appendInlineTag(_ tag: String) {
+        appendInlineTag(tag, isManualEdit: false)
+    }
+
+    private func appendInlineTag(_ tag: String, isManualEdit: Bool) {
+        if isManualEdit {
+            inlineTaskHasManualTagsSelection = true
+        }
         let currentTags = inlineTaskDraft.normalizedTags
         guard !currentTags.contains(tag) else { return }
         let updatedTags = currentTags + [tag]
@@ -2899,10 +2899,9 @@ struct RootView: View {
         inlineTaskDraft.title = titleWithoutTrailingSuggestionToken(from: inlineTaskDraft.title)
         switch kind {
         case .project:
-            inlineTaskDraft.project = suggestion
-            inlineTaskDraft.area = nil
+            applyInlineTaskDestination(project: suggestion, area: nil, isManual: true)
         case .tag:
-            appendInlineTag(suggestion)
+            appendInlineTag(suggestion, isManualEdit: true)
         }
     }
 
@@ -3340,17 +3339,22 @@ struct RootView: View {
         return Array(container.availableTags().prefix(4))
     }
 
-    private var hasRootSearchPreQuerySuggestions: Bool {
+    private var hasRootSearchImmediateSuggestions: Bool {
         rootSearchCurrentContextEntry != nil
             || !rootSearchQuickJumpEntries.isEmpty
-            || !rootSearchSuggestedProjects.isEmpty
-            || !rootSearchSuggestedAreas.isEmpty
-            || !rootSearchSuggestedTags.isEmpty
-            || !rootSearchSuggestedTasks.isEmpty
+    }
+
+    private var hasRootSearchDeferredSuggestions: Bool {
+        rootSearchDeferredSuggestionsReady && (
+            !rootSearchSuggestedProjects.isEmpty
+                || !rootSearchSuggestedAreas.isEmpty
+                || !rootSearchSuggestedTags.isEmpty
+                || !rootSearchSuggestedTasks.isEmpty
+        )
     }
 
     @ViewBuilder
-    private func rootSearchPreQueryContent() -> some View {
+    private func rootSearchPreQueryContent(includeDeferredSuggestions: Bool) -> some View {
         if rootSearchCurrentContextEntry != nil || !rootSearchQuickJumpEntries.isEmpty {
             Section("Jump Back In") {
                 if let currentContextEntry = rootSearchCurrentContextEntry {
@@ -3373,7 +3377,7 @@ struct RootView: View {
             }
         }
 
-        if !rootSearchSuggestedProjects.isEmpty || !rootSearchSuggestedAreas.isEmpty {
+        if includeDeferredSuggestions && (!rootSearchSuggestedProjects.isEmpty || !rootSearchSuggestedAreas.isEmpty) {
             Section("Suggested Lists") {
                 ForEach(rootSearchSuggestedProjects, id: \.self) { project in
                     searchDestinationButton(
@@ -3395,7 +3399,7 @@ struct RootView: View {
             }
         }
 
-        if !rootSearchSuggestedTags.isEmpty {
+        if includeDeferredSuggestions && !rootSearchSuggestedTags.isEmpty {
             Section("Popular Tags") {
                 ForEach(rootSearchSuggestedTags, id: \.self) { tag in
                     searchDestinationButton(
@@ -3407,7 +3411,7 @@ struct RootView: View {
             }
         }
 
-        if !rootSearchSuggestedTasks.isEmpty {
+        if includeDeferredSuggestions && !rootSearchSuggestedTasks.isEmpty {
             Section("Up Next") {
                 ForEach(rootSearchSuggestedTasks) { record in
                     searchTaskResultButton(record)
@@ -3927,11 +3931,11 @@ struct RootView: View {
     }
 
     private var shouldRenderInlineTaskComposerInList: Bool {
-        shouldRenderInlineTaskComposer && horizontalSizeClass != .compact
+        false
     }
 
-    private var shouldShowCompactInlineTaskComposer: Bool {
-        shouldRenderInlineTaskComposer && horizontalSizeClass == .compact
+    private var shouldShowDockedInlineTaskComposer: Bool {
+        shouldRenderInlineTaskComposer
     }
 
     private var shouldShowExpandedTaskBottomBar: Bool {
@@ -3943,11 +3947,28 @@ struct RootView: View {
     }
 
     private var compactComposerOpenAnimation: Animation {
-        ThingsSurfaceMotion.overlayOpen
+        .smooth(duration: 0.18)
     }
 
     private var compactComposerCloseAnimation: Animation {
-        ThingsSurfaceMotion.overlayClose
+        .smooth(duration: 0.14)
+    }
+
+    private var inlineTaskDockReservedHeight: CGFloat {
+        let expandedPanelHeight: CGFloat = expandedInlineTaskPanel == nil ? 0 : 176
+        let noteHeight: CGFloat = (inlineTaskNotesVisible || !inlineTaskDraft.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) ? 66 : 0
+        let baseHeight: CGFloat = horizontalSizeClass == .compact ? 228 : 248
+        return min(horizontalSizeClass == .compact ? 440 : 468, baseHeight + expandedPanelHeight + noteHeight)
+    }
+
+    private var dockedInlineTaskComposer: some View {
+        compactInlineTaskComposerCard(maxHeight: inlineTaskDockReservedHeight)
+            .frame(maxWidth: horizontalSizeClass == .compact ? .infinity : 580, alignment: .top)
+            .padding(.horizontal, horizontalSizeClass == .compact ? 12 : 16)
+            .padding(.top, 8)
+            .padding(.bottom, horizontalSizeClass == .compact ? 6 : 10)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .accessibilityValue(horizontalSizeClass == .compact ? "docked" : "tray")
     }
 
     private var floatingAddButton: some View {
@@ -4230,6 +4251,11 @@ struct RootView: View {
         inlineTaskNotesVisible = false
         expandedInlineTaskPanel = nil
         showingInlineTaskDateModal = false
+        inlineTaskHasManualProjectSelection = false
+        inlineTaskHasManualDueSelection = false
+        inlineTaskHasManualTagsSelection = false
+        inlineAutoDatePhrase = nil
+        inlineTaskAvailableProjects = container.allProjects()
         compactComposerContentVisible = horizontalSizeClass != .compact
         showingInlineVoiceRamble = true
     }
@@ -4251,55 +4277,39 @@ struct RootView: View {
         expandedInlineTaskPanel = nil
         showingInlineTaskDateModal = false
         inlineAutoDatePhrase = nil
-        compactComposerContentVisible = horizontalSizeClass != .compact
+        inlineTaskHasManualProjectSelection = false
+        inlineTaskHasManualDueSelection = false
+        inlineTaskHasManualTagsSelection = false
+        inlineTaskAvailableProjects = container.allProjects()
+        compactComposerContentVisible = true
         withAnimation(compactComposerOpenAnimation) {
             isCreatingTask = true
         }
 
-        if horizontalSizeClass == .compact {
-            inlineComposerTransitionTask = Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 55_000_000)
-                withAnimation(.easeOut(duration: 0.18)) {
-                    compactComposerContentVisible = true
-                }
-                scheduleInlineTaskFocus(after: 140_000_000)
-                inlineComposerTransitionTask = nil
-            }
-        } else {
-            scheduleInlineTaskFocus(after: 50_000_000)
-        }
+        scheduleInlineTaskFocus(after: horizontalSizeClass == .compact ? 20_000_000 : 10_000_000)
     }
 
     private func cancelInlineTaskComposer() {
         guard isCreatingTask else { return }
         inlineComposerTransitionTask?.cancel()
         inlineComposerTransitionTask = nil
+        inlineTaskTitleParseTask?.cancel()
+        inlineTaskTitleParseTask = nil
         inlineTaskFocusTask?.cancel()
         inlineTaskFocusTask = nil
         showingInlineVoiceRamble = false
         showingInlineTaskDateModal = false
-        if horizontalSizeClass == .compact {
-            withAnimation(.easeOut(duration: 0.12)) {
-                compactComposerContentVisible = false
-            }
-            inlineComposerTransitionTask = Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 120_000_000)
-                withAnimation(compactComposerCloseAnimation) {
-                    isCreatingTask = false
-                }
-                inlineTaskDraft = InlineTaskDraft()
-                inlineTaskNotesVisible = false
-                inlineAutoDatePhrase = nil
-                inlineComposerTransitionTask = nil
-            }
-        } else {
-            withAnimation(.easeOut(duration: 0.2)) {
-                isCreatingTask = false
-            }
-            inlineTaskDraft = InlineTaskDraft()
-            inlineTaskNotesVisible = false
-            inlineAutoDatePhrase = nil
+        compactComposerContentVisible = false
+        withAnimation(compactComposerCloseAnimation) {
+            isCreatingTask = false
         }
+        inlineTaskDraft = InlineTaskDraft()
+        inlineTaskNotesVisible = false
+        inlineAutoDatePhrase = nil
+        inlineTaskAvailableProjects = []
+        inlineTaskHasManualProjectSelection = false
+        inlineTaskHasManualDueSelection = false
+        inlineTaskHasManualTagsSelection = false
         inlineTaskFocused = false
         expandedInlineTaskPanel = nil
     }
@@ -4314,7 +4324,7 @@ struct RootView: View {
             guard !Task.isCancelled, isCreatingTask, shouldRenderInlineTaskComposer else { return }
             inlineTaskFocused = true
 
-            let retryDelay: UInt64 = horizontalSizeClass == .compact ? 180_000_000 : 90_000_000
+            let retryDelay: UInt64 = horizontalSizeClass == .compact ? 60_000_000 : 45_000_000
             try? await Task.sleep(nanoseconds: retryDelay)
 
             guard !Task.isCancelled, isCreatingTask, shouldRenderInlineTaskComposer, !inlineTaskFocused else {
@@ -4365,36 +4375,65 @@ struct RootView: View {
 
     private func handleInlineTaskTitleChanged(_ value: String) {
         guard !inlineTaskTitleMutationInFlight else { return }
-        let parser = NaturalLanguageTaskParser(availableProjects: container.allProjects())
-        guard let parsed = parser.parse(value),
-              let due = parsed.due,
-              parsed.dueTime == nil,
-              let phrase = parsed.recognizedDatePhrase else {
+        inlineTaskTitleParseTask?.cancel()
+
+        let currentTitle = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !currentTitle.isEmpty else {
+            inlineTaskTitleParseTask = nil
             return
         }
 
-        let currentTitle = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !currentTitle.isEmpty else { return }
-
-        inlineTaskTitleMutationInFlight = true
-        if let parsedProject = parsed.project {
-            inlineTaskDraft.project = parsedProject
-            inlineTaskDraft.area = nil
-        }
-        if !parsed.tags.isEmpty {
-            for tag in parsed.tags {
-                appendInlineTag(tag)
+        let capturedValue = value
+        let availableProjects = inlineTaskAvailableProjects
+        inlineTaskTitleParseTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 140_000_000)
+            guard !Task.isCancelled, isCreatingTask, inlineTaskDraft.title == capturedValue else {
+                return
             }
+
+            let parser = NaturalLanguageTaskParser(availableProjects: availableProjects)
+            guard let parsed = parser.parse(capturedValue),
+                  let due = parsed.due,
+                  parsed.dueTime == nil,
+                  let phrase = parsed.recognizedDatePhrase else {
+                inlineTaskTitleParseTask = nil
+                return
+            }
+
+            inlineTaskTitleMutationInFlight = true
+            if !inlineTaskHasManualProjectSelection, let parsedProject = parsed.project {
+                applyInlineTaskDestination(project: parsedProject, area: nil, isManual: false)
+            }
+            if !inlineTaskHasManualTagsSelection, !parsed.tags.isEmpty {
+                for tag in parsed.tags {
+                    appendInlineTag(tag)
+                }
+            }
+            if !inlineTaskHasManualDueSelection {
+                let loweredPhrase = phrase.lowercased()
+                let chipPhrase = loweredPhrase.hasPrefix("due ")
+                    || loweredPhrase.hasPrefix("by ")
+                    || loweredPhrase.hasPrefix("on ")
+                    || loweredPhrase.hasPrefix("at ")
+                    ? loweredPhrase
+                    : "due \(loweredPhrase)"
+                applyInlineDueDate(dateFromLocalDate(due), autoPhrase: chipPhrase)
+            }
+            inlineTaskTitleMutationInFlight = false
+            inlineTaskTitleParseTask = nil
         }
-        let loweredPhrase = phrase.lowercased()
-        let chipPhrase = loweredPhrase.hasPrefix("due ")
-            || loweredPhrase.hasPrefix("by ")
-            || loweredPhrase.hasPrefix("on ")
-            || loweredPhrase.hasPrefix("at ")
-            ? loweredPhrase
-            : "due \(loweredPhrase)"
-        applyInlineDueDate(dateFromLocalDate(due), autoPhrase: chipPhrase)
-        inlineTaskTitleMutationInFlight = false
+    }
+
+    private func resolvedInlineTaskDestinationForCommit(title: String) -> (area: String?, project: String?) {
+        guard !inlineTaskHasManualProjectSelection else {
+            return (area: inlineTaskDraft.area, project: inlineTaskDraft.project)
+        }
+
+        let parser = NaturalLanguageTaskParser(availableProjects: inlineTaskAvailableProjects)
+        guard let parsedProject = parser.parse(title)?.project else {
+            return (area: inlineTaskDraft.area, project: inlineTaskDraft.project)
+        }
+        return (area: nil, project: parsedProject)
     }
 
     private func commitInlineTaskComposer() {
@@ -4405,6 +4444,7 @@ struct RootView: View {
         }
 
         let defaultDraft = defaultInlineTaskDraft(for: container.selectedView)
+        let resolvedDestination = resolvedInlineTaskDestinationForCommit(title: trimmedTitle)
         let explicitDue: LocalDate?
         let inlineDueTimeMatchesDefault = inlineTaskDraft.hasDueTime == defaultDraft.hasDueTime && (
             !inlineTaskDraft.hasDueTime ||
@@ -4448,8 +4488,8 @@ struct RootView: View {
             priority: nil,
             flagged: inlineTaskDraft.flagged,
             tags: inlineTaskDraft.normalizedTags,
-            area: inlineTaskDraft.area,
-            project: inlineTaskDraft.project,
+            area: resolvedDestination.area,
+            project: resolvedDestination.project,
             description: explicitDescription,
             defaultView: defaultView
         )
@@ -4463,8 +4503,8 @@ struct RootView: View {
                 explicitRecurrence: explicitRecurrence,
                 priorityOverride: nil,
                 flagged: inlineTaskDraft.flagged,
-                area: inlineTaskDraft.area,
-                project: inlineTaskDraft.project,
+                area: resolvedDestination.area,
+                project: resolvedDestination.project,
                 description: explicitDescription,
                 source: "user",
                 defaultView: defaultView
@@ -4628,14 +4668,55 @@ struct RootView: View {
     }
 
     @MainActor
-    private func presentRootSearch(resetQuery: Bool = true) {
-        if resetQuery { universalSearchText = "" }
-        withAnimation(.easeOut(duration: 0.22)) {
-            isRootSearchPresented = true
+    private func cancelRootSearchHydration() {
+        rootSearchHydrationTask?.cancel()
+        rootSearchHydrationTask = nil
+    }
+
+    @MainActor
+    private func scheduleRootSearchHydrationIfNeeded() {
+        let normalizedQuery = universalSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isRootSearchPresented, normalizedQuery.isEmpty, !rootSearchDeferredSuggestionsReady else { return }
+
+        cancelRootSearchHydration()
+        rootSearchHydrationTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 90_000_000)
+            guard !Task.isCancelled,
+                  isRootSearchPresented,
+                  universalSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                rootSearchHydrationTask = nil
+                return
+            }
+            rootSearchDeferredSuggestionsReady = true
+            rootSearchHydrationTask = nil
         }
     }
 
+    @MainActor
+    private func handleUniversalSearchTextChanged(_ newValue: String) {
+        guard isRootSearchPresented else { return }
+        let normalizedQuery = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalizedQuery.isEmpty {
+            scheduleRootSearchHydrationIfNeeded()
+        } else {
+            cancelRootSearchHydration()
+        }
+    }
+
+    @MainActor
+    private func presentRootSearch(resetQuery: Bool = true) {
+        if resetQuery { universalSearchText = "" }
+        cancelRootSearchHydration()
+        rootSearchDeferredSuggestionsReady = false
+        withAnimation(.easeOut(duration: 0.22)) {
+            isRootSearchPresented = true
+        }
+        scheduleRootSearchHydrationIfNeeded()
+    }
+
     private func dismissRootSearch() {
+        cancelRootSearchHydration()
+        rootSearchDeferredSuggestionsReady = false
         universalSearchText = ""
         withAnimation(.easeIn(duration: 0.18)) {
             isRootSearchPresented = false
@@ -6372,12 +6453,12 @@ private struct TapOutsideDismissBackdrop: View {
 
     private var backdropSurface: some View {
         fillColor
-            .ignoresSafeArea()
             .contentShape(Rectangle())
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Dismiss")
             .accessibilityAddTraits(.isButton)
             .onTapGesture(perform: onDismiss)
+        .ignoresSafeArea()
     }
 }
 

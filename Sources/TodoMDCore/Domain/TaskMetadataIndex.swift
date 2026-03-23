@@ -16,6 +16,25 @@ import Foundation
 /// Pre-computed, cheaply-comparable metadata derived from a single TaskRecord.
 /// All date values are stored as ISO-8601 strings for lexicographic comparison.
 public struct TaskMetadataEntry: Codable, Hashable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case path
+        case ref
+        case filename
+        case title
+        case description
+        case status
+        case priority
+        case area
+        case project
+        case tags
+        case hasDue
+        case dueDate
+        case flagged
+        case assignee
+        case source
+        case hasRecurrence
+        case hasLocationReminder
+    }
 
     // MARK: Identity
 
@@ -73,6 +92,8 @@ public struct TaskMetadataEntry: Codable, Hashable, Sendable {
 
     /// Whether the task has a location-based reminder attached.
     public let hasLocationReminder: Bool
+
+    private var searchableText: String = ""
 
     // MARK: - Field matching
 
@@ -273,6 +294,52 @@ public struct TaskMetadataEntry: Codable, Hashable, Sendable {
         if ["0", "false", "no", "off"].contains(normalized) { return false }
         return nil
     }
+
+    fileprivate func matches(searchQuery normalizedQuery: String) -> Bool {
+        !normalizedQuery.isEmpty && searchableText.contains(normalizedQuery)
+    }
+
+    fileprivate func preparedForRuntimeSearch() -> TaskMetadataEntry {
+        var prepared = self
+        prepared.searchableText = Self.makeSearchableText(
+            title: title,
+            description: description,
+            area: area,
+            project: project,
+            source: source,
+            filename: filename,
+            assignee: assignee,
+            ref: ref,
+            tags: tags
+        )
+        return prepared
+    }
+
+    private static func makeSearchableText(
+        title: String,
+        description: String?,
+        area: String?,
+        project: String?,
+        source: String,
+        filename: String,
+        assignee: String?,
+        ref: String?,
+        tags: [String]
+    ) -> String {
+        [
+            title,
+            description ?? "",
+            area ?? "",
+            project ?? "",
+            source,
+            filename,
+            assignee ?? "",
+            ref ?? "",
+            tags.joined(separator: " ")
+        ]
+        .joined(separator: "\u{1F}")
+        .lowercased()
+    }
 }
 
 // MARK: - TaskMetadataIndex
@@ -286,6 +353,9 @@ public final class TaskMetadataIndex: @unchecked Sendable {
     // MARK: - Private state
 
     private var entriesByPath: [String: TaskMetadataEntry]
+    private var cachedDistinctAreas: [String]?
+    private var cachedDistinctProjects: [String]?
+    private var cachedDistinctTags: [String]?
     private let lock = NSLock()
 
     // MARK: - Initialisation
@@ -301,7 +371,7 @@ public final class TaskMetadataIndex: @unchecked Sendable {
         var map: [String: TaskMetadataEntry] = [:]
         map.reserveCapacity(records.count)
         for record in records {
-            let entry = TaskMetadataEntry(from: record)
+            let entry = TaskMetadataEntry(from: record).preparedForRuntimeSearch()
             map[entry.path] = entry
         }
         return TaskMetadataIndex(entriesByPath: map)
@@ -312,7 +382,8 @@ public final class TaskMetadataIndex: @unchecked Sendable {
         var map: [String: TaskMetadataEntry] = [:]
         map.reserveCapacity(entries.count)
         for entry in entries {
-            map[entry.path] = entry
+            let prepared = entry.preparedForRuntimeSearch()
+            map[prepared.path] = prepared
         }
         return TaskMetadataIndex(entriesByPath: map)
     }
@@ -321,9 +392,10 @@ public final class TaskMetadataIndex: @unchecked Sendable {
 
     /// Incrementally updates the index for a single mutated record.
     public func update(record: TaskRecord) {
-        let entry = TaskMetadataEntry(from: record)
+        let entry = TaskMetadataEntry(from: record).preparedForRuntimeSearch()
         lock.lock()
         entriesByPath[entry.path] = entry
+        invalidateDerivedCaches()
         lock.unlock()
     }
 
@@ -331,6 +403,7 @@ public final class TaskMetadataIndex: @unchecked Sendable {
     public func remove(path: String) {
         lock.lock()
         entriesByPath.removeValue(forKey: path)
+        invalidateDerivedCaches()
         lock.unlock()
     }
 
@@ -368,16 +441,39 @@ public final class TaskMetadataIndex: @unchecked Sendable {
     public func distinctAreas() -> [String] {
         lock.lock()
         defer { lock.unlock() }
-        return Set(entriesByPath.values.compactMap(\.area))
+        if let cachedDistinctAreas {
+            return cachedDistinctAreas
+        }
+        let resolved = Set(entriesByPath.values.compactMap(\.area))
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        cachedDistinctAreas = resolved
+        return resolved
+    }
+
+    /// Returns distinct non-empty projects in case-insensitive order.
+    public func distinctProjects() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        if let cachedDistinctProjects {
+            return cachedDistinctProjects
+        }
+        let resolved = Set(entriesByPath.values.compactMap(\.project))
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        cachedDistinctProjects = resolved
+        return resolved
     }
 
     /// Returns distinct non-empty tags in case-insensitive order.
     public func distinctTags() -> [String] {
         lock.lock()
         defer { lock.unlock() }
-        return Set(entriesByPath.values.flatMap(\.tags))
+        if let cachedDistinctTags {
+            return cachedDistinctTags
+        }
+        let resolved = Set(entriesByPath.values.flatMap(\.tags))
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        cachedDistinctTags = resolved
+        return resolved
     }
 
     /// Returns candidate task paths for text search using indexed metadata only.
@@ -388,21 +484,14 @@ public final class TaskMetadataIndex: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return entriesByPath.values
-            .filter { entry in
-                let fields: [String] = [
-                    entry.title,
-                    entry.description ?? "",
-                    entry.area ?? "",
-                    entry.project ?? "",
-                    entry.source,
-                    entry.filename,
-                    entry.assignee ?? "",
-                    entry.ref ?? "",
-                    entry.tags.joined(separator: " ")
-                ]
-                return fields.contains { $0.lowercased().contains(normalized) }
-            }
+            .filter { $0.matches(searchQuery: normalized) }
             .map(\.path)
+    }
+
+    private func invalidateDerivedCaches() {
+        cachedDistinctAreas = nil
+        cachedDistinctProjects = nil
+        cachedDistinctTags = nil
     }
 }
 
@@ -432,6 +521,17 @@ extension TaskMetadataEntry {
         self.source = fm.source
         self.hasRecurrence = fm.recurrence != nil && !(fm.recurrence?.isEmpty ?? true)
         self.hasLocationReminder = fm.locationReminder != nil
+        self.searchableText = Self.makeSearchableText(
+            title: self.title,
+            description: self.description,
+            area: self.area,
+            project: self.project,
+            source: self.source,
+            filename: self.filename,
+            assignee: self.assignee,
+            ref: self.ref,
+            tags: self.tags
+        )
     }
 }
 

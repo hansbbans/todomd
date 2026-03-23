@@ -784,6 +784,37 @@ final class TodoMDAppUITests: XCTestCase {
         )
     }
 
+    func testQuickEntryFastSubmitPreservesParsedProjectCue() throws {
+        let storageOverride = makeStorageOverridePath()
+        try seedProjectMetadata(rootPath: storageOverride, projects: ["Errands"])
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding", "-ui-testing-show-quick-entry"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let titleField = app.textFields["quickEntry.titleField"].firstMatch
+        XCTAssertTrue(titleField.waitForExistence(timeout: 10), "QuickEntry sheet did not appear")
+        titleField.tap()
+        titleField.typeText("buy milk project Errands")
+
+        if app.keyboards.buttons["Done"].waitForExistence(timeout: 3) {
+            app.keyboards.buttons["Done"].tap()
+        } else {
+            app.typeText("\n")
+        }
+
+        XCTAssertTrue(
+            waitForMarkdownStorage(rootPath: storageOverride) { content in
+                (content.contains("title: buy milk") || content.contains("title: \"buy milk\""))
+                    && (content.contains("project: Errands") || content.contains("project: \"Errands\""))
+            },
+            "QuickEntry should preserve parsed project cues when the task is submitted immediately"
+        )
+    }
+
     func testQuickEntryKeepsOptionalDetailsHiddenUntilRequested() {
         let app = XCUIApplication()
         app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding", "-ui-testing-show-quick-entry"]
