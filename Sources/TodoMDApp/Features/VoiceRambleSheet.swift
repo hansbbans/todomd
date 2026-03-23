@@ -441,6 +441,7 @@ private struct VoiceRambleDraftEditorState: Identifiable {
 
 struct VoiceRambleSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var container: AppContainer
     @EnvironmentObject private var theme: ThemeManager
 
@@ -528,13 +529,13 @@ struct VoiceRambleSheet: View {
         }
         .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(theme.surfaceColor.opacity(0.92))
+            ThingsSurfaceBackdrop(
+                kind: .elevatedCard,
+                theme: theme,
+                colorScheme: colorScheme
+            )
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(theme.textSecondaryColor.opacity(0.22), lineWidth: 1)
-        )
+        .clipShape(RoundedRectangle(cornerRadius: ThingsSurfaceKind.elevatedCard.cornerRadius, style: .continuous))
     }
 
     private var transcriptCard: some View {
@@ -548,19 +549,23 @@ struct VoiceRambleSheet: View {
                 .frame(maxWidth: .infinity, minHeight: 110, alignment: .topLeading)
                 .padding(14)
                 .background(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(theme.backgroundColor.opacity(0.9))
+                    ThingsSurfaceBackdrop(
+                        kind: .inset,
+                        theme: theme,
+                        colorScheme: colorScheme
+                    )
                 )
+                .clipShape(RoundedRectangle(cornerRadius: ThingsSurfaceKind.inset.cornerRadius, style: .continuous))
         }
         .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(theme.surfaceColor.opacity(0.92))
+            ThingsSurfaceBackdrop(
+                kind: .elevatedCard,
+                theme: theme,
+                colorScheme: colorScheme
+            )
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(theme.textSecondaryColor.opacity(0.22), lineWidth: 1)
-        )
+        .clipShape(RoundedRectangle(cornerRadius: ThingsSurfaceKind.elevatedCard.cornerRadius, style: .continuous))
     }
 
     private var previewSection: some View {
@@ -656,13 +661,14 @@ struct VoiceRambleSheet: View {
         }
         .padding(14)
         .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(theme.surfaceColor.opacity(0.9))
+            ThingsSurfaceBackdrop(
+                kind: .inset,
+                theme: theme,
+                colorScheme: colorScheme,
+                emphasis: draft.warning == nil ? .standard : .warning
+            )
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(draft.warning == nil ? theme.textSecondaryColor.opacity(0.18) : Color.orange.opacity(0.35), lineWidth: 1)
-        )
+        .clipShape(RoundedRectangle(cornerRadius: ThingsSurfaceKind.inset.cornerRadius, style: .continuous))
     }
 
     private func previewActionButton(
@@ -833,12 +839,10 @@ private struct VoiceRambleDraftEditorView: View {
 
                 Section("Schedule") {
                     TextField("Due date (YYYY-MM-DD)", text: $state.due)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
+                        .voiceRamblePlainTextInput()
                         .accessibilityIdentifier("voiceRamble.editor.dueField")
                     TextField("Due time (HH:MM)", text: $state.dueTime)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
+                        .voiceRamblePlainTextInput()
                         .accessibilityIdentifier("voiceRamble.editor.dueTimeField")
                 }
 
@@ -856,12 +860,11 @@ private struct VoiceRambleDraftEditorView: View {
                     .accessibilityIdentifier("voiceRamble.editor.priorityPicker")
 
                     TextField("Tags (comma separated)", text: $state.tags)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
+                        .voiceRamblePlainTextInput()
                         .accessibilityIdentifier("voiceRamble.editor.tagsField")
 
                     TextField("Estimated minutes", text: $state.estimatedMinutes)
-                        .keyboardType(.numberPad)
+                        .voiceRambleNumericInput()
                         .accessibilityIdentifier("voiceRamble.editor.estimateField")
                 }
 
@@ -889,5 +892,27 @@ private struct VoiceRambleDraftEditorView: View {
             }
         }
         .tint(theme.accentColor)
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func voiceRamblePlainTextInput() -> some View {
+#if os(iOS)
+        self
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+#else
+        self
+#endif
+    }
+
+    @ViewBuilder
+    func voiceRambleNumericInput() -> some View {
+#if os(iOS)
+        self.keyboardType(.numberPad)
+#else
+        self
+#endif
     }
 }

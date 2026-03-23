@@ -84,9 +84,11 @@
 		395DC1AE922DB6B82F009D69 /* OrderDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA86B17396D04C903A974AC3 /* OrderDocument.swift */; };
 		3B75F6E01B81B91703238C85 /* UnparseableFilesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26BDD4D968F473E179559440 /* UnparseableFilesView.swift */; };
 		3B86A48E6473E55A0918E7E6 /* ThemeTokenStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AFAB928C5DE3C10096450F9 /* ThemeTokenStoreTests.swift */; };
-		3B9A6791D3374A853269CBAE /* TaskIndexRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 863F54E44BD921B968B8DFB1 /* TaskIndexRecord.swift */; };
-		3C9F1E48756A08A06B421277 /* DateChooserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C5590ACCD1082674490FB7D /* DateChooserView.swift */; };
-		3D9D6700C6D12164D0118AAF /* JSONValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B8F45D517B09A5D5AFA1EC4 /* JSONValue.swift */; };
+			3B9A6791D3374A853269CBAE /* TaskIndexRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 863F54E44BD921B968B8DFB1 /* TaskIndexRecord.swift */; };
+			3C9F1E48756A08A06B421277 /* DateChooserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C5590ACCD1082674490FB7D /* DateChooserView.swift */; };
+			A1B2C3D4E5F60718293A4B5C /* ThingsSurfaceSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A4B53EF4C84F1C9B112233 /* ThingsSurfaceSystem.swift */; };
+			B1C2D3E4F5061728394A5B6C /* ThingsSurfaceSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A4B53EF4C84F1C9B112233 /* ThingsSurfaceSystem.swift */; };
+			3D9D6700C6D12164D0118AAF /* JSONValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B8F45D517B09A5D5AFA1EC4 /* JSONValue.swift */; };
 		3E381011A0F3E94564C580E5 /* QuickFindStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56FFAF6DBC4A59A8501C7F75 /* QuickFindStore.swift */; };
 		3F03FB4E4CB060CB22D1B76B /* TaskQueryEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BF3A045ACCE9C83A29AF7D7 /* TaskQueryEngine.swift */; };
 		3F3D41521E83CE59EF081180 /* TaskDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CBE60425F8BBFD05B212445 /* TaskDetailView.swift */; };
@@ -487,13 +489,14 @@
 		9375254F5FA814210CAC9A13 /* TaskFilenameGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskFilenameGenerator.swift; sourceTree = "<group>"; };
 		9534A04F75287E4E846A83C5 /* TaskFilenameGeneratorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskFilenameGeneratorTests.swift; sourceTree = "<group>"; };
 		98639B01A97BD10D12C75CD3 /* TriageRulesDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TriageRulesDocument.swift; sourceTree = "<group>"; };
-		9AFAB928C5DE3C10096450F9 /* ThemeTokenStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeTokenStoreTests.swift; sourceTree = "<group>"; };
-		9B45972D341CEC1C9E759700 /* CompactTabSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompactTabSettingsTests.swift; sourceTree = "<group>"; };
-		9BB428148D7FFA3357072404 /* TriageRulesRepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TriageRulesRepositoryTests.swift; sourceTree = "<group>"; };
-		A046B1C5FE123835D2A30C64 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
-		A3547AD004598FCAE14764EA /* SecurityAndPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityAndPerformanceTests.swift; sourceTree = "<group>"; };
-		A3E040C1C7C81C1A130FE445 /* TaskSourceAttribution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskSourceAttribution.swift; sourceTree = "<group>"; };
-		A439E9DDD14A0A281A9B5ADA /* ToolbarPlacement+Platform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ToolbarPlacement+Platform.swift"; sourceTree = "<group>"; };
+			9AFAB928C5DE3C10096450F9 /* ThemeTokenStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeTokenStoreTests.swift; sourceTree = "<group>"; };
+			9B45972D341CEC1C9E759700 /* CompactTabSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompactTabSettingsTests.swift; sourceTree = "<group>"; };
+			9BB428148D7FFA3357072404 /* TriageRulesRepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TriageRulesRepositoryTests.swift; sourceTree = "<group>"; };
+			A046B1C5FE123835D2A30C64 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+			A3547AD004598FCAE14764EA /* SecurityAndPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityAndPerformanceTests.swift; sourceTree = "<group>"; };
+			A3E040C1C7C81C1A130FE445 /* TaskSourceAttribution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskSourceAttribution.swift; sourceTree = "<group>"; };
+			D1A4B53EF4C84F1C9B112233 /* ThingsSurfaceSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThingsSurfaceSystem.swift; sourceTree = "<group>"; };
+			A439E9DDD14A0A281A9B5ADA /* ToolbarPlacement+Platform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ToolbarPlacement+Platform.swift"; sourceTree = "<group>"; };
 		A52DF31ED362F9E554A4C7F3 /* RecurrencePropertyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecurrencePropertyTests.swift; sourceTree = "<group>"; };
 		A5ADF1FFE8B19282D2108D80 /* URLRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLRouting.swift; sourceTree = "<group>"; };
 		A663CE0F8831EFB6579912DD /* TaskFileIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskFileIdentity.swift; sourceTree = "<group>"; };
@@ -866,6 +869,7 @@
 				E0C83EFD327AD18E41690E1A /* NotificationTimePreference.swift */,
 				6610505BFF0970DD488B404A /* RootNavigationCatalog.swift */,
 				A3E040C1C7C81C1A130FE445 /* TaskSourceAttribution.swift */,
+				D1A4B53EF4C84F1C9B112233 /* ThingsSurfaceSystem.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -1191,12 +1195,13 @@
 				B56A7688F08408473B7B0B58 /* CalendarPanels.swift in Sources */,
 				72E49D082F71F9235154494E /* CompactTabChoiceCatalog.swift in Sources */,
 				9864347ECC5390863EB54C35 /* CompactTabSettings.swift in Sources */,
-				C1DD1B3C1BBDAB57A535F6C2 /* ConflictResolutionView.swift in Sources */,
-				3C9F1E48756A08A06B421277 /* DateChooserView.swift in Sources */,
-				0AD71D3AA9C5915A1816BA3E /* DebugView.swift in Sources */,
-				78BD9DF462E696A6D9399B8C /* Diagnostics.swift in Sources */,
-				BABE3674BE43EB8717D1712F /* ExpandedTaskConfiguration.swift in Sources */,
-				5CC1117C5961145E48E44836 /* FileTaskRepository.swift in Sources */,
+					C1DD1B3C1BBDAB57A535F6C2 /* ConflictResolutionView.swift in Sources */,
+					3C9F1E48756A08A06B421277 /* DateChooserView.swift in Sources */,
+					0AD71D3AA9C5915A1816BA3E /* DebugView.swift in Sources */,
+					78BD9DF462E696A6D9399B8C /* Diagnostics.swift in Sources */,
+					BABE3674BE43EB8717D1712F /* ExpandedTaskConfiguration.swift in Sources */,
+					A1B2C3D4E5F60718293A4B5C /* ThingsSurfaceSystem.swift in Sources */,
+					5CC1117C5961145E48E44836 /* FileTaskRepository.swift in Sources */,
 				65190A58E11D3D847CDFC242 /* FileWatcherEvent.swift in Sources */,
 				DFF0F719DA7654F7F40CF2C9 /* FileWatcherService.swift in Sources */,
 				C373E4E79DEDE35C2A2C9EE5 /* GoogleCalendarModels.swift in Sources */,
@@ -1288,12 +1293,13 @@
 				D2222D8F4982E43E705A3CEA /* CalendarPanels.swift in Sources */,
 				F5C60085DCB13E8731CF5E79 /* CompactTabChoiceCatalog.swift in Sources */,
 				8D3A809800AA4EE7D9F53F48 /* CompactTabSettings.swift in Sources */,
-				12726EBC8D837DB96120D0BD /* ConflictResolutionView.swift in Sources */,
-				B3DBCEE519A8C99337F812EF /* DateChooserView.swift in Sources */,
-				0B6D4108BFF778B19C754978 /* DebugView.swift in Sources */,
-				96933AA517ADC6ED696A2D45 /* Diagnostics.swift in Sources */,
-				590354A5503D958764690EE7 /* ExpandedTaskConfiguration.swift in Sources */,
-				2750E3772EE4DA47F6F3707A /* FileTaskRepository.swift in Sources */,
+					12726EBC8D837DB96120D0BD /* ConflictResolutionView.swift in Sources */,
+					B3DBCEE519A8C99337F812EF /* DateChooserView.swift in Sources */,
+					0B6D4108BFF778B19C754978 /* DebugView.swift in Sources */,
+					96933AA517ADC6ED696A2D45 /* Diagnostics.swift in Sources */,
+					590354A5503D958764690EE7 /* ExpandedTaskConfiguration.swift in Sources */,
+					B1C2D3E4F5061728394A5B6C /* ThingsSurfaceSystem.swift in Sources */,
+					2750E3772EE4DA47F6F3707A /* FileTaskRepository.swift in Sources */,
 				AC48C658E01E53BD4A6786A5 /* FileWatcherEvent.swift in Sources */,
 				48EB79BCA29F5060B4070D5A /* FileWatcherService.swift in Sources */,
 				B6A28395718A57BCEED76E62 /* GoogleCalendarModels.swift in Sources */,

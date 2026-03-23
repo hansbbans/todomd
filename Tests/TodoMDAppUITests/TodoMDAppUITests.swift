@@ -424,7 +424,7 @@ final class TodoMDAppUITests: XCTestCase {
         )
     }
 
-    func testInlineComposerOpensExpandedAtTopOfInboxList() {
+    func testCompactInlineComposerRevealsNotesWhenRequested() {
         let storageOverride = makeStorageOverridePath()
 
         let app = XCUIApplication()
@@ -447,30 +447,25 @@ final class TodoMDAppUITests: XCTestCase {
 
         let titleInput = app.textFields["inlineTask.titleField"].firstMatch
         XCTAssertTrue(titleInput.waitForExistence(timeout: 10), "Inline task title field did not appear")
-        let notesInput = app.textFields["inlineTask.notesField"].firstMatch
-        XCTAssertTrue(notesInput.waitForExistence(timeout: 10), "New task creation should open with the expanded notes field visible")
-
         let composerRow = app.descendants(matching: .any)["inlineTask.row"].firstMatch
         XCTAssertTrue(
-            composerRow.waitForExistence(timeout: 2),
-            "Inline composer row was not visible"
+            composerRow.waitForExistence(timeout: 10),
+            "Compact inline composer was not visible"
         )
-        XCTAssertEqual(composerRow.value as? String, "expanded", "New task composer should open expanded")
-
         XCTAssertTrue(
-            waitForCondition(timeout: 5, pollInterval: 0.1) {
-                let firstExistingTop = min(firstRow.frame.minY, secondRow.frame.minY)
-                return composerRow.frame.maxY <= firstExistingTop + 2
-            },
-            "New task composer should appear above the existing tasks at the top of the list"
+            app.buttons["inlineTask.backdrop"].waitForExistence(timeout: 10),
+            "Compact inline composer should present as a dismissible overlay"
         )
 
-        let referenceHeight = max(firstRow.frame.height, secondRow.frame.height)
-        XCTAssertGreaterThanOrEqual(
-            composerRow.frame.height,
-            referenceHeight + 40,
-            "New task composer should open as an expanded row instead of a collapsed task row"
+        let addNoteButton = app.buttons["inlineTask.addNoteButton"].firstMatch
+        XCTAssertTrue(
+            addNoteButton.waitForExistence(timeout: 10),
+            "New task creation should open with a lightweight add-note affordance"
         )
+        let notesInput = app.textFields["inlineTask.notesField"].firstMatch
+        XCTAssertFalse(notesInput.exists, "Notes field should stay hidden until the user asks for it")
+        addNoteButton.tap()
+        XCTAssertTrue(notesInput.waitForExistence(timeout: 10), "Tapping Add note should reveal the notes field")
     }
 
     func testTaskDetailProjectAssignmentPersistsImmediately() {
@@ -782,6 +777,61 @@ final class TodoMDAppUITests: XCTestCase {
                 !titleField.exists
             },
             "QuickEntry sheet did not dismiss after pressing keyboard Done"
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["taskRow.keyboard done test"].waitForExistence(timeout: 10),
+            "QuickEntry should create the task before dismissing"
+        )
+    }
+
+    func testQuickEntryKeepsOptionalDetailsHiddenUntilRequested() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding", "-ui-testing-show-quick-entry"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = makeStorageOverridePath()
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let titleField = app.textFields["quickEntry.titleField"].firstMatch
+        XCTAssertTrue(titleField.waitForExistence(timeout: 10), "QuickEntry sheet did not appear")
+        XCTAssertFalse(app.buttons["quickEntry.showAllFieldsButton"].exists, "Detailed controls should not be visible before capture starts")
+
+        titleField.tap()
+        titleField.typeText("phase three quick entry")
+
+        let revealDetailsButton = app.buttons["quickEntry.revealDetailsButton"].firstMatch
+        XCTAssertTrue(revealDetailsButton.waitForExistence(timeout: 10), "QuickEntry should offer a lightweight way to reveal more details after typing")
+        revealDetailsButton.tap()
+
+        XCTAssertTrue(
+            app.buttons["quickEntry.showAllFieldsButton"].waitForExistence(timeout: 10),
+            "Expanded details should appear only after they are requested"
+        )
+    }
+
+    func testQuickEntryShowsActiveDefaultsBeforeTyping() {
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-ui-testing",
+            "-ui-testing-reset",
+            "-ui-testing-force-onboarding",
+            "-ui-testing-show-quick-entry",
+            "-settings_quick_entry_default_due_date", "today"
+        ]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = makeStorageOverridePath()
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let titleField = app.textFields["quickEntry.titleField"].firstMatch
+        XCTAssertTrue(titleField.waitForExistence(timeout: 10), "QuickEntry sheet did not appear")
+        XCTAssertTrue(
+            app.buttons["quickEntry.showAllFieldsButton"].waitForExistence(timeout: 10),
+            "QuickEntry should show details immediately when defaults already apply metadata"
+        )
+        XCTAssertFalse(
+            app.buttons["quickEntry.revealDetailsButton"].exists,
+            "QuickEntry should not hide active default metadata behind the reveal button"
         )
     }
 
@@ -1187,6 +1237,41 @@ final class TodoMDAppUITests: XCTestCase {
         )
     }
 
+    func testQuickFindShowsSuggestedNavigationBeforeTyping() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = makeStorageOverridePath()
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        if app.collectionViews.firstMatch.exists {
+            app.collectionViews.firstMatch.swipeDown()
+        } else if app.tables.firstMatch.exists {
+            app.tables.firstMatch.swipeDown()
+        } else {
+            app.swipeDown()
+        }
+
+        let searchField = app.textFields["quickFind.searchField"].firstMatch
+        XCTAssertTrue(
+            searchField.waitForExistence(timeout: 10),
+            "Quick Find should open its search field before typing"
+        )
+
+        let guidanceCandidates = [
+            app.staticTexts["Jump back in"].firstMatch,
+            app.staticTexts["Jump Back In"].firstMatch,
+            app.staticTexts["Up Next"].firstMatch
+        ]
+        XCTAssertTrue(
+            waitForCondition(timeout: 10, pollInterval: 0.1) {
+                guidanceCandidates.contains { $0.exists }
+            },
+            "Quick Find should show useful pre-typing guidance before the user types"
+        )
+    }
+
     func testPomodoroAppearsInBrowseWhenEnabled() {
         let storageOverride = makeStorageOverridePath()
 
@@ -1236,6 +1321,57 @@ final class TodoMDAppUITests: XCTestCase {
         if app.buttons["settings.integrations.allowCalendarAccessButton"].exists {
             XCTAssertEqual(calendarToggle.value as? String, "0", "Calendar should stay off before access is granted")
         }
+    }
+
+    func testSettingsHomeUsesJobBasedSections() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = makeStorageOverridePath()
+        app.launch()
+
+        completeOnboarding(app: app)
+        openSettings(app: app)
+
+        XCTAssertTrue(app.staticTexts["Get Started"].firstMatch.waitForExistence(timeout: 10), "Get Started section not visible")
+        XCTAssertTrue(app.buttons["settings.section.integrations"].firstMatch.exists, "Setup card not visible")
+        XCTAssertTrue(app.buttons["settings.section.taskBehavior"].firstMatch.exists, "Capture & Lists card not visible")
+        XCTAssertTrue(app.buttons["settings.section.notifications"].firstMatch.exists, "Alerts card not visible")
+
+        XCTAssertTrue(reveal(element: app.staticTexts["Workspace"].firstMatch, in: app), "Workspace section not visible")
+        XCTAssertTrue(reveal(element: app.buttons["settings.section.appearance"].firstMatch, in: app), "Appearance card not visible")
+        XCTAssertTrue(app.buttons["settings.section.storage"].firstMatch.exists, "Storage card not visible")
+
+        XCTAssertTrue(reveal(element: app.staticTexts["Support"].firstMatch, in: app), "Support section not visible")
+        XCTAssertTrue(reveal(element: app.buttons["settings.section.maintenance"].firstMatch, in: app), "Troubleshooting card not visible")
+    }
+
+    func testTroubleshootingSettingsOpenMaintenanceScreens() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = makeStorageOverridePath()
+        app.launch()
+
+        completeOnboarding(app: app)
+        openSettings(app: app)
+
+        let troubleshootingSection = app.buttons["settings.section.maintenance"].firstMatch
+        XCTAssertTrue(reveal(element: troubleshootingSection, in: app), "Troubleshooting card not visible")
+        troubleshootingSection.tap()
+
+        let conflictButton = app.buttons["Conflict resolution"].firstMatch
+        XCTAssertTrue(conflictButton.waitForExistence(timeout: 10), "Conflict resolution entry not visible")
+        conflictButton.tap()
+
+        XCTAssertTrue(app.navigationBars["Conflicts"].firstMatch.waitForExistence(timeout: 10), "Conflicts screen did not open")
+        XCTAssertTrue(app.staticTexts["No Conflicts"].firstMatch.waitForExistence(timeout: 10), "Conflicts empty state not visible")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+
+        let unparseableButton = app.buttons["Unparseable files"].firstMatch
+        XCTAssertTrue(unparseableButton.waitForExistence(timeout: 10), "Unparseable files entry not visible")
+        unparseableButton.tap()
+
+        XCTAssertTrue(app.navigationBars["Unparseable"].firstMatch.waitForExistence(timeout: 10), "Unparseable screen did not open")
+        XCTAssertTrue(app.staticTexts["No Unparseable Files"].firstMatch.waitForExistence(timeout: 10), "Unparseable empty state not visible")
     }
 
     func testBrowseTabShowsAnIconInCompactTabBar() {
@@ -1299,7 +1435,7 @@ final class TodoMDAppUITests: XCTestCase {
         openSettings(app: app)
 
         let appearanceSection = app.buttons["settings.section.appearance"].firstMatch
-        XCTAssertTrue(appearanceSection.waitForExistence(timeout: 10), "Appearance settings section not visible")
+        XCTAssertTrue(reveal(element: appearanceSection, in: app), "Appearance settings section not visible")
         appearanceSection.tap()
 
         let displayNameButton = app.buttons["settings.appearance.compactPrimaryDisplayNameButton"].firstMatch
@@ -1441,16 +1577,6 @@ final class TodoMDAppUITests: XCTestCase {
     }
 
     private func submitInlineTask(from app: XCUIApplication) {
-        let keyboardCommitButton = app.buttons["inlineTask.keyboardCommitButton"].firstMatch
-        if keyboardCommitButton.waitForExistence(timeout: 1), keyboardCommitButton.isHittable {
-            keyboardCommitButton.tap()
-            return
-        }
-        let submitButton = app.buttons["inlineTask.submitButton"].firstMatch
-        if submitButton.waitForExistence(timeout: 1), submitButton.isHittable {
-            submitButton.tap()
-            return
-        }
         if app.keyboards.buttons["Done"].exists {
             app.keyboards.buttons["Done"].tap()
             return
@@ -1461,6 +1587,16 @@ final class TodoMDAppUITests: XCTestCase {
         }
         if app.keyboards.buttons["return"].exists {
             app.keyboards.buttons["return"].tap()
+            return
+        }
+        let keyboardCommitButton = app.buttons["inlineTask.keyboardCommitButton"].firstMatch
+        if keyboardCommitButton.exists, keyboardCommitButton.isHittable {
+            keyboardCommitButton.tap()
+            return
+        }
+        let submitButton = app.buttons["inlineTask.submitButton"].firstMatch
+        if submitButton.exists, submitButton.isHittable {
+            submitButton.tap()
             return
         }
         app.typeText("\n")

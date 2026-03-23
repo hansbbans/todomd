@@ -366,6 +366,9 @@ struct AppIconPickerLink: View {
 }
 
 struct AppIconPickerView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @EnvironmentObject private var theme: ThemeManager
+
     private enum Mode: String, CaseIterable, Identifiable {
         case symbols
         case emoji
@@ -391,93 +394,152 @@ struct AppIconPickerView: View {
     }
 
     var body: some View {
-        Form {
-            Section("Selected") {
-                HStack(spacing: 12) {
-                    AppIconGlyph(
-                        icon: selection,
-                        fallbackSymbol: fallbackSymbol,
-                        pointSize: 28,
-                        weight: .semibold,
-                        tint: Color.accentColor
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(spacing: 14) {
+                        AppIconGlyph(
+                            icon: selection,
+                            fallbackSymbol: fallbackSymbol,
+                            pointSize: 30,
+                            weight: .semibold,
+                            tint: theme.accentColor
+                        )
+                        .frame(width: 42, height: 42)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(AppIconCatalog.label(for: selection, fallbackSymbol: fallbackSymbol))
+                                .font(.headline)
+                                .foregroundStyle(theme.textPrimaryColor)
+                            Text(AppIconToken(selection, fallbackSymbol: fallbackSymbol).isEmoji ? "Emoji" : "SF Symbol")
+                                .font(.subheadline)
+                                .foregroundStyle(theme.textSecondaryColor)
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+
+                    Button("Use Default", systemImage: "arrow.counterclockwise") {
+                        selection = fallbackSymbol
+                        mode = .symbols
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 16)
+                .background(
+                    ThingsSurfaceBackdrop(
+                        kind: .elevatedCard,
+                        theme: theme,
+                        colorScheme: colorScheme
                     )
-                    .frame(width: 36, height: 36)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: ThingsSurfaceKind.elevatedCard.cornerRadius, style: .continuous))
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(AppIconCatalog.label(for: selection, fallbackSymbol: fallbackSymbol))
-                        Text(AppIconToken(selection, fallbackSymbol: fallbackSymbol).isEmoji ? "Emoji" : "SF Symbol")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Browse")
+                        .font(.headline)
+                        .foregroundStyle(theme.textPrimaryColor)
+
+                    Picker("Source", selection: $mode) {
+                        Text("Symbols").tag(Mode.symbols)
+                        Text("Emoji").tag(Mode.emoji)
                     }
-                }
+                    .pickerStyle(.segmented)
 
-                Button {
-                    selection = fallbackSymbol
-                    mode = .symbols
-                } label: {
-                    HStack {
-                        Text("Use Default")
-                        Spacer()
-                        if AppIconToken.normalizedSelection(selection, fallbackSymbol: fallbackSymbol) == fallbackSymbol {
-                            Image(systemName: "checkmark")
-                                .foregroundStyle(Color.accentColor)
-                        }
+                    Text(mode == .symbols ? "Choose a clean symbol that still reads well at small sizes." : "Pick a curated emoji or paste one of your own.")
+                        .font(.footnote)
+                        .foregroundStyle(theme.textSecondaryColor)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 16)
+                .background(
+                    ThingsSurfaceBackdrop(
+                        kind: .elevatedCard,
+                        theme: theme,
+                        colorScheme: colorScheme
+                    )
+                )
+                .clipShape(RoundedRectangle(cornerRadius: ThingsSurfaceKind.elevatedCard.cornerRadius, style: .continuous))
+
+                if mode == .emoji {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Custom Emoji")
+                            .font(.headline)
+                            .foregroundStyle(theme.textPrimaryColor)
+
+                        TextField("Paste one emoji", text: $customEmoji)
+                            .modifier(AppIconNeverAutocapitalization())
+                            .autocorrectionDisabled()
+                            .font(.title2)
+                            .onChange(of: customEmoji) { _, newValue in
+                                let normalized = AppIconToken.normalizedEmoji(from: newValue) ?? ""
+                                if normalized != newValue {
+                                    customEmoji = normalized
+                                }
+                                if !normalized.isEmpty {
+                                    selection = normalized
+                                }
+                            }
+
+                        Text("Curated emoji below are optional. You can paste any single emoji instead.")
+                            .font(.footnote)
+                            .foregroundStyle(theme.textSecondaryColor)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 16)
+                    .background(
+                        ThingsSurfaceBackdrop(
+                            kind: .elevatedCard,
+                            theme: theme,
+                            colorScheme: colorScheme
+                        )
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: ThingsSurfaceKind.elevatedCard.cornerRadius, style: .continuous))
                 }
-            }
 
-            Section {
-                Picker("Source", selection: $mode) {
-                    Text("Symbols").tag(Mode.symbols)
-                    Text("Emoji").tag(Mode.emoji)
-                }
-                .pickerStyle(.segmented)
-            }
+                ForEach(mode == .symbols ? AppIconCatalog.symbolSections : AppIconCatalog.emojiSections) { section in
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text(section.title)
+                            .font(.headline)
+                            .foregroundStyle(theme.textPrimaryColor)
 
-            if mode == .emoji {
-                Section("Custom Emoji") {
-                    TextField("Paste one emoji", text: $customEmoji)
-                        .modifier(AppIconNeverAutocapitalization())
-                        .autocorrectionDisabled()
-                        .font(.system(size: 28))
-                        .onChange(of: customEmoji) { _, newValue in
-                            let normalized = AppIconToken.normalizedEmoji(from: newValue) ?? ""
-                            if normalized != newValue {
-                                customEmoji = normalized
-                            }
-                            if !normalized.isEmpty {
-                                selection = normalized
-                            }
-                        }
-
-                    Text("Curated emoji below are optional. You can paste your own single emoji here instead.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            ForEach(mode == .symbols ? AppIconCatalog.symbolSections : AppIconCatalog.emojiSections) { section in
-                Section(section.title) {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 44), spacing: 12)], spacing: 12) {
-                        ForEach(section.options) { option in
-                            AppIconGridButton(
-                                option: option,
-                                fallbackSymbol: fallbackSymbol,
-                                isSelected: AppIconToken.normalizedSelection(selection, fallbackSymbol: fallbackSymbol) == option.value
-                            ) {
-                                selection = option.value
-                                if AppIconToken.isEmojiValue(option.value) {
-                                    customEmoji = option.value
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), spacing: 12)], spacing: 12) {
+                            ForEach(section.options) { option in
+                                AppIconGridButton(
+                                    option: option,
+                                    fallbackSymbol: fallbackSymbol,
+                                    isSelected: AppIconToken.normalizedSelection(selection, fallbackSymbol: fallbackSymbol) == option.value
+                                ) {
+                                    selection = option.value
+                                    if AppIconToken.isEmojiValue(option.value) {
+                                        customEmoji = option.value
+                                    }
                                 }
                             }
                         }
                     }
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 16)
+                    .background(
+                        ThingsSurfaceBackdrop(
+                            kind: .elevatedCard,
+                            theme: theme,
+                            colorScheme: colorScheme
+                        )
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: ThingsSurfaceKind.elevatedCard.cornerRadius, style: .continuous))
                 }
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 18)
+            .padding(.bottom, 80)
         }
         .navigationTitle(title)
         .modifier(AppIconInlineTitleDisplayMode())
+        .background(theme.backgroundColor.ignoresSafeArea())
         .onChange(of: selection) { _, newValue in
             let normalized = AppIconToken(newValue, fallbackSymbol: fallbackSymbol)
             if normalized.isEmoji {
@@ -488,6 +550,8 @@ struct AppIconPickerView: View {
 }
 
 private struct AppIconGridButton: View {
+    @EnvironmentObject private var theme: ThemeManager
+
     let option: AppIconOption
     let fallbackSymbol: String
     let isSelected: Bool
@@ -495,26 +559,39 @@ private struct AppIconGridButton: View {
 
     var body: some View {
         Button(action: action) {
-            ZStack(alignment: .topTrailing) {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.10))
-                    .frame(height: 52)
+            VStack(spacing: 8) {
+                ZStack(alignment: .topTrailing) {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(isSelected ? theme.accentColor.opacity(0.14) : theme.surfaceColor.opacity(0.94))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(isSelected ? theme.accentColor.opacity(0.42) : theme.textSecondaryColor.opacity(0.18), lineWidth: 1)
+                        )
+                        .frame(height: 60)
 
-                AppIconGlyph(
-                    icon: option.value,
-                    fallbackSymbol: fallbackSymbol,
-                    pointSize: 22,
-                    weight: .semibold,
-                    tint: isSelected ? Color.accentColor : Color.primary
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    AppIconGlyph(
+                        icon: option.value,
+                        fallbackSymbol: fallbackSymbol,
+                        pointSize: 24,
+                        weight: .semibold,
+                        tint: isSelected ? theme.accentColor : theme.textPrimaryColor
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Color.accentColor)
-                        .padding(6)
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(theme.accentColor)
+                            .padding(6)
+                    }
                 }
+
+                Text(option.label)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.textPrimaryColor)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .minimumScaleFactor(0.8)
             }
         }
         .buttonStyle(.plain)

@@ -2,66 +2,131 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct PerspectivesView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var container: AppContainer
+    @EnvironmentObject private var theme: ThemeManager
     @State private var editingPerspective: PerspectiveDefinition?
     @State private var pendingDeletePerspective: PerspectiveDefinition?
 
     var body: some View {
         List {
-            if container.perspectives.isEmpty {
-                ContentUnavailableView(
-                    "No Perspectives",
-                    systemImage: "line.3.horizontal.decrease.circle",
-                    description: Text("Create saved filters with natural-language queries.")
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Save the views you reach for over and over.")
+                        .font(.system(.title3, design: .rounded).weight(.semibold))
+                        .foregroundStyle(theme.textPrimaryColor)
+                    Text("Each perspective can keep its own icon, grouping, and natural-language filter so Browse stays quick.")
+                        .font(.subheadline)
+                        .foregroundStyle(theme.textSecondaryColor)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 16)
+                .background(
+                    ThingsSurfaceBackdrop(
+                        kind: .elevatedCard,
+                        theme: theme,
+                        colorScheme: colorScheme
+                    )
                 )
+                .clipShape(RoundedRectangle(cornerRadius: ThingsSurfaceKind.elevatedCard.cornerRadius, style: .continuous))
+            }
+            .listRowInsets(EdgeInsets(top: 10, leading: 20, bottom: 8, trailing: 20))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+
+            if container.perspectives.isEmpty {
+                Section {
+                    ContentUnavailableView(
+                        "No Perspectives Yet",
+                        systemImage: "line.3.horizontal.decrease.circle",
+                        description: Text("Create a saved view for the tasks you check most often.")
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 24)
+                }
+                .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
             } else {
-                ForEach(container.perspectives) { perspective in
-                    Button {
-                        editingPerspective = perspective
-                    } label: {
-                        HStack(spacing: 12) {
-                            AppIconGlyph(
-                                icon: perspective.icon,
-                                fallbackSymbol: "list.bullet",
-                                pointSize: 17,
-                                weight: .semibold,
-                                tint: color(forHex: perspective.color) ?? .accentColor
+                Section("Saved Views") {
+                    ForEach(container.perspectives) { perspective in
+                        Button {
+                            editingPerspective = perspective
+                        } label: {
+                            HStack(alignment: .top, spacing: 14) {
+                                AppIconGlyph(
+                                    icon: perspective.icon,
+                                    fallbackSymbol: "list.bullet",
+                                    pointSize: 17,
+                                    weight: .semibold,
+                                    tint: color(forHex: perspective.color) ?? theme.accentColor
+                                )
+                                .frame(width: 24, height: 24)
+                                .padding(10)
+                                .background(
+                                    Circle()
+                                        .fill((color(forHex: perspective.color) ?? theme.accentColor).opacity(colorScheme == .dark ? 0.24 : 0.12))
+                                )
+
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text(perspective.name)
+                                        .font(.headline)
+                                        .foregroundStyle(theme.textPrimaryColor)
+                                    Text(summary(for: perspective))
+                                        .font(.subheadline)
+                                        .foregroundStyle(theme.textSecondaryColor)
+                                        .lineLimit(3)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+
+                                Spacer(minLength: 12)
+
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(theme.textTertiaryColor)
+                                    .padding(.top, 6)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 16)
+                        .background(
+                            ThingsSurfaceBackdrop(
+                                kind: .elevatedCard,
+                                theme: theme,
+                                colorScheme: colorScheme
                             )
-                            .frame(width: 20, height: 20)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(perspective.name)
-                                    .font(.headline)
-                                Text(summary(for: perspective))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: ThingsSurfaceKind.elevatedCard.cornerRadius, style: .continuous))
+                        .contextMenu {
+                            Button("Edit") {
+                                editingPerspective = perspective
+                            }
+                            Button("Duplicate") {
+                                editingPerspective = container.duplicatePerspective(id: perspective.id)
+                            }
+                            Button("Delete", role: .destructive) {
+                                pendingDeletePerspective = perspective
                             }
                         }
                     }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        Button("Edit") {
-                            editingPerspective = perspective
-                        }
-                        Button("Duplicate") {
-                            editingPerspective = container.duplicatePerspective(id: perspective.id)
-                        }
-                        Button("Delete", role: .destructive) {
-                            pendingDeletePerspective = perspective
+                    .onDelete { offsets in
+                        for index in offsets {
+                            let perspective = container.perspectives[index]
+                            container.deletePerspective(id: perspective.id)
                         }
                     }
-                }
-                .onDelete { offsets in
-                    for index in offsets {
-                        let perspective = container.perspectives[index]
-                        container.deletePerspective(id: perspective.id)
+                    .onMove { source, destination in
+                        container.movePerspectives(from: source, to: destination)
                     }
-                }
-                .onMove { source, destination in
-                    container.movePerspectives(from: source, to: destination)
                 }
             }
         }
         .navigationTitle("Perspectives")
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(theme.backgroundColor)
         .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .appLeadingAction) {
@@ -69,10 +134,8 @@ struct PerspectivesView: View {
             }
             #endif
             ToolbarItem(placement: .appTrailingAction) {
-                Button {
+                Button("New", systemImage: "plus") {
                     editingPerspective = PerspectiveDefinition()
-                } label: {
-                    Image(systemName: "plus")
                 }
                 .accessibilityIdentifier("perspectives.addButton")
             }
@@ -107,6 +170,9 @@ struct PerspectivesView: View {
                     editingPerspective = nil
                 }
             }
+#if os(iOS)
+            .presentationDetents([.medium, .large])
+#endif
         }
     }
 

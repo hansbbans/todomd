@@ -84,14 +84,7 @@ enum CalendarHeroKind {
     }
 
     var bottomPadding: CGFloat {
-        switch self {
-        case .inbox:
-            return 8
-        case .today:
-            return 8
-        case .upcoming:
-            return 8
-        }
+        ThingsSurfaceLayout.heroBottomPadding
     }
 }
 
@@ -100,8 +93,8 @@ struct CalendarHeroHeader: View {
 
     var body: some View {
         MainHeroHeader(title: kind.title, symbolName: kind.symbolName, iconColor: kind.iconColor)
-        .padding(.bottom, kind.bottomPadding)
-        .accessibilityIdentifier("calendar.heroHeader.\(kind.title.lowercased())")
+            .padding(.bottom, kind.bottomPadding)
+            .accessibilityIdentifier("calendar.heroHeader.\(kind.title.lowercased())")
     }
 }
 
@@ -128,32 +121,15 @@ struct TodayCalendarCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
-        .background(cardBackground)
-        .overlay {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .strokeBorder(.white.opacity(colorScheme == .dark ? 0.035 : 0.08), lineWidth: 1)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .background(
+            ThingsSurfaceBackdrop(
+                kind: .elevatedCard,
+                theme: theme,
+                colorScheme: colorScheme
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: ThingsSurfaceKind.elevatedCard.cornerRadius, style: .continuous))
         .accessibilityIdentifier("today.calendarCard")
-    }
-
-    private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 22, style: .continuous)
-            .fill(colorScheme == .dark ? Color(red: 0.07, green: 0.08, blue: 0.12) : theme.surfaceColor)
-            .overlay {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                .white.opacity(colorScheme == .dark ? 0.022 : 0.05),
-                                .clear,
-                                .black.opacity(colorScheme == .dark ? 0.08 : 0.02)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-            }
     }
 }
 
@@ -164,16 +140,16 @@ struct UpcomingCalendarView<TaskRowContent: View>: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 34) {
+            LazyVStack(alignment: .leading, spacing: 32) {
                 CalendarHeroHeader(kind: .upcoming)
 
                 ForEach(sections) { section in
                     UpcomingDaySectionView(section: section, taskRow: taskRow)
                 }
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 72)
-            .padding(.bottom, 108)
+            .padding(.horizontal, ThingsSurfaceLayout.heroHorizontalPadding)
+            .padding(.top, ThingsSurfaceLayout.heroTopPadding)
+            .padding(.bottom, ThingsSurfaceLayout.upcomingBottomPadding)
         }
         .scrollIndicators(.hidden)
         .background(theme.backgroundColor)

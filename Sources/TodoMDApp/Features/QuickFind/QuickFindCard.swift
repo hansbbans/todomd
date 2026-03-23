@@ -1,32 +1,20 @@
 // Sources/TodoMDApp/Features/QuickFind/QuickFindCard.swift
 import SwiftUI
 
-struct QuickFindCard<Results: View>: View {
+struct QuickFindCard<Results: View, SuggestedContent: View>: View {
     @Binding var query: String
     var store: QuickFindStore
     var maxHeight: CGFloat
+    var hasSuggestedContent: Bool
     var onDismiss: () -> Void
     var onSelectRecent: (RecentItem) -> Void
+    @ViewBuilder var suggestedContent: () -> SuggestedContent
     @ViewBuilder var resultsContent: (String) -> Results
 
+    @EnvironmentObject private var theme: ThemeManager
+    @Environment(\.colorScheme) private var colorScheme
     @FocusState private var isSearchFieldFocused: Bool
     private var normalizedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
-
-    private var cardBackground: Color {
-#if canImport(UIKit)
-        Color(uiColor: .secondarySystemGroupedBackground)
-#else
-        Color(nsColor: .controlBackgroundColor)
-#endif
-    }
-
-    private var pillBackground: Color {
-#if canImport(UIKit)
-        Color(uiColor: .tertiarySystemGroupedBackground)
-#else
-        Color(nsColor: .textBackgroundColor)
-#endif
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -35,9 +23,17 @@ struct QuickFindCard<Results: View>: View {
             cardContent
         }
         .frame(maxHeight: maxHeight, alignment: .top)
-        .background(cardBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: .black.opacity(0.18), radius: 16, y: 4)
+        .background(
+            ThingsSurfaceBackdrop(
+                kind: .floatingPanel,
+                theme: theme,
+                colorScheme: colorScheme
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: ThingsSurfaceKind.floatingPanel.cornerRadius, style: .continuous))
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isModal)
+        .accessibilityIdentifier("quickFind.modal")
         .onAppear {
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(50))
@@ -52,7 +48,7 @@ struct QuickFindCard<Results: View>: View {
         HStack(spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.textSecondaryColor)
                 TextField("Quick Find", text: $query)
                     .focused($isSearchFieldFocused)
                     .submitLabel(.search)
@@ -61,15 +57,21 @@ struct QuickFindCard<Results: View>: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
-            .background(pillBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .background(
+                ThingsSurfaceBackdrop(
+                    kind: .inset,
+                    theme: theme,
+                    colorScheme: colorScheme
+                )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: ThingsSurfaceKind.inset.cornerRadius, style: .continuous))
 
             Button {
                 onDismiss()
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(.title3)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.textSecondaryColor)
             }
             .accessibilityLabel("Close Quick Find")
         }
@@ -83,38 +85,64 @@ struct QuickFindCard<Results: View>: View {
     // when query matches nothing. No wrapper needed here.
     @ViewBuilder
     private var cardContent: some View {
-        if normalizedQuery.isEmpty {
-            preQueryContent
-        } else {
-            List {
+        List {
+            if normalizedQuery.isEmpty {
+                preQueryContent
+            } else {
                 resultsContent(normalizedQuery)
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
     }
 
     private var preQueryContent: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        Group {
+            Section {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Jump back in")
+                        .font(.system(.title3, design: .rounded).weight(.semibold))
+                        .foregroundStyle(theme.textPrimaryColor)
+                    Text("Open a list, return to something recent, or pick up the next task.")
+                        .font(.footnote)
+                        .foregroundStyle(theme.textSecondaryColor)
+                }
+                .padding(.vertical, 4)
+            }
+            .listRowInsets(EdgeInsets(top: 10, leading: 14, bottom: 6, trailing: 14))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+
+            suggestedContent()
+
             if !store.displayedPinned.isEmpty {
-                sectionHeader("Pinned")
-                ForEach(store.displayedPinned, id: \.destination) { pinned in
-                    pinnedRow(pinned)
+                Section("Pinned") {
+                    ForEach(store.displayedPinned, id: \.destination) { pinned in
+                        pinnedRow(pinned)
+                    }
                 }
             }
+
             if !store.displayedRecent.isEmpty {
-                sectionHeader("Recent")
-                ForEach(store.displayedRecent, id: \.destination) { recent in
-                    recentRow(recent)
+                Section("Recent") {
+                    ForEach(store.displayedRecent, id: \.destination) { recent in
+                        recentRow(recent)
+                    }
                 }
             }
-            Text("Quickly find tasks, lists, tags…")
-                .font(.subheadline)
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 16)
+
+            if !hasSuggestedContent && store.displayedPinned.isEmpty && store.displayedRecent.isEmpty {
+                Text("Quickly find tasks, lists, tags…")
+                    .font(.subheadline)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 16)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            }
         }
     }
 
@@ -195,21 +223,6 @@ struct QuickFindCard<Results: View>: View {
             Button("Delete", role: .destructive) {
                 store.deleteRecent(item)
             }
-        }
-    }
-
-    // MARK: - Section header
-
-    private func sectionHeader(_ title: String) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(title)
-                .font(.footnote)
-                .fontWeight(.semibold)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 14)
-                .padding(.top, 12)
-                .padding(.bottom, 6)
-            Divider()
         }
     }
 
