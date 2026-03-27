@@ -4,6 +4,13 @@ import Yams
 public struct TaskMarkdownCodec {
     private static let maxFrontmatterDepth = 24
     private static let maxFrontmatterNodeCount = 2_000
+    public static let knownKeys: Set<String> = [
+        "ref",
+        "title", "status", "due", "due_time", "persistent_reminder", "defer", "scheduled", "scheduled_time", "priority", "flagged", "area", "project", "tags",
+        "recurrence", "estimated_minutes", "description",
+        "location_name", "location_latitude", "location_longitude", "location_radius_meters", "location_trigger",
+        "created", "modified", "completed", "assignee", "completed_by", "blocked_by", "source", "url"
+    ]
 
     public init() {}
 
@@ -13,16 +20,8 @@ public struct TaskMarkdownCodec {
         let normalizedObject = normalizedKnownKeyObject(from: frontmatterObject)
         try validateFrontmatterComplexity(normalizedObject)
 
-        let knownKeys: Set<String> = [
-            "ref",
-            "title", "status", "due", "due_time", "persistent_reminder", "defer", "scheduled", "scheduled_time", "priority", "flagged", "area", "project", "tags",
-            "recurrence", "estimated_minutes", "description",
-            "location_name", "location_latitude", "location_longitude", "location_radius_meters", "location_trigger",
-            "created", "modified", "completed", "assignee", "completed_by", "blocked_by", "source"
-        ]
-
         var unknown: [String: YAMLValue] = [:]
-        for (key, value) in frontmatterObject where !knownKeys.contains(key.lowercased()) {
+        for (key, value) in frontmatterObject where !Self.knownKeys.contains(key.lowercased()) {
             unknown[key] = YAMLValue(any: value)
         }
 
@@ -80,6 +79,7 @@ public struct TaskMarkdownCodec {
                 }
             }
         }
+        if let url = document.frontmatter.url { object["url"] = url }
 
         for (key, value) in document.unknownFrontmatter {
             object[key] = value.anyValue
@@ -246,6 +246,7 @@ public struct TaskMarkdownCodec {
         let completedBy = try optionalString("completed_by", in: object)
         let blockedBy = try parseBlockedBy(in: object)
         let source = try optionalString("source", in: object) ?? "unknown"
+        let url = try optionalString("url", in: object)
 
         return TaskFrontmatterV1(
             ref: ref,
@@ -272,7 +273,8 @@ public struct TaskMarkdownCodec {
             assignee: assignee,
             completedBy: completedBy,
             blockedBy: blockedBy,
-            source: source
+            source: source,
+            url: url
         )
     }
 

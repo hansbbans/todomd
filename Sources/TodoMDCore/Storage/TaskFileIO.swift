@@ -808,6 +808,7 @@ private enum TaskSnapshotCodingKeys: String, CodingKey {
     case completedBy
     case blockedBy
     case source
+    case url
     case body
 }
 
@@ -836,6 +837,7 @@ private struct TaskSnapshotFrontmatterFields {
     var completedBy: String?
     var blockedBy: TaskBlockedBySnapshot?
     var source: String
+    var url: String?
 
     init(_ frontmatter: TaskFrontmatterV1) {
         self.ref = frontmatter.ref
@@ -862,6 +864,7 @@ private struct TaskSnapshotFrontmatterFields {
         self.completedBy = frontmatter.completedBy
         self.blockedBy = frontmatter.blockedBy.map(TaskBlockedBySnapshot.init)
         self.source = frontmatter.source
+        self.url = frontmatter.url
     }
 
     init(from container: KeyedDecodingContainer<TaskSnapshotCodingKeys>) throws {
@@ -889,6 +892,7 @@ private struct TaskSnapshotFrontmatterFields {
         self.completedBy = try container.decodeIfPresent(String.self, forKey: .completedBy)
         self.blockedBy = try container.decodeIfPresent(TaskBlockedBySnapshot.self, forKey: .blockedBy)
         self.source = try container.decode(String.self, forKey: .source)
+        self.url = try container.decodeIfPresent(String.self, forKey: .url)
     }
 
     func encode(to container: inout KeyedEncodingContainer<TaskSnapshotCodingKeys>) throws {
@@ -916,6 +920,7 @@ private struct TaskSnapshotFrontmatterFields {
         try container.encodeIfPresent(completedBy, forKey: .completedBy)
         try container.encodeIfPresent(blockedBy, forKey: .blockedBy)
         try container.encode(source, forKey: .source)
+        try container.encodeIfPresent(url, forKey: .url)
     }
 
     func makeFrontmatter() -> TaskFrontmatterV1 {
@@ -943,7 +948,8 @@ private struct TaskSnapshotFrontmatterFields {
             assignee: assignee,
             completedBy: completedBy,
             blockedBy: blockedBy?.makeBlockedBy(),
-            source: source
+            source: source,
+            url: url
         )
     }
 }

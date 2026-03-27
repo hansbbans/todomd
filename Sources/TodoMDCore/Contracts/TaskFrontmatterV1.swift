@@ -67,6 +67,7 @@ public struct TaskFrontmatterV1: Equatable, Sendable {
     public var completedBy: String?
     public var blockedBy: TaskBlockedBy?
     public var source: String
+    public var url: String?
 
     public init(
         ref: String? = nil,
@@ -93,7 +94,8 @@ public struct TaskFrontmatterV1: Equatable, Sendable {
         assignee: String? = nil,
         completedBy: String? = nil,
         blockedBy: TaskBlockedBy? = nil,
-        source: String
+        source: String,
+        url: String? = nil
     ) {
         self.ref = ref
         self.title = title
@@ -120,6 +122,7 @@ public struct TaskFrontmatterV1: Equatable, Sendable {
         self.completedBy = completedBy
         self.blockedBy = blockedBy
         self.source = source
+        self.url = url
     }
 
     public var isBlocked: Bool {

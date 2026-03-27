@@ -31,6 +31,7 @@ public final class FileTaskRepository: TaskRepository, @unchecked Sendable {
     public func create(document: TaskDocument, preferredFilename: String?) throws -> TaskRecord {
         var document = document
         document = try ensureReference(onCreate: document)
+        document = ensureCanonicalURL(onWrite: document)
         try TaskValidation.validate(document: document)
 
         let existing = try knownMarkdownFilenames()
@@ -48,6 +49,7 @@ public final class FileTaskRepository: TaskRepository, @unchecked Sendable {
         var record = try load(path: path)
         try mutate(&record.document)
         record.document.frontmatter.modified = Date()
+        record.document = ensureCanonicalURL(onWrite: record.document)
         try TaskValidation.validate(document: record.document)
         let serialized = try codec.serialize(document: record.document)
         try fileIO.write(path: path, content: serialized)
@@ -89,9 +91,10 @@ public final class FileTaskRepository: TaskRepository, @unchecked Sendable {
             completedBy: completedBy
         )
 
-        let completedSerialized = try codec.serialize(document: completedDocument)
+        let canonicalCompletedDocument = ensureCanonicalURL(onWrite: completedDocument)
+        let completedSerialized = try codec.serialize(document: canonicalCompletedDocument)
         try fileIO.write(path: path, content: completedSerialized)
-        let completedRecord = TaskRecord(identity: TaskFileIdentity(path: path), document: completedDocument)
+        let completedRecord = TaskRecord(identity: TaskFileIdentity(path: path), document: canonicalCompletedDocument)
 
         let nextRecord = try create(document: nextDocument, preferredFilename: nil)
         return (completedRecord, nextRecord)
@@ -119,6 +122,20 @@ public final class FileTaskRepository: TaskRepository, @unchecked Sendable {
         let generated = refGenerator.generate(existingRefs: existingRefs)
         copy.frontmatter.ref = generated
         knownRefsCache?.insert(generated)
+        return copy
+    }
+
+    private func ensureCanonicalURL(onWrite document: TaskDocument) -> TaskDocument {
+        var copy = document
+        guard let ref = copy.frontmatter.ref?.trimmingCharacters(in: .whitespacesAndNewlines),
+              TaskRefGenerator.isValid(ref: ref) else {
+            return copy
+        }
+
+        let canonicalURL = "todomd://task/\(ref)"
+        if copy.frontmatter.url != canonicalURL {
+            copy.frontmatter.url = canonicalURL
+        }
         return copy
     }
 

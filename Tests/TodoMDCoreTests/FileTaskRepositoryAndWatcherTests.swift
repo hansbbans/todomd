@@ -24,6 +24,22 @@ final class FileTaskRepositoryAndWatcherTests: XCTestCase {
         XCTAssertThrowsError(try repository.load(path: created.identity.path))
     }
 
+    func testRepositoryCreateAssignsStableTaskURL() throws {
+        let root = try TestSupport.tempDirectory(prefix: "RepositoryURL")
+        let repository = FileTaskRepository(rootURL: root)
+
+        let created = try repository.create(
+            document: .init(frontmatter: TestSupport.sampleFrontmatter(title: "Task A"), body: "Body A"),
+            preferredFilename: "task-a.md"
+        )
+
+        let ref = try XCTUnwrap(created.document.frontmatter.ref)
+        XCTAssertEqual(created.document.frontmatter.url, "todomd://task/\(ref)")
+
+        let loaded = try repository.load(path: created.identity.path)
+        XCTAssertEqual(loaded.document.frontmatter.url, "todomd://task/\(ref)")
+    }
+
     func testCompleteRepeatingSpawnsNextTask() throws {
         let root = try TestSupport.tempDirectory(prefix: "Repeating")
         let repository = FileTaskRepository(rootURL: root)
@@ -239,6 +255,64 @@ final class FileTaskRepositoryAndWatcherTests: XCTestCase {
         XCTAssertTrue(watcher.parseDiagnostics.isEmpty)
     }
 
+    func testFileWatcherProcessesInboxFolderAutomatically() throws {
+        let root = try TestSupport.tempDirectory(prefix: "WatcherInbox")
+        let repository = FileTaskRepository(rootURL: root)
+        let watcher = FileWatcherService(rootURL: root, repository: repository)
+        let inboxURL = root.appendingPathComponent(".inbox", isDirectory: true)
+        try FileManager.default.createDirectory(at: inboxURL, withIntermediateDirectories: true)
+
+        let droppedFile = inboxURL.appendingPathComponent("buy-milk.md", isDirectory: false)
+        try "Buy milk and eggs".write(to: droppedFile, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(-3)],
+            ofItemAtPath: droppedFile.path
+        )
+
+        let sync = try watcher.synchronize(now: Date())
+
+        XCTAssertEqual(sync.summary.ingestedCount, 1)
+        XCTAssertEqual(sync.records.count, 1)
+        XCTAssertEqual(sync.records[0].document.frontmatter.source, "inbox-drop")
+        XCTAssertEqual(sync.records[0].document.frontmatter.title, "buy-milk")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: droppedFile.path))
+    }
+
+    func testFileWatcherContinuesRefreshWhenInboxQuarantineFails() throws {
+        let root = try TestSupport.tempDirectory(prefix: "WatcherInboxQuarantineFailure")
+        let repository = FileTaskRepository(rootURL: root)
+        let watcher = FileWatcherService(rootURL: root, repository: repository)
+        let inboxURL = root.appendingPathComponent(".inbox", isDirectory: true)
+        try FileManager.default.createDirectory(at: inboxURL, withIntermediateDirectories: true)
+
+        let errorsURL = inboxURL.appendingPathComponent(".errors", isDirectory: false)
+        try "not a directory".write(to: errorsURL, atomically: true, encoding: .utf8)
+
+        let invalidFile = inboxURL.appendingPathComponent("broken.md", isDirectory: false)
+        try """
+        ---
+        title: Broken
+        flagged: maybe
+        ---
+        """.write(to: invalidFile, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(-3)],
+            ofItemAtPath: invalidFile.path
+        )
+
+        _ = try repository.create(
+            document: .init(frontmatter: TestSupport.sampleFrontmatter(title: "Normal"), body: ""),
+            preferredFilename: "normal.md"
+        )
+
+        let sync = try watcher.synchronize(now: Date())
+
+        XCTAssertEqual(sync.summary.ingestedCount, 1)
+        XCTAssertEqual(sync.records.count, 1)
+        XCTAssertEqual(sync.records[0].document.frontmatter.title, "Normal")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: invalidFile.path))
+    }
+
     func testFileWatcherReportsParseFailureReason() throws {
         let root = try TestSupport.tempDirectory(prefix: "WatcherParseFailureReason")
         let repository = FileTaskRepository(rootURL: root)
@@ -371,6 +445,58 @@ final class FileTaskRepositoryAndWatcherTests: XCTestCase {
         XCTAssertEqual(optimistic.fingerprints.count, 2)
     }
 
+    func testRepeatedHydrationPreservesTaskURL() throws {
+        let root = try TestSupport.tempDirectory(prefix: "SnapshotOptimisticURL")
+        let repository = FileTaskRepository(rootURL: root)
+        let snapshotStore = try makeSnapshotStore()
+
+        let created = try repository.create(
+            document: .init(frontmatter: TestSupport.sampleFrontmatter(title: "Linked", source: "agent"), body: "body"),
+            preferredFilename: "linked.md"
+        )
+
+        let expectedURL = try XCTUnwrap(created.document.frontmatter.url)
+
+        _ = try snapshotStore.hydrate(rootURL: root, repository: repository, mode: .validated)
+        let optimistic = try snapshotStore.hydrate(rootURL: root, repository: repository, mode: .optimistic)
+
+        XCTAssertEqual(optimistic.records.count, 1)
+        XCTAssertEqual(optimistic.records.first?.document.frontmatter.url, expectedURL)
+    }
+
+    func testSnapshotCacheFilesPersistTaskURL() throws {
+        let root = try TestSupport.tempDirectory(prefix: "SnapshotCacheURL")
+        let cacheBaseURL = try TestSupport.tempDirectory(prefix: "SnapshotCacheBase")
+        let repository = FileTaskRepository(rootURL: root)
+        let snapshotStore = TaskRecordSnapshotStore(cacheBaseURL: cacheBaseURL)
+
+        let created = try repository.create(
+            document: .init(frontmatter: TestSupport.sampleFrontmatter(title: "Linked", source: "agent"), body: "body"),
+            preferredFilename: "linked.md"
+        )
+
+        let expectedURL = try XCTUnwrap(created.document.frontmatter.url)
+
+        _ = try snapshotStore.hydrate(rootURL: root, repository: repository, mode: .validated)
+
+        let cacheDirectory = snapshotDirectory(rootURL: root, cacheBaseURL: cacheBaseURL)
+        let launchStateURL = cacheDirectory.appendingPathComponent("launch-state.json", isDirectory: false)
+        let launchStateData = try Data(contentsOf: launchStateURL)
+        let launchStateObject = try XCTUnwrap(
+            try PropertyListSerialization.propertyList(from: launchStateData, options: [], format: nil) as? [String: Any]
+        )
+        let launchRecords = try XCTUnwrap(launchStateObject["records"] as? [[String: Any]])
+        let launchFrontmatter = try XCTUnwrap(launchRecords.first)
+        XCTAssertEqual(launchFrontmatter["url"] as? String, expectedURL)
+
+        let entryURL = cacheDirectory
+            .appendingPathComponent("entries", isDirectory: true)
+            .appendingPathComponent("\(snapshotCacheKey(for: created.identity.path)).json", isDirectory: false)
+        let entryData = try Data(contentsOf: entryURL)
+        let entryObject = try XCTUnwrap(try JSONSerialization.jsonObject(with: entryData) as? [String: Any])
+        XCTAssertEqual(entryObject["url"] as? String, expectedURL)
+    }
+
     func testOptimisticSnapshotHydrationFallsBackWhenDirectoryFingerprintChanges() throws {
         let root = try TestSupport.tempDirectory(prefix: "SnapshotOptimisticDirty")
         let repository = FileTaskRepository(rootURL: root)
@@ -396,5 +522,26 @@ final class FileTaskRepositoryAndWatcherTests: XCTestCase {
 
     private func makeSnapshotStore() throws -> TaskRecordSnapshotStore {
         TaskRecordSnapshotStore(cacheBaseURL: try TestSupport.tempDirectory(prefix: "SnapshotCache"))
+    }
+
+    private func snapshotDirectory(rootURL: URL, cacheBaseURL: URL) -> URL {
+        cacheBaseURL
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+            .appendingPathComponent("TodoMD", isDirectory: true)
+            .appendingPathComponent("task-record-snapshot-v3", isDirectory: true)
+            .appendingPathComponent(snapshotCacheKey(for: rootURL.standardizedFileURL.resolvingSymlinksInPath().path), isDirectory: true)
+    }
+
+    private func snapshotCacheKey(for path: String) -> String {
+        let prime: UInt64 = 1_099_511_628_211
+        var hash: UInt64 = 14_695_981_039_346_656_037
+
+        for byte in path.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= prime
+        }
+
+        return String(format: "%016llx", hash)
     }
 }

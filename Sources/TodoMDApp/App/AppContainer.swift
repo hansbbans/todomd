@@ -10,71 +10,6 @@ import UIKit
 import WidgetKit
 #endif
 
-struct ConflictVersionSummary: Identifiable, Equatable {
-    let id: String
-    let displayName: String
-    let savingComputer: String
-    let modifiedAt: Date?
-    let versionURLPath: String?
-    let hasLocalContents: Bool
-    let preview: String?
-}
-
-struct ConflictSummary: Identifiable, Equatable {
-    let path: String
-    let filename: String
-    let localSource: String
-    let localModifiedAt: Date?
-    let versions: [ConflictVersionSummary]
-
-    var id: String { path }
-}
-
-struct TaskEditState: Equatable {
-    var ref: String
-    var title: String
-    var subtitle: String
-    var status: TaskStatus
-    var flagged: Bool
-    var priority: TaskPriority
-    var assignee: String
-    var blockedByManual: Bool
-    var blockedByRefsText: String
-    var completedBy: String
-
-    var hasDue: Bool
-    var dueDate: Date
-    var hasDueTime: Bool
-    var dueTime: Date
-    var persistentReminderEnabled: Bool
-    var hasDefer: Bool
-    var deferDate: Date
-    var hasScheduled: Bool
-    var scheduledDate: Date
-    var hasScheduledTime: Bool
-    var scheduledTime: Date
-
-    var hasEstimatedMinutes: Bool
-    var estimatedMinutes: Int
-
-    var area: String
-    var project: String
-    var tagsText: String
-    var recurrence: String
-    var body: String
-    var hasLocationReminder: Bool
-    var locationName: String
-    var locationLatitude: String
-    var locationLongitude: String
-    var locationRadiusMeters: Int
-    var locationTrigger: TaskLocationReminderTrigger
-
-    var createdAt: Date
-    var modifiedAt: Date?
-    var completedAt: Date?
-    var source: String
-}
-
 struct TodaySection: Identifiable, Equatable {
     let group: TodayGroup
     let records: [TaskRecord]
@@ -189,6 +124,7 @@ final class AppContainer: ObservableObject {
     }
     @Published var records: [TaskRecord] = []
     @Published var diagnostics: [ParseFailureDiagnostic] = []
+    @Published private(set) var sourceActivityLog = SourceActivityLog()
     @Published var counters: RuntimeCounters = .init()
     @Published var lastSyncSummary: SyncSummary?
     @Published var rateLimitAlertMessage: String?
@@ -229,8 +165,10 @@ final class AppContainer: ObservableObject {
     private let dateParser = NaturalLanguageDateParser()
     private let urlRouter = URLRouter()
     private let appleCalendarService = AppleCalendarService()
+    private lazy var calendarIntegrationManager = CalendarIntegrationManager(service: appleCalendarService)
     private let usesFakeRemindersImportService: Bool
     private let remindersImportService: any RemindersImportServicing
+    private let fileConflictCoordinator = FileConflictCoordinator()
     private let logger: RuntimeLogging
     private let snapshotStore = TaskRecordSnapshotStore()
     private(set) var rootURL: URL
@@ -242,9 +180,7 @@ final class AppContainer: ObservableObject {
 
 #if canImport(UserNotifications)
     private let notificationScheduler = UserNotificationScheduler()
-    private var notificationPlanCountByPath: [String: Int] = [:]
-    private var locationNotificationCountByPath: [String: Int] = [:]
-    private var notificationsPrimed = false
+    private lazy var notificationCoordinator = NotificationCoordinator(scheduler: notificationScheduler)
 #endif
 
     private var canonicalByPath: [String: TaskRecord] = [:]
@@ -260,7 +196,6 @@ final class AppContainer: ObservableObject {
     private var calendarRefreshTask: Task<Void, Never>?
     private var foregroundRefreshTimer: Timer?
     private var reminderImportRefreshGeneration = 0
-    private var lastCalendarSyncAt: Date?
     private var startupValidationPending = false
     private var perspectivesReloadTask: Task<Void, Never>?
 
@@ -277,7 +212,6 @@ final class AppContainer: ObservableObject {
     private static let settingsQuickEntryDefaultViewKey = "settings_quick_entry_default_view"
     private static let settingsPerspectivesKey = "settings_saved_perspectives_v1"
     private static let settingsCalendarEnabledKey = "settings_google_calendar_enabled"
-    private static let settingsCalendarSelectedIDsKey = "settings_google_calendar_selected_ids"
 
     var calendarAccessRequiresSettingsRedirect: Bool {
         appleCalendarService.requiresSettingsRedirect
@@ -353,6 +287,7 @@ final class AppContainer: ObservableObject {
 
         let resolvedRoot = Self.resolveRootURL()
         self.rootURL = resolvedRoot
+        Self.installTaskFolderSupportFilesIfPossible(at: resolvedRoot, logger: logger)
 
 #if canImport(SwiftData)
         self.modelContainer = Self.makeModelContainer()
@@ -368,7 +303,7 @@ final class AppContainer: ObservableObject {
         self.perspectivesRepository = PerspectivesRepository()
 
         migrateIntegrationEnablementDefaultsIfNeeded()
-        loadCalendarSourceSelection()
+        selectedCalendarSourceIDs = calendarIntegrationManager.loadPersistedSourceSelection()
         loadReminderListSelection()
         loadLocationFavorites()
         loadProjectMetadataFromDisk()
@@ -449,9 +384,17 @@ final class AppContainer: ObservableObject {
     func refresh(forceFullScan: Bool = false) {
         do {
             let hadKnownTaskStateBeforeRefresh = lastSyncSummary != nil || !canonicalByPath.isEmpty
+            let previousCanonicalByPath = canonicalByPath
             reloadPerspectivesFromDiskInBackground()
             let sync = try fileWatcher.synchronize(forceFullScan: forceFullScan)
             applySyncDelta(sync)
+            var updatedSourceActivityLog = sourceActivityLog
+            updatedSourceActivityLog.record(
+                fileWatcherEvents: sync.events,
+                upsertedRecordsByPath: Dictionary(uniqueKeysWithValues: sync.records.map { ($0.identity.path, $0) }),
+                existingRecordsByPath: previousCanonicalByPath
+            )
+            sourceActivityLog = updatedSourceActivityLog
             var canonicalRecords = canonicalByPath.values.sorted { $0.identity.path < $1.identity.path }
             var notificationUpserts = Dictionary(uniqueKeysWithValues: sync.records.map { ($0.identity.path, $0) })
             let notificationDeletedPaths = Set(sync.events.compactMap { event -> String? in
@@ -503,11 +446,9 @@ final class AppContainer: ObservableObject {
 
             let queryMilliseconds = applyCurrentViewFilter()
 
-            let planner = notificationPlannerForCurrentSettings()
-            updateNotificationCounts(
+            let pendingNotificationCount = notificationCoordinator.handleRefresh(
                 upsertedRecords: Array(notificationUpserts.values),
                 deletedPaths: notificationDeletedPaths,
-                planner: planner,
                 allRecords: canonicalRecords
             )
             let enumerateMilliseconds = fileWatcher.lastPerformance?.enumerateMilliseconds ?? 0
@@ -560,19 +501,6 @@ final class AppContainer: ObservableObject {
                 deletedPaths: notificationDeletedPaths,
                 fingerprints: fileWatcher.currentFingerprints()
             )
-
-#if canImport(UserNotifications)
-            let hasLocationReminders = canonicalRecords.contains { $0.document.frontmatter.locationReminder != nil }
-            Task {
-                await notificationScheduler.requestAuthorizationIfNeeded(requestLocation: hasLocationReminders)
-                await notificationScheduler.synchronize(
-                    upsertedRecords: notificationsPrimed ? Array(notificationUpserts.values) : canonicalRecords,
-                    deletedPaths: notificationsPrimed ? Array(notificationDeletedPaths) : [],
-                    planner: planner
-                )
-            }
-            notificationsPrimed = true
-#endif
 
             scheduleCalendarRefresh()
         } catch {
@@ -684,42 +612,6 @@ final class AppContainer: ObservableObject {
         }
     }
 
-    private func updateNotificationCounts(
-        upsertedRecords: [TaskRecord],
-        deletedPaths: Set<String>,
-        planner: NotificationPlanner,
-        allRecords: [TaskRecord]
-    ) {
-#if canImport(UserNotifications)
-        let seedRecords = notificationsPrimed ? upsertedRecords : allRecords
-
-        for path in deletedPaths {
-            notificationPlanCountByPath.removeValue(forKey: path)
-            locationNotificationCountByPath.removeValue(forKey: path)
-        }
-
-        for record in seedRecords {
-            notificationPlanCountByPath[record.identity.path] = planner.planNotifications(for: record).count
-            let status = record.document.frontmatter.status
-            let hasLocationReminder = (status == .todo || status == .inProgress) && record.document.frontmatter.locationReminder != nil
-            locationNotificationCountByPath[record.identity.path] = hasLocationReminder ? 1 : 0
-        }
-#else
-        _ = upsertedRecords
-        _ = deletedPaths
-        _ = planner
-        _ = allRecords
-#endif
-    }
-
-    private var pendingNotificationCount: Int {
-#if canImport(UserNotifications)
-        notificationPlanCountByPath.values.reduce(0, +) + locationNotificationCountByPath.values.reduce(0, +)
-#else
-        0
-#endif
-    }
-
     private func backfillMissingRefs(in records: [TaskRecord]) throws -> [TaskRecord] {
         let generator = TaskRefGenerator()
         var existingRefs: Set<String> = Set(records.compactMap { record in
@@ -775,7 +667,7 @@ final class AppContainer: ObservableObject {
 
             let unresolvedRefs = refs.filter { ref in
                 guard let blocker = recordsByRef[ref] else {
-                    return false
+                    return true
                 }
                 let status = blocker.document.frontmatter.status
                 return status != .done && status != .cancelled
@@ -957,6 +849,7 @@ final class AppContainer: ObservableObject {
         stopMetadataQuery()
 
         rootURL = normalizedResolvedRoot
+        installTaskFolderSupportFilesIfPossible(at: rootURL)
         repository = FileTaskRepository(rootURL: rootURL)
         fileWatcher = FileWatcherService(rootURL: rootURL, repository: repository)
         manualOrderService = ManualOrderService(rootURL: rootURL)
@@ -969,11 +862,10 @@ final class AppContainer: ObservableObject {
         metadataIndex = TaskMetadataIndex.build(from: [TaskRecord]())
         records = []
         diagnostics = []
+        sourceActivityLog = SourceActivityLog()
         snapshotDiagnostics = []
 #if canImport(UserNotifications)
-        notificationPlanCountByPath = [:]
-        locationNotificationCountByPath = [:]
-        notificationsPrimed = false
+        notificationCoordinator.reset()
 #endif
         conflicts = []
         userProjects = []
@@ -1002,6 +894,21 @@ final class AppContainer: ObservableObject {
         let fallback = FileManager.default.temporaryDirectory.appendingPathComponent("todo.md", isDirectory: true)
         try? FileManager.default.createDirectory(at: fallback, withIntermediateDirectories: true)
         return fallback.standardizedFileURL.resolvingSymlinksInPath()
+    }
+
+    private func installTaskFolderSupportFilesIfPossible(at rootURL: URL) {
+        Self.installTaskFolderSupportFilesIfPossible(at: rootURL, logger: logger)
+    }
+
+    private static func installTaskFolderSupportFilesIfPossible(at rootURL: URL, logger: RuntimeLogging) {
+        do {
+            try TaskFolderSupportFilesInstaller().install(at: rootURL)
+        } catch {
+            logger.error(
+                "Failed to install task folder support files",
+                metadata: ["rootURL": rootURL.path, "error": error.localizedDescription]
+            )
+        }
     }
 
     func filteredRecords() -> [TaskRecord] {
@@ -1878,66 +1785,17 @@ final class AppContainer: ObservableObject {
 
     func makeEditState(path: String) -> TaskEditState? {
         guard let record = record(for: path) else { return nil }
-        let frontmatter = record.document.frontmatter
-        let locationReminder = frontmatter.locationReminder
-        let blockedByRefsText = frontmatter.blockedByRefs.joined(separator: ", ")
-        let persistentReminderDefault = UserDefaults.standard.object(forKey: Self.settingsPersistentRemindersEnabledKey) as? Bool ?? false
-
-        return TaskEditState(
-            ref: frontmatter.ref ?? "",
-            title: frontmatter.title,
-            subtitle: frontmatter.description ?? "",
-            status: frontmatter.status,
-            flagged: frontmatter.flagged,
-            priority: frontmatter.priority,
-            assignee: frontmatter.assignee ?? "",
-            blockedByManual: frontmatter.blockedBy == .manual,
-            blockedByRefsText: blockedByRefsText,
-            completedBy: frontmatter.completedBy ?? "",
-            hasDue: frontmatter.due != nil,
-            dueDate: dateFromLocalDate(frontmatter.due) ?? Date(),
-            hasDueTime: frontmatter.dueTime != nil,
-            dueTime: dateFromLocalTime(frontmatter.dueTime) ?? Date(),
-            persistentReminderEnabled: frontmatter.persistentReminder ?? persistentReminderDefault,
-            hasDefer: frontmatter.defer != nil,
-            deferDate: dateFromLocalDate(frontmatter.defer) ?? Date(),
-            hasScheduled: frontmatter.scheduled != nil,
-            scheduledDate: dateFromLocalDate(frontmatter.scheduled) ?? Date(),
-            hasScheduledTime: frontmatter.scheduledTime != nil,
-            scheduledTime: {
-                guard let st = frontmatter.scheduledTime else { return Date() }
-                var comps = DateComponents()
-                comps.hour = st.hour
-                comps.minute = st.minute
-                return Calendar.current.date(from: comps) ?? Date()
-            }(),
-            hasEstimatedMinutes: frontmatter.estimatedMinutes != nil,
-            estimatedMinutes: frontmatter.estimatedMinutes ?? 15,
-            area: frontmatter.area ?? "",
-            project: frontmatter.project ?? "",
-            tagsText: frontmatter.tags.joined(separator: ", "),
-            recurrence: frontmatter.recurrence ?? "",
-            body: record.document.body,
-            hasLocationReminder: locationReminder != nil,
-            locationName: locationReminder?.name ?? "",
-            locationLatitude: locationReminder.map { String(format: "%.6f", $0.latitude) } ?? "",
-            locationLongitude: locationReminder.map { String(format: "%.6f", $0.longitude) } ?? "",
-            locationRadiusMeters: Int((locationReminder?.radiusMeters ?? TaskLocationReminder.defaultRadiusMeters).rounded()),
-            locationTrigger: locationReminder?.trigger ?? .onArrival,
-            createdAt: frontmatter.created,
-            modifiedAt: frontmatter.modified,
-            completedAt: frontmatter.completed,
-            source: frontmatter.source
-        )
+        return taskEditPresenter.makeEditState(record: record)
     }
 
     @discardableResult
     func updateTask(path: String, editState: TaskEditState) -> Bool {
         let currentRecord = record(for: path)
-        let resolvedEditState = resolvedEditState(editState, for: currentRecord)
+        let presenter = taskEditPresenter
+        let resolvedEditState = presenter.resolvedEditState(editState, for: currentRecord)
         let optimisticRecord = currentRecord.map { current in
             var copy = current
-            apply(editState: resolvedEditState, to: &copy.document)
+            presenter.apply(editState: resolvedEditState, to: &copy.document)
             return copy
         }
         if let optimisticRecord {
@@ -1950,7 +1808,7 @@ final class AppContainer: ObservableObject {
 
         do {
             let updated = try repository.update(path: path) { document in
-                apply(editState: resolvedEditState, to: &document)
+                presenter.apply(editState: resolvedEditState, to: &document)
             }
 
             markSelfWrite(path: updated.identity.path)
@@ -1979,8 +1837,9 @@ final class AppContainer: ObservableObject {
     func duplicateTask(path: String) -> TaskRecord? {
         do {
             let sourceRecord = try repository.load(path: path)
+            let presenter = taskEditPresenter
             let createdRecord = try repository.create(
-                document: duplicatedTaskDocument(from: sourceRecord.document, now: Date()),
+                document: presenter.duplicatedTaskDocument(from: sourceRecord.document, now: Date()),
                 preferredFilename: nil
             )
             upsertRecordInMemory(createdRecord)
@@ -2560,18 +2419,7 @@ final class AppContainer: ObservableObject {
     }
 
     func resolveConflictKeepLocal(path: String) {
-        let url = URL(fileURLWithPath: path)
-        guard let versions = NSFileVersion.unresolvedConflictVersionsOfItem(at: url), !versions.isEmpty else {
-            refresh()
-            return
-        }
-
-        for version in versions {
-            version.isResolved = true
-            _ = try? version.remove()
-        }
-
-        _ = try? NSFileVersion.removeOtherVersionsOfItem(at: url)
+        fileConflictCoordinator.resolveConflictKeepLocal(path: path)
         refresh()
     }
 
@@ -2580,40 +2428,16 @@ final class AppContainer: ObservableObject {
     }
 
     func resolveConflictKeepRemote(path: String, preferredVersionID: String?) {
-        let url = URL(fileURLWithPath: path)
-        guard let versions = NSFileVersion.unresolvedConflictVersionsOfItem(at: url), !versions.isEmpty else {
-            refresh()
-            return
-        }
-
-        let selected: NSFileVersion?
-        if let preferredVersionID {
-            selected = versions.first(where: { String(describing: $0.persistentIdentifier) == preferredVersionID })
-                ?? versions.max(by: { ($0.modificationDate ?? .distantPast) < ($1.modificationDate ?? .distantPast) })
-        } else {
-            selected = versions.max(by: { ($0.modificationDate ?? .distantPast) < ($1.modificationDate ?? .distantPast) })
-        }
-
-        if let selected {
-            _ = try? selected.replaceItem(at: url, options: [])
-        }
-
-        for version in versions {
-            version.isResolved = true
-            _ = try? version.remove()
-        }
-
-        _ = try? NSFileVersion.removeOtherVersionsOfItem(at: url)
+        fileConflictCoordinator.resolveConflictKeepRemote(path: path, preferredVersionID: preferredVersionID)
         refresh()
     }
 
     func localFileContents(path: String) -> String {
-        (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+        fileConflictCoordinator.localFileContents(path: path)
     }
 
     func conflictVersionContents(atPath path: String?) -> String {
-        guard let path else { return "" }
-        return (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+        fileConflictCoordinator.conflictVersionContents(atPath: path)
     }
 
     func refreshReminderListsIfNeeded() async {
@@ -2815,13 +2639,13 @@ final class AppContainer: ObservableObject {
         } else {
             selectedCalendarSourceIDs.remove(sourceID)
         }
-        persistCalendarSourceSelection()
+        calendarIntegrationManager.persistSourceSelection(selectedCalendarSourceIDs)
         scheduleCalendarRefresh(force: true)
     }
 
     func selectAllCalendarSources() {
         selectedCalendarSourceIDs = Set(calendarSources.map(\.id))
-        persistCalendarSourceSelection()
+        calendarIntegrationManager.persistSourceSelection(selectedCalendarSourceIDs)
         scheduleCalendarRefresh(force: true)
     }
 
@@ -2829,7 +2653,7 @@ final class AppContainer: ObservableObject {
         isCalendarSyncing = true
         calendarStatusMessage = nil
         do {
-            try await appleCalendarService.requestAccessIfNeeded()
+            try await calendarIntegrationManager.connect()
             isCalendarConnected = true
             await refreshCalendar(force: true)
         } catch {
@@ -2845,79 +2669,28 @@ final class AppContainer: ObservableObject {
     }
 
     func refreshCalendar(force: Bool = false) async {
-        let defaults = UserDefaults.standard
-        let calendarEnabled = defaults.object(forKey: Self.settingsCalendarEnabledKey) as? Bool ?? false
-        guard calendarEnabled else {
-            calendarTodayEvents = []
-            calendarUpcomingSections = []
-            clearWidgetCalendarSnapshot()
-            return
-        }
-
-        guard appleCalendarService.isConnected else {
-            isCalendarConnected = false
-            calendarTodayEvents = []
-            calendarUpcomingSections = []
-            clearWidgetCalendarSnapshot()
-            return
-        }
-
-        let now = Date()
-        if !force,
-           let lastSync = lastCalendarSyncAt,
-           now.timeIntervalSince(lastSync) < 60 {
-            return
-        }
-
-        let calendar = Calendar.current
-        let startDate = calendar.startOfDay(for: now)
-        guard let endDate = calendar.date(byAdding: .day, value: TaskQueryEngine.upcomingHorizonDays + 1, to: startDate) else {
-            return
-        }
-
-        let useSavedSelection = hasPersistedCalendarSourceSelection()
-        let allowedCalendarIDs: Set<String>? = useSavedSelection ? selectedCalendarSourceIDs : nil
-
         isCalendarSyncing = true
         defer { isCalendarSyncing = false }
 
-        do {
-            let result = try appleCalendarService.fetchUpcomingEvents(
-                startDate: startDate,
-                endDate: endDate,
-                allowedCalendarIDs: allowedCalendarIDs
-            )
-            isCalendarConnected = true
-            calendarStatusMessage = nil
-            lastCalendarSyncAt = now
+        let result = calendarIntegrationManager.refresh(
+            force: force,
+            selectedSourceIDs: selectedCalendarSourceIDs
+        )
+        guard !result.wasThrottled else {
+            return
+        }
 
-            calendarSources = result.sources.sorted {
-                $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-            }
+        isCalendarConnected = result.isConnected
+        calendarStatusMessage = result.statusMessage
+        calendarSources = result.sources
+        selectedCalendarSourceIDs = result.selectedSourceIDs
+        calendarTodayEvents = result.todayEvents
+        calendarUpcomingSections = result.upcomingSections
 
-            let availableSourceIDs = Set(calendarSources.map(\.id))
-            if !useSavedSelection {
-                selectedCalendarSourceIDs = availableSourceIDs
-                persistCalendarSourceSelection()
-            } else {
-                let pruned = selectedCalendarSourceIDs.intersection(availableSourceIDs)
-                if pruned != selectedCalendarSourceIDs {
-                    selectedCalendarSourceIDs = pruned
-                    persistCalendarSourceSelection()
-                }
-            }
-
-            calendarTodayEvents = eventsForToday(result.events, today: startDate)
-            calendarUpcomingSections = groupedUpcomingSections(result.events, today: startDate)
-            saveWidgetCalendarSnapshot(capturedAt: now)
-        } catch {
-            calendarStatusMessage = error.localizedDescription
-            if case AppleCalendarServiceError.accessDenied = error {
-                isCalendarConnected = false
-                calendarTodayEvents = []
-                calendarUpcomingSections = []
-                clearWidgetCalendarSnapshot()
-            }
+        if result.shouldClearSnapshot {
+            clearWidgetCalendarSnapshot()
+        } else if let capturedAt = result.capturedAt {
+            saveWidgetCalendarSnapshot(capturedAt: capturedAt)
         }
     }
 
@@ -2934,24 +2707,6 @@ final class AppContainer: ObservableObject {
             await self.refreshCalendar(force: force)
             self.calendarRefreshTask = nil
         }
-    }
-
-    private func hasPersistedCalendarSourceSelection() -> Bool {
-        UserDefaults.standard.array(forKey: Self.settingsCalendarSelectedIDsKey) != nil
-    }
-
-    private func loadCalendarSourceSelection() {
-        let defaults = UserDefaults.standard
-        guard let ids = defaults.array(forKey: Self.settingsCalendarSelectedIDsKey) as? [String] else {
-            selectedCalendarSourceIDs = []
-            return
-        }
-        selectedCalendarSourceIDs = Set(ids)
-    }
-
-    private func persistCalendarSourceSelection() {
-        let defaults = UserDefaults.standard
-        defaults.set(Array(selectedCalendarSourceIDs).sorted(), forKey: Self.settingsCalendarSelectedIDsKey)
     }
 
     private func loadReminderListSelection() {
@@ -3371,40 +3126,6 @@ final class AppContainer: ObservableObject {
         return normalized
     }
 
-    private func eventsForToday(_ events: [CalendarEventItem], today: Date) -> [CalendarEventItem] {
-        let calendar = Calendar.current
-        return events
-            .filter { calendar.isDate($0.startDate, inSameDayAs: today) }
-            .sorted(by: Self.calendarEventSort)
-    }
-
-    private func groupedUpcomingSections(_ events: [CalendarEventItem], today: Date) -> [CalendarDaySection] {
-        let calendar = Calendar.current
-        let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: today)) ?? today
-
-        var grouped: [Date: [CalendarEventItem]] = [:]
-        for event in events {
-            let day = calendar.startOfDay(for: event.startDate)
-            guard day >= tomorrow else { continue }
-            grouped[day, default: []].append(event)
-        }
-
-        return grouped.keys.sorted().map { day in
-            let dayEvents = (grouped[day] ?? []).sorted(by: Self.calendarEventSort)
-            return CalendarDaySection(date: day, events: dayEvents)
-        }
-    }
-
-    private static func calendarEventSort(lhs: CalendarEventItem, rhs: CalendarEventItem) -> Bool {
-        if lhs.startDate != rhs.startDate {
-            return lhs.startDate < rhs.startDate
-        }
-        if lhs.isAllDay != rhs.isAllDay {
-            return lhs.isAllDay && !rhs.isAllDay
-        }
-        return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
-    }
-
     private func saveWidgetCalendarSnapshot(capturedAt: Date) {
         let snapshot = WidgetCalendarSnapshot(
             capturedAt: capturedAt,
@@ -3791,24 +3512,6 @@ final class AppContainer: ObservableObject {
         }
     }
 
-    private func notificationPlannerForCurrentSettings() -> NotificationPlanner {
-        let defaults = UserDefaults.standard
-        let hour = defaults.object(forKey: Self.settingsNotificationHourKey) as? Int ?? 9
-        let minute = defaults.object(forKey: Self.settingsNotificationMinuteKey) as? Int ?? 0
-        let persistentEnabled = defaults.object(forKey: Self.settingsPersistentRemindersEnabledKey) as? Bool ?? false
-        let persistentIntervalMinutes = defaults.object(forKey: Self.settingsPersistentReminderIntervalMinutesKey) as? Int ?? 1
-        let normalizedHour = min(23, max(0, hour))
-        let normalizedMinute = min(59, max(0, minute))
-        let normalizedInterval = max(1, min(240, persistentIntervalMinutes))
-        return NotificationPlanner(
-            calendar: .current,
-            defaultHour: normalizedHour,
-            defaultMinute: normalizedMinute,
-            persistentRemindersEnabled: persistentEnabled,
-            persistentReminderIntervalMinutes: normalizedInterval
-        )
-    }
-
     private func configureLifecycleObservers() {
         let center = NotificationCenter.default
 
@@ -4058,161 +3761,7 @@ final class AppContainer: ObservableObject {
 #endif
 
     private func buildConflictSummaries(from events: [FileWatcherEvent]) -> [ConflictSummary] {
-        let conflictPaths = Set(events.compactMap { event -> String? in
-            guard case .conflict(let path, _) = event else { return nil }
-            return path
-        })
-
-        return conflictPaths.sorted().map { path in
-            let url = URL(fileURLWithPath: path)
-            let versions = (NSFileVersion.unresolvedConflictVersionsOfItem(at: url) ?? []).map { version in
-                let versionPath = version.url.path
-                let preview: String?
-                if version.hasLocalContents {
-                    preview = (try? String(contentsOfFile: versionPath, encoding: .utf8)).map { String($0.prefix(400)) }
-                } else {
-                    preview = nil
-                }
-
-                return ConflictVersionSummary(
-                    id: String(describing: version.persistentIdentifier),
-                    displayName: version.localizedName ?? "Version",
-                    savingComputer: version.localizedNameOfSavingComputer ?? "Unknown device",
-                    modifiedAt: version.modificationDate,
-                    versionURLPath: versionPath,
-                    hasLocalContents: version.hasLocalContents,
-                    preview: preview
-                )
-            }
-
-            let localRecord = canonicalByPath[path]
-            return ConflictSummary(
-                path: path,
-                filename: URL(fileURLWithPath: path).lastPathComponent,
-                localSource: localRecord?.document.frontmatter.source ?? "unknown",
-                localModifiedAt: localRecord?.document.frontmatter.modified ?? localRecord?.document.frontmatter.created,
-                versions: versions
-            )
-        }
-    }
-
-    private func apply(editState: TaskEditState, to document: inout TaskDocument) {
-        let previousStatus = document.frontmatter.status
-        let trimmedTitle = editState.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        document.frontmatter.title = trimmedTitle.isEmpty ? document.frontmatter.title : trimmedTitle
-        document.frontmatter.ref = editState.ref.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-        document.frontmatter.description = editState.subtitle.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-        document.frontmatter.status = editState.status
-        document.frontmatter.flagged = editState.flagged
-        document.frontmatter.priority = editState.priority
-        document.frontmatter.assignee = editState.assignee.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-
-        let blockedRefs = editState.blockedByRefsText
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        if editState.blockedByManual {
-            document.frontmatter.blockedBy = .manual
-        } else if blockedRefs.isEmpty {
-            document.frontmatter.blockedBy = nil
-        } else {
-            document.frontmatter.blockedBy = .refs(blockedRefs)
-        }
-
-        document.frontmatter.due = editState.hasDue ? localDateFromDate(editState.dueDate) : nil
-        document.frontmatter.dueTime = (editState.hasDue && editState.hasDueTime) ? localTimeFromDate(editState.dueTime) : nil
-        document.frontmatter.persistentReminder = editState.persistentReminderEnabled && editState.hasDue && editState.hasDueTime
-        document.frontmatter.defer = editState.hasDefer ? localDateFromDate(editState.deferDate) : nil
-        document.frontmatter.scheduled = editState.hasScheduled ? localDateFromDate(editState.scheduledDate) : nil
-        document.frontmatter.scheduledTime = (editState.hasScheduled && editState.hasScheduledTime)
-            ? localTimeFromDate(editState.scheduledTime)
-            : nil
-
-        document.frontmatter.estimatedMinutes = editState.hasEstimatedMinutes ? max(0, editState.estimatedMinutes) : nil
-
-        document.frontmatter.area = editState.area.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-        document.frontmatter.project = editState.project.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-
-        document.frontmatter.tags = editState.tagsText
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-
-        document.frontmatter.recurrence = editState.recurrence.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-        document.frontmatter.locationReminder = locationReminder(from: editState)
-        document.body = String(editState.body.prefix(TaskValidation.maxBodyLength))
-
-        let isNowCompleted = editState.status == .done || editState.status == .cancelled
-        let wasCompleted = previousStatus == .done || previousStatus == .cancelled
-        if isNowCompleted && !wasCompleted {
-            document.frontmatter.completed = Date()
-            document.frontmatter.completedBy = "user"
-        } else if !isNowCompleted && wasCompleted {
-            document.frontmatter.completed = nil
-            document.frontmatter.completedBy = nil
-        }
-    }
-
-    private func resolvedEditState(_ editState: TaskEditState, for currentRecord: TaskRecord?) -> TaskEditState {
-        var resolved = editState
-        let trimmedTitle = editState.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedTitle.isEmpty else { return resolved }
-
-        let existingTitle = currentRecord?.document.frontmatter.title
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard trimmedTitle != existingTitle,
-              let parsed = quickEntryParser.parse(trimmedTitle),
-              let due = parsed.due,
-              let dueDate = dateFromLocalDate(due) else {
-            return resolved
-        }
-
-        resolved.hasDue = true
-        resolved.dueDate = dueDate
-
-        if let dueTime = parsed.dueTime,
-           let dueTimeDate = dateFromLocalTime(dueTime) {
-            resolved.hasDueTime = true
-            resolved.dueTime = dueTimeDate
-        }
-
-        return resolved
-    }
-
-    private func duplicatedTaskDocument(from source: TaskDocument, now: Date) -> TaskDocument {
-        var duplicate = source
-        duplicate.frontmatter.ref = nil
-        duplicate.frontmatter.status = .todo
-        duplicate.frontmatter.due = nil
-        duplicate.frontmatter.dueTime = nil
-        duplicate.frontmatter.persistentReminder = nil
-        duplicate.frontmatter.defer = nil
-        duplicate.frontmatter.scheduled = nil
-        duplicate.frontmatter.scheduledTime = nil
-        duplicate.frontmatter.recurrence = nil
-        duplicate.frontmatter.created = now
-        duplicate.frontmatter.modified = now
-        duplicate.frontmatter.completed = nil
-        duplicate.frontmatter.completedBy = nil
-        return duplicate
-    }
-
-    private func locationReminder(from editState: TaskEditState) -> TaskLocationReminder? {
-        guard editState.hasLocationReminder else { return nil }
-
-        let latitudeText = editState.locationLatitude.trimmingCharacters(in: .whitespacesAndNewlines)
-        let longitudeText = editState.locationLongitude.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let latitude = Double(latitudeText), let longitude = Double(longitudeText) else {
-            return nil
-        }
-
-        return TaskLocationReminder(
-            name: editState.locationName.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
-            latitude: latitude,
-            longitude: longitude,
-            radiusMeters: Double(max(50, min(1_000, editState.locationRadiusMeters))),
-            trigger: editState.locationTrigger
-        )
+        fileConflictCoordinator.buildConflictSummaries(from: events, canonicalByPath: canonicalByPath)
     }
 
     private func upsertRecordInMemory(_ record: TaskRecord) {
@@ -4233,6 +3782,15 @@ final class AppContainer: ObservableObject {
 
     private var quickEntryParser: NaturalLanguageTaskParser {
         NaturalLanguageTaskParser(availableProjects: allProjects())
+    }
+
+    private var taskEditPresenter: TaskEditPresenter {
+        TaskEditPresenter(
+            persistentReminderDefault: UserDefaults.standard.object(
+                forKey: Self.settingsPersistentRemindersEnabledKey
+            ) as? Bool ?? false,
+            quickEntryParser: quickEntryParser
+        )
     }
 
     private func reminderImportSummary(
