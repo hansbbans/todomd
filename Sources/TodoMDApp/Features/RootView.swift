@@ -38,7 +38,7 @@ private struct BuiltInRulesTarget: Identifiable {
     var id: String { view.rawValue }
 }
 
-private enum CompactRootTab: String, Hashable, CaseIterable, Identifiable {
+enum CompactRootTab: String, Hashable, CaseIterable, Identifiable {
     case inbox
     case today
     case areas
@@ -46,6 +46,49 @@ private enum CompactRootTab: String, Hashable, CaseIterable, Identifiable {
     case customSecondary
 
     var id: String { rawValue }
+}
+
+struct CompactTabSelectionPolicy {
+    let primaryView: ViewIdentifier
+    let secondaryView: ViewIdentifier
+
+    func tab(for view: ViewIdentifier) -> CompactRootTab {
+        switch view {
+        case .builtIn(.inbox):
+            return .inbox
+        case .builtIn(.today):
+            return .today
+        case let candidate where candidate == primaryView:
+            return .customPrimary
+        case let candidate where candidate == secondaryView:
+            return .customSecondary
+        default:
+            return .areas
+        }
+    }
+
+    func rootView(for tab: CompactRootTab, currentView: ViewIdentifier) -> ViewIdentifier {
+        switch tab {
+        case .inbox:
+            return .builtIn(.inbox)
+        case .today:
+            return .builtIn(.today)
+        case .customPrimary:
+            return primaryView
+        case .areas:
+            return self.tab(for: currentView) == .areas ? currentView : .browse
+        case .customSecondary:
+            return secondaryView
+        }
+    }
+
+    func reselectionTarget(for tab: CompactRootTab, currentView: ViewIdentifier) -> ViewIdentifier? {
+        guard tab == .areas, self.tab(for: currentView) == .areas, currentView != .browse else {
+            return nil
+        }
+
+        return .browse
+    }
 }
 
 private struct ProjectColorChoice: Identifiable {
@@ -77,10 +120,30 @@ private struct MainViewHeroConfiguration {
 #if canImport(UIKit)
 private struct CompactTabBarImageConfigurator: UIViewRepresentable {
     let choices: [CompactTabChoice]
+    let onTabReselection: (CompactRootTab) -> Void
+
+    final class TabButtonTapHandler: NSObject {
+        weak var owner: ProbeView?
+        let index: Int
+
+        init(owner: ProbeView, index: Int) {
+            self.owner = owner
+            self.index = index
+        }
+
+        @MainActor
+        @objc
+        func handleTap() {
+            owner?.handleTabBarTap(at: index)
+        }
+    }
 
     final class ProbeView: UIView {
         var choices: [CompactTabChoice] = []
+        var onTabReselection: ((CompactRootTab) -> Void)?
         private var pendingApplyWorkItem: DispatchWorkItem?
+        private var observedTabButtons: [UIControl] = []
+        private var tabButtonHandlers: [TabButtonTapHandler] = []
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
@@ -127,6 +190,8 @@ private struct CompactTabBarImageConfigurator: UIViewRepresentable {
                 return
             }
 
+            installTabBarTapHandlers(on: tabBar)
+
             for (index, choice) in choices.enumerated() {
                 let item = items[index]
                 item.title = choice.title
@@ -160,6 +225,37 @@ private struct CompactTabBarImageConfigurator: UIViewRepresentable {
 
             return nil
         }
+
+        func handleTabBarTap(at index: Int) {
+            guard let tabBar = findTabBar(in: window),
+                  let selectedItem = tabBar.selectedItem,
+                  let selectedIndex = tabBar.items?.firstIndex(of: selectedItem),
+                  selectedIndex == index,
+                  CompactRootTab.allCases.indices.contains(index) else {
+                return
+            }
+
+            DispatchQueue.main.async { [weak self] in
+                self?.onTabReselection?(CompactRootTab.allCases[index])
+            }
+        }
+
+        private func installTabBarTapHandlers(on tabBar: UITabBar) {
+            for (button, handler) in zip(observedTabButtons, tabButtonHandlers) {
+                button.removeTarget(handler, action: #selector(TabButtonTapHandler.handleTap), for: .touchUpInside)
+            }
+
+            let buttons = tabBar.subviews
+                .compactMap { $0 as? UIControl }
+                .sorted { $0.frame.minX < $1.frame.minX }
+
+            observedTabButtons = Array(buttons.prefix(choices.count))
+            tabButtonHandlers = observedTabButtons.enumerated().map { index, button in
+                let handler = TabButtonTapHandler(owner: self, index: index)
+                button.addTarget(handler, action: #selector(TabButtonTapHandler.handleTap), for: .touchUpInside)
+                return handler
+            }
+        }
     }
 
     func makeUIView(context: Context) -> UIView {
@@ -171,6 +267,7 @@ private struct CompactTabBarImageConfigurator: UIViewRepresentable {
             return
         }
         probeView.choices = choices
+        probeView.onTabReselection = onTabReselection
         probeView.scheduleApply()
     }
 
@@ -342,14 +439,24 @@ private struct RootListContentMaxYPreferenceKey: PreferenceKey {
 }
 
 struct RootListContentBoundaryReporter: ViewModifier {
+    let isEnabled: Bool
+
+    init(isEnabled: Bool = true) {
+        self.isEnabled = isEnabled
+    }
+
     func body(content: Content) -> some View {
-        content.background {
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: RootListContentMaxYPreferenceKey.self,
-                    value: proxy.frame(in: .named(RootPullToSearchCoordinateSpace.name)).maxY
-                )
+        if isEnabled {
+            content.background {
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: RootListContentMaxYPreferenceKey.self,
+                        value: proxy.frame(in: .named(RootPullToSearchCoordinateSpace.name)).maxY
+                    )
+                }
             }
+        } else {
+            content
         }
     }
 }
@@ -364,15 +471,25 @@ private struct RootDismissibleSurfaceFramesPreferenceKey: PreferenceKey {
 
 private struct RootDismissibleSurfaceFrameReporter: ViewModifier {
     let id: String
+    let isEnabled: Bool
+
+    init(id: String, isEnabled: Bool = true) {
+        self.id = id
+        self.isEnabled = isEnabled
+    }
 
     func body(content: Content) -> some View {
-        content.background {
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: RootDismissibleSurfaceFramesPreferenceKey.self,
-                    value: [id: proxy.frame(in: .named(RootPullToSearchCoordinateSpace.name))]
-                )
+        if isEnabled {
+            content.background {
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: RootDismissibleSurfaceFramesPreferenceKey.self,
+                        value: [id: proxy.frame(in: .named(RootPullToSearchCoordinateSpace.name))]
+                    )
+                }
             }
+        } else {
+            content
         }
     }
 }
@@ -399,20 +516,91 @@ private struct RootPullToSearchTopMarker: ViewModifier {
 }
 #endif
 
+enum RootPullToSearchFeedbackState: Equatable {
+    case hidden
+    case visible
+    case armed
+
+    private static let defaultPolicy = RootPullToSearchFeedbackPolicy()
+
+    static func make(
+        isEnabled: Bool,
+        dragStartedAtTop: Bool,
+        translation: CGSize
+    ) -> RootPullToSearchFeedbackState {
+        defaultPolicy.phase(
+            isEnabled: isEnabled,
+            dragStartedAtTop: dragStartedAtTop,
+            translation: translation
+        )
+    }
+
+    static func shouldTriggerSearch(
+        isEnabled: Bool,
+        dragStartedAtTop: Bool,
+        translation: CGSize
+    ) -> Bool {
+        defaultPolicy.shouldTrigger(
+            isEnabled: isEnabled,
+            dragStartedAtTop: dragStartedAtTop,
+            translation: translation
+        )
+    }
+}
+
+struct RootPullToSearchFeedbackPolicy {
+    let revealDistance: CGFloat
+    let activationDistance: CGFloat
+    let maxHorizontalDrift: CGFloat
+
+    init(
+        revealDistance: CGFloat = 24,
+        activationDistance: CGFloat = 96,
+        maxHorizontalDrift: CGFloat = 140
+    ) {
+        self.revealDistance = revealDistance
+        self.activationDistance = activationDistance
+        self.maxHorizontalDrift = maxHorizontalDrift
+    }
+
+    func phase(
+        isEnabled: Bool,
+        dragStartedAtTop: Bool,
+        translation: CGSize
+    ) -> RootPullToSearchFeedbackState {
+        guard isEnabled, dragStartedAtTop else { return .hidden }
+
+        let verticalPull = max(0, translation.height)
+        guard verticalPull > 0, abs(translation.width) < maxHorizontalDrift else {
+            return .hidden
+        }
+
+        if verticalPull >= activationDistance {
+            return .armed
+        }
+        if verticalPull >= revealDistance {
+            return .visible
+        }
+        return .hidden
+    }
+
+    func shouldTrigger(
+        isEnabled: Bool,
+        dragStartedAtTop: Bool,
+        translation: CGSize
+    ) -> Bool {
+        phase(
+            isEnabled: isEnabled,
+            dragStartedAtTop: dragStartedAtTop,
+            translation: translation
+        ) == .armed
+    }
+}
+
 private struct RootPullToSearchIndicator: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    let progress: CGFloat
-    let isVisible: Bool
-    let isArmed: Bool
-
-    private var activationProgress: CGFloat {
-        min(max(progress, 0), 1)
-    }
-
-    private var clampedProgress: CGFloat {
-        min(max(progress, 0), 1.2)
-    }
+    let phase: RootPullToSearchFeedbackState
 
     private var armedAnimation: Animation {
         if reduceMotion {
@@ -421,24 +609,24 @@ private struct RootPullToSearchIndicator: View {
         return .spring(response: 0.22, dampingFraction: 0.72, blendDuration: 0.1)
     }
 
-    var body: some View {
-        let panelScale = 0.82 + (clampedProgress * 0.18)
-        let iconScale = 0.84 + (clampedProgress * 0.22)
-        let panelOpacity = isVisible ? min(1, 0.12 + (activationProgress * 1.28)) : 0
-        let verticalOffset = max(-18, 18 - (clampedProgress * 24))
+    private var isVisible: Bool {
+        phase != .hidden
+    }
 
+    private var isArmed: Bool {
+        phase == .armed
+    }
+
+    var body: some View {
         VStack(spacing: 7) {
-            RootPullToSearchMagnifyingGlass(
-                progress: activationProgress,
-                isArmed: isArmed
-            )
-            .frame(width: 28, height: 28)
-            .scaleEffect(iconScale)
+            Image(systemName: isArmed ? "magnifyingglass.circle.fill" : "magnifyingglass")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(Color.white.opacity(isArmed ? 1 : 0.92))
+                .scaleEffect(isArmed ? 1.04 : 1)
 
             Text(isArmed ? "Release to search" : "Pull to search")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Color.white.opacity(0.92))
-                .opacity(activationProgress > 0.2 ? 1 : activationProgress / 0.2)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -451,88 +639,12 @@ private struct RootPullToSearchIndicator: View {
                 )
         )
         .shadow(color: Color.black.opacity(0.22), radius: 16, y: 10)
-        .scaleEffect(panelScale)
-        .offset(y: verticalOffset)
-        .opacity(panelOpacity)
+        .scaleEffect(isVisible ? 1 : 0.9)
+        .offset(y: isVisible ? -6 : 18)
+        .opacity(isVisible ? 1 : 0)
         .animation(armedAnimation, value: isArmed)
+        .animation(armedAnimation, value: isVisible)
         .accessibilityHidden(true)
-    }
-}
-
-private struct RootPullToSearchMagnifyingGlass: View {
-    let progress: CGFloat
-    let isArmed: Bool
-
-    private var clampedProgress: CGFloat {
-        min(max(progress, 0), 1)
-    }
-
-    private var tint: Color {
-        Color(red: 0.24, green: 0.74, blue: 0.98)
-    }
-
-    var body: some View {
-        GeometryReader { proxy in
-            let size = min(proxy.size.width, proxy.size.height)
-            let lensDiameter = size * 0.62
-            let lensStrokeWidth = max(2.2, size * 0.085)
-            let lensInset = lensStrokeWidth * 0.8
-            let handleWidth = max(4.5, size * 0.15)
-            let handleHeight = size * 0.3
-            let handleFillHeight = max(handleWidth, handleHeight * max(clampedProgress, 0.12))
-            let lensFillHeight = max(0, (lensDiameter - (lensInset * 2)) * clampedProgress)
-
-            VStack(spacing: -(lensStrokeWidth * 0.45)) {
-                ZStack {
-                    Circle()
-                        .fill(Color.white.opacity(0.07 + (clampedProgress * 0.08)))
-
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    tint.opacity(0.98),
-                                    Color(red: 0.56, green: 0.9, blue: 1.0)
-                                ],
-                                startPoint: .bottom,
-                                endPoint: .top
-                            )
-                        )
-                        .padding(lensInset)
-                        .mask(alignment: .bottom) {
-                            Rectangle()
-                                .frame(height: lensFillHeight)
-                                .frame(maxHeight: .infinity, alignment: .bottom)
-                        }
-
-                    Circle()
-                        .strokeBorder(Color.white.opacity(isArmed ? 0.98 : 0.72), lineWidth: lensStrokeWidth)
-                }
-                .frame(width: lensDiameter, height: lensDiameter)
-
-                Capsule(style: .continuous)
-                    .fill(Color.white.opacity(0.46 + (clampedProgress * 0.32)))
-                    .frame(width: handleWidth, height: handleHeight)
-                    .overlay(alignment: .top) {
-                        Capsule(style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        tint.opacity(0.8),
-                                        tint
-                                    ],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
-                            )
-                            .frame(width: handleWidth, height: handleFillHeight)
-                            .frame(maxHeight: .infinity, alignment: .top)
-                    }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .rotationEffect(.degrees(-45))
-            .shadow(color: tint.opacity(isArmed ? 0.24 : 0.14 * clampedProgress), radius: isArmed ? 10 : 6)
-        }
     }
 }
 
@@ -541,15 +653,13 @@ struct RootPullToSearchGestureModifier: ViewModifier {
     let onTrigger: () -> Void
 
 #if os(iOS)
-    @State private var pullDistance: CGFloat = 0
-    @State private var isArmed = false
+    @State private var feedbackPhase: RootPullToSearchFeedbackState = .hidden
     @State private var isListAtTop = true
     @State private var dragStartedAtTop = false
     @State private var isTrackingDrag = false
 
-    private let activationDistance: CGFloat = 96
     private let topOffsetTolerance: CGFloat = 12
-    private let maxHorizontalDrift: CGFloat = 140
+    private let feedbackPolicy = RootPullToSearchFeedbackPolicy()
 #endif
 
     func body(content: Content) -> some View {
@@ -558,7 +668,9 @@ struct RootPullToSearchGestureModifier: ViewModifier {
             .coordinateSpace(name: RootPullToSearchCoordinateSpace.name)
             .onPreferenceChange(RootPullToSearchTopOffsetPreferenceKey.self) { minY in
                 guard let minY else { return }
-                isListAtTop = minY >= -topOffsetTolerance
+                let isNowAtTop = minY >= -topOffsetTolerance
+                guard isListAtTop != isNowAtTop else { return }
+                isListAtTop = isNowAtTop
             }
             .simultaneousGesture(
                 DragGesture(minimumDistance: 14, coordinateSpace: .global)
@@ -569,25 +681,24 @@ struct RootPullToSearchGestureModifier: ViewModifier {
                         }
 
                         guard isEnabled, dragStartedAtTop else {
-                            resetIndicator(animated: true)
+                            resetIndicatorIfNeeded(animated: true)
                             return
                         }
 
-                        let verticalPull = max(0, value.translation.height)
-                        guard verticalPull > 0,
-                              abs(value.translation.width) < maxHorizontalDrift else {
-                            resetIndicator(animated: true)
-                            return
-                        }
-
-                        pullDistance = verticalPull
-                        isArmed = verticalPull >= activationDistance
+                        let nextPhase = feedbackPolicy.phase(
+                            isEnabled: isEnabled,
+                            dragStartedAtTop: dragStartedAtTop,
+                            translation: value.translation
+                        )
+                        guard nextPhase != feedbackPhase else { return }
+                        feedbackPhase = nextPhase
                     }
                     .onEnded { value in
-                        let shouldTrigger = isEnabled &&
-                            dragStartedAtTop &&
-                            value.translation.height >= activationDistance &&
-                            abs(value.translation.width) < maxHorizontalDrift
+                        let shouldTrigger = feedbackPolicy.shouldTrigger(
+                            isEnabled: isEnabled,
+                            dragStartedAtTop: dragStartedAtTop,
+                            translation: value.translation
+                        )
 
                         resetGestureState(animated: true)
 
@@ -597,9 +708,7 @@ struct RootPullToSearchGestureModifier: ViewModifier {
             )
             .overlay(alignment: .top) {
                 RootPullToSearchIndicator(
-                    progress: pullDistance / activationDistance,
-                    isVisible: isEnabled && pullDistance > 0,
-                    isArmed: isArmed
+                    phase: feedbackPhase
                 )
                 .padding(.top, 8)
                 .allowsHitTesting(false)
@@ -617,15 +726,19 @@ struct RootPullToSearchGestureModifier: ViewModifier {
     }
 
     private func resetIndicator(animated: Bool) {
+        guard feedbackPhase != .hidden else { return }
         if animated {
             withAnimation(.interactiveSpring(response: 0.18, dampingFraction: 0.84, blendDuration: 0.08)) {
-                pullDistance = 0
-                isArmed = false
+                feedbackPhase = .hidden
             }
         } else {
-            pullDistance = 0
-            isArmed = false
+            feedbackPhase = .hidden
         }
+    }
+
+    private func resetIndicatorIfNeeded(animated: Bool) {
+        guard feedbackPhase != .hidden else { return }
+        resetIndicator(animated: animated)
     }
 #endif
 }
@@ -1126,11 +1239,6 @@ struct RootView: View {
                 refreshInboxRemindersIfVisible()
             }
 #endif
-            .onChange(of: compactSelectedTab) { _, newTab in
-                guard horizontalSizeClass == .compact else { return }
-                guard compactRootTab(for: container.selectedView) != newTab else { return }
-                selectCompactTab(newTab)
-            }
             .onChange(of: activeNavigationDepth) { _, count in
                 if count > 0 {
                     expandedTaskPath = nil
@@ -1163,7 +1271,8 @@ struct RootView: View {
 #if canImport(UIKit)
         .background(
             CompactTabBarImageConfigurator(
-                choices: CompactRootTab.allCases.map(compactTabChoice(for:))
+                choices: CompactRootTab.allCases.map(compactTabChoice(for:)),
+                onTabReselection: handleCompactTabReselection
             )
         )
 #endif
@@ -1171,7 +1280,7 @@ struct RootView: View {
     }
 
     private var compactTabViewLegacy: some View {
-        TabView(selection: $compactSelectedTab) {
+        TabView(selection: compactTabSelectionBinding) {
             ForEach(CompactRootTab.allCases) { tab in
                 compactTabScene(tab)
             }
@@ -1180,7 +1289,7 @@ struct RootView: View {
 
     @available(iOS 18.0, macOS 15.0, *)
     private var compactTabViewNative: some View {
-        TabView(selection: $compactSelectedTab) {
+        TabView(selection: compactTabSelectionBinding) {
             compactTabItemsNative
         }
     }
@@ -1311,6 +1420,31 @@ struct RootView: View {
 
     private var activeCompactTab: CompactRootTab {
         horizontalSizeClass == .compact ? compactSelectedTab : compactRootTab(for: container.selectedView)
+    }
+
+    private var compactTabSelectionPolicy: CompactTabSelectionPolicy {
+        CompactTabSelectionPolicy(
+            primaryView: compactPrimaryView,
+            secondaryView: compactSecondaryView
+        )
+    }
+
+    private var compactTabSelectionBinding: Binding<CompactRootTab> {
+        Binding(
+            get: { compactSelectedTab },
+            set: { newTab in
+                let previousTab = compactRootTab(for: container.selectedView)
+                compactSelectedTab = newTab
+
+                guard horizontalSizeClass == .compact else { return }
+
+                if previousTab == newTab {
+                    handleCompactTabReselection(newTab)
+                } else {
+                    selectCompactTab(newTab)
+                }
+            }
+        )
     }
 
     private func navigationPathBinding(for tab: CompactRootTab) -> Binding<NavigationPath> {
@@ -1697,7 +1831,7 @@ struct RootView: View {
             if container.selectedView == .builtIn(.inbox) {
                 InboxRemindersImportPanel()
 #if os(iOS)
-                    .modifier(RootListContentBoundaryReporter())
+                    .modifier(RootListContentBoundaryReporter(isEnabled: shouldTrackTaskListBoundaryMetrics))
 #endif
             }
         }
@@ -1750,7 +1884,7 @@ struct RootView: View {
             isEditing: isEditing
         )
 
-        return taskList(id: descriptor.listID) {
+        return taskList(id: descriptor.listID, creationScrollTarget: records.last?.identity.path) {
             TodayTabView(
                 descriptor: descriptor,
                 onReorder: { filenames in
@@ -1790,7 +1924,7 @@ struct RootView: View {
             mainHeroListRow
             InboxRemindersImportPanel()
 #if os(iOS)
-                .modifier(RootListContentBoundaryReporter())
+                .modifier(RootListContentBoundaryReporter(isEnabled: shouldTrackTaskListBoundaryMetrics))
 #endif
 
             VStack(spacing: 12) {
@@ -1806,7 +1940,7 @@ struct RootView: View {
             .padding(.top, ThingsSurfaceLayout.emptyStateTopPadding)
             .padding(.bottom, ThingsSurfaceLayout.emptyStateBottomPadding)
 #if os(iOS)
-            .modifier(RootListContentBoundaryReporter())
+            .modifier(RootListContentBoundaryReporter(isEnabled: shouldTrackTaskListBoundaryMetrics))
 #endif
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
@@ -1831,7 +1965,7 @@ struct RootView: View {
             .padding(.top, ThingsSurfaceLayout.emptyStateTopPadding)
             .padding(.bottom, ThingsSurfaceLayout.emptyStateBottomPadding)
 #if os(iOS)
-            .modifier(RootListContentBoundaryReporter())
+            .modifier(RootListContentBoundaryReporter(isEnabled: shouldTrackTaskListBoundaryMetrics))
 #endif
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
@@ -1842,7 +1976,7 @@ struct RootView: View {
     private func anytimeMainContent(records: [TaskRecord]) -> some View {
         let descriptor = AnytimeTabDescriptor.make(records: records)
 
-        return taskList(id: descriptor.listID) {
+        return taskList(id: descriptor.listID, creationScrollTarget: records.last?.identity.path) {
             AnytimeTabView(
                 descriptor: descriptor,
                 records: records,
@@ -1868,7 +2002,7 @@ struct RootView: View {
             showsInlineComposer: shouldRenderInlineTaskComposerInList
         )
 
-        return taskList(id: descriptor.listID) {
+        return taskList(id: descriptor.listID, creationScrollTarget: records.last?.identity.path) {
             InboxTabView(
                 descriptor: descriptor,
                 records: records,
@@ -1882,7 +2016,7 @@ struct RootView: View {
                 importPanel: {
                     InboxRemindersImportPanel()
 #if os(iOS)
-                        .modifier(RootListContentBoundaryReporter())
+                        .modifier(RootListContentBoundaryReporter(isEnabled: shouldTrackTaskListBoundaryMetrics))
 #endif
                 },
                 inlineComposer: {
@@ -1901,7 +2035,7 @@ struct RootView: View {
     private func somedayMainContent(records: [TaskRecord]) -> some View {
         let descriptor = SomedayTabDescriptor.make(records: records)
 
-        return taskList(id: descriptor.listID) {
+        return taskList(id: descriptor.listID, creationScrollTarget: records.last?.identity.path) {
             SomedayTabView(
                 descriptor: descriptor,
                 records: records,
@@ -1968,7 +2102,7 @@ struct RootView: View {
             .padding(.top, ThingsSurfaceLayout.emptyStateTopPadding)
             .padding(.bottom, ThingsSurfaceLayout.emptyStateBottomPadding)
 #if os(iOS)
-            .modifier(RootListContentBoundaryReporter())
+            .modifier(RootListContentBoundaryReporter(isEnabled: shouldTrackTaskListBoundaryMetrics))
 #endif
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
@@ -1992,7 +2126,10 @@ struct RootView: View {
     }
 
     private func populatedRecordsMainContent(records: [TaskRecord]) -> some View {
-        taskList(id: container.selectedView.rawValue) {
+        taskList(
+            id: container.selectedView.rawValue,
+            creationScrollTarget: records.last?.identity.path
+        ) {
             mainHeroListRow
 
             if container.selectedView == .builtIn(.inbox) {
@@ -2028,7 +2165,7 @@ struct RootView: View {
             .padding(.bottom, ThingsSurfaceLayout.heroBottomPadding)
 #if os(iOS)
             .modifier(RootPullToSearchTopMarker())
-            .modifier(RootListContentBoundaryReporter())
+            .modifier(RootListContentBoundaryReporter(isEnabled: shouldTrackTaskListBoundaryMetrics))
 #endif
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
@@ -2094,7 +2231,7 @@ struct RootView: View {
             .padding(.top, ThingsSurfaceLayout.supportingCardTopPadding)
             .padding(.bottom, ThingsSurfaceLayout.supportingCardBottomPadding)
 #if os(iOS)
-            .modifier(RootListContentBoundaryReporter())
+            .modifier(RootListContentBoundaryReporter(isEnabled: shouldTrackTaskListBoundaryMetrics))
 #endif
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
@@ -2156,8 +2293,8 @@ struct RootView: View {
         .accessibilityIdentifier("inlineTask.row")
         .accessibilityValue("expanded")
 #if os(iOS)
-        .modifier(RootListContentBoundaryReporter())
-        .modifier(RootDismissibleSurfaceFrameReporter(id: RootDismissibleSurfaceID.inlineTaskComposer))
+        .modifier(RootListContentBoundaryReporter(isEnabled: shouldTrackTaskListBoundaryMetrics))
+        .modifier(RootDismissibleSurfaceFrameReporter(id: RootDismissibleSurfaceID.inlineTaskComposer, isEnabled: isCreatingTask))
 #endif
         .transition(.asymmetric(
             insertion: .push(from: .top).combined(with: .opacity),
@@ -2183,9 +2320,6 @@ struct RootView: View {
                 .lineLimit(1)
                 .submitLabel(.done)
                 .accessibilityIdentifier("inlineTask.titleField")
-                .onAppear {
-                    scheduleInlineTaskFocus(after: 40_000_000)
-                }
                 .onChange(of: inlineTaskDraft.title) { _, newValue in
                     handleInlineTaskTitleChanged(newValue)
                 }
@@ -2255,9 +2389,6 @@ struct RootView: View {
                             .lineLimit(1)
                             .submitLabel(.done)
                             .accessibilityIdentifier("inlineTask.titleField")
-                            .onAppear {
-                                scheduleInlineTaskFocus(after: 20_000_000)
-                            }
                             .onChange(of: inlineTaskDraft.title) { _, newValue in
                                 handleInlineTaskTitleChanged(newValue)
                             }
@@ -3695,39 +3826,30 @@ struct RootView: View {
     }
 
     private func compactRootTab(for view: ViewIdentifier) -> CompactRootTab {
-        switch view {
-        case .builtIn(.inbox):
-            return .inbox
-        case .builtIn(.today):
-            return .today
-        case let candidate where candidate == compactPrimaryView:
-            return .customPrimary
-        case let candidate where candidate == compactSecondaryView:
-            return .customSecondary
-        default:
-            return .areas
-        }
+        compactTabSelectionPolicy.tab(for: view)
     }
 
     private func rootView(for tab: CompactRootTab, currentView: ViewIdentifier? = nil) -> ViewIdentifier {
-        let currentView = currentView ?? container.selectedView
-        switch tab {
-        case .inbox:
-            return .builtIn(.inbox)
-        case .today:
-            return .builtIn(.today)
-        case .customPrimary:
-            return compactPrimaryView
-        case .areas:
-            return compactRootTab(for: currentView) == .areas ? currentView : .browse
-        case .customSecondary:
-            return compactSecondaryView
-        }
+        compactTabSelectionPolicy.rootView(for: tab, currentView: currentView ?? container.selectedView)
     }
 
     private func selectCompactTab(_ tab: CompactRootTab) {
         let targetView = rootView(for: tab)
         applyFilter(targetView)
+    }
+
+    private func handleCompactTabReselection(_ tab: CompactRootTab) {
+        var path = navigationPathBinding(for: tab).wrappedValue
+        guard !path.isEmpty || compactTabSelectionPolicy.reselectionTarget(for: tab, currentView: container.selectedView) != nil else {
+            return
+        }
+
+        path = NavigationPath()
+        navigationPathBinding(for: tab).wrappedValue = path
+
+        if let targetView = compactTabSelectionPolicy.reselectionTarget(for: tab, currentView: container.selectedView) {
+            applyFilter(targetView)
+        }
     }
 
     private func syncCompactSelectedTab() {
@@ -3779,6 +3901,10 @@ struct RootView: View {
 
     private var shouldAllowPullToSearchGesture: Bool {
         isAtActiveNavigationRoot && !inboxTriageMode && !isRootSearchPresented
+    }
+
+    private var shouldTrackTaskListBoundaryMetrics: Bool {
+        expandedTaskPath != nil
     }
 
     private var compactComposerOpenAnimation: Animation {
@@ -3926,6 +4052,7 @@ struct RootView: View {
 
     private func taskList<ID: Hashable, Content: View>(
         id: ID,
+        creationScrollTarget: String? = nil,
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
         ScrollViewReader { proxy in
@@ -3967,8 +4094,12 @@ struct RootView: View {
             }
             .onChange(of: isCreatingTask) { _, isCreating in
                 inlineComposerScrollTask?.cancel()
-                guard isCreating, shouldRenderInlineTaskComposerInList else { return }
-                scheduleInlineTaskComposerScroll(proxy: proxy)
+                guard isCreating else { return }
+                if shouldRenderInlineTaskComposerInList {
+                    scheduleInlineTaskComposerScroll(proxy: proxy)
+                } else if shouldShowDockedInlineTaskComposer, let creationScrollTarget {
+                    scheduleDockedInlineTaskComposerScroll(to: creationScrollTarget, proxy: proxy)
+                }
             }
         }
     }
@@ -4018,6 +4149,39 @@ struct RootView: View {
             withAnimation(.smooth(duration: 0.24)) {
                 proxy.scrollTo(inlineTaskComposerScrollID, anchor: .top)
             }
+            inlineComposerScrollTask = nil
+        }
+    }
+
+    private func scheduleDockedInlineTaskComposerScroll(to path: String, proxy: ScrollViewProxy) {
+        inlineComposerScrollTask?.cancel()
+
+        inlineComposerScrollTask = Task { @MainActor in
+            do {
+                try await Task.sleep(nanoseconds: 80_000_000)
+            } catch {
+                return
+            }
+
+            guard !Task.isCancelled, isCreatingTask, shouldShowDockedInlineTaskComposer else { return }
+            var transaction = Transaction()
+            transaction.animation = nil
+            withTransaction(transaction) {
+                proxy.scrollTo(path, anchor: .bottom)
+            }
+            scheduleInlineTaskFocus(after: 0)
+
+            do {
+                try await Task.sleep(nanoseconds: 220_000_000)
+            } catch {
+                return
+            }
+
+            guard !Task.isCancelled, isCreatingTask, shouldShowDockedInlineTaskComposer else { return }
+            withTransaction(transaction) {
+                proxy.scrollTo(path, anchor: .bottom)
+            }
+            scheduleInlineTaskFocus(after: 0)
             inlineComposerScrollTask = nil
         }
     }
@@ -4173,8 +4337,10 @@ struct RootView: View {
     }
 
     private func handleTaskListBlankSpaceTap(at location: CGPoint) {
-        if isCreatingTask, let frame = dismissibleSurfaceFrame(for: RootDismissibleSurfaceID.inlineTaskComposer) {
-            guard !frame.contains(location) else { return }
+        if isCreatingTask {
+            if let frame = dismissibleSurfaceFrame(for: RootDismissibleSurfaceID.inlineTaskComposer), frame.contains(location) {
+                return
+            }
             cancelInlineTaskComposer()
             return
         }
@@ -4887,8 +5053,8 @@ struct RootView: View {
         )
         .id(path)
 #if os(iOS)
-        .modifier(RootListContentBoundaryReporter())
-        .modifier(RootDismissibleSurfaceFrameReporter(id: RootDismissibleSurfaceID.expandedTask(path)))
+        .modifier(RootListContentBoundaryReporter(isEnabled: shouldTrackTaskListBoundaryMetrics))
+        .modifier(RootDismissibleSurfaceFrameReporter(id: RootDismissibleSurfaceID.expandedTask(path), isEnabled: expandedTaskPath == path))
 #endif
         .accessibilityIdentifier("taskRow.\(record.document.frontmatter.title)")
         .accessibilityValue(expandedTaskPath == path ? "expanded" : "collapsed")

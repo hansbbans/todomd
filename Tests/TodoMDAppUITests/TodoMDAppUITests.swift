@@ -36,8 +36,8 @@ final class TodoMDAppUITests: XCTestCase {
 
         let titleInput = app.textFields["inlineTask.titleField"].firstMatch
         XCTAssertTrue(titleInput.waitForExistence(timeout: 10))
-        titleInput.tap()
-        titleInput.typeText("test")
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        app.typeText("test")
         submitInlineTask(from: app)
 
         let createdTaskRow = app.descendants(matching: .any)["taskRow.test"]
@@ -198,8 +198,8 @@ final class TodoMDAppUITests: XCTestCase {
 
         let titleInput = app.textFields["inlineTask.titleField"].firstMatch
         XCTAssertTrue(titleInput.waitForExistence(timeout: 10), "Inline task title field did not appear")
-        titleInput.tap()
-        titleInput.typeText("buy cookies due tomorrow")
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "Keyboard did not appear for inline quick add")
+        app.typeText("buy cookies due tomorrow")
         submitInlineTask(from: app)
 
         let createdTaskRow = app.descendants(matching: .any)["taskRow.buy cookies"]
@@ -297,8 +297,8 @@ final class TodoMDAppUITests: XCTestCase {
 
         let titleInput = app.textFields["inlineTask.titleField"].firstMatch
         XCTAssertTrue(titleInput.waitForExistence(timeout: 10), "Inline task title field did not appear")
-        titleInput.tap()
-        titleInput.typeText("append third")
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "Keyboard did not appear for compact inline add")
+        app.typeText("append third")
         submitInlineTask(from: app)
 
         let thirdRow = app.descendants(matching: .any)["taskRow.append third"].firstMatch
@@ -309,6 +309,83 @@ final class TodoMDAppUITests: XCTestCase {
                 return thirdRow.frame.minY >= existingBottom - 2
             },
             "New tasks should append below the existing task rows instead of jumping to the top"
+        )
+    }
+
+    func testCompactProjectComposerClearsExistingRows() throws {
+        let storageOverride = makeStorageOverridePath()
+        try seedProjectMetadata(rootPath: storageOverride, projects: ["Italy"])
+        try seedProjectTask(rootPath: storageOverride, title: "Research Florence activities", project: "Italy", fileIndex: 1)
+        try seedProjectTask(rootPath: storageOverride, title: "Book tickets for Explora", project: "Italy", fileIndex: 2)
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-did_complete_onboarding", "YES"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        let browseTab = browseTabButton(in: app, timeout: 10)
+        XCTAssertTrue(browseTab.exists, "Browse tab not visible")
+        browseTab.tap()
+
+        let projectButton = app.buttons["root.browse.project:Italy"].firstMatch
+        XCTAssertTrue(reveal(element: projectButton, in: app), "Project entry was not visible in Browse")
+        projectButton.tap()
+
+        let firstRow = app.descendants(matching: .any)["taskRow.Research Florence activities"].firstMatch
+        let secondRow = app.descendants(matching: .any)["taskRow.Book tickets for Explora"].firstMatch
+        XCTAssertTrue(firstRow.waitForExistence(timeout: 10), "First project task row was not visible")
+        XCTAssertTrue(secondRow.waitForExistence(timeout: 10), "Second project task row was not visible")
+
+        let addButton = app.buttons["root.inlineAddButton"].firstMatch
+        XCTAssertTrue(addButton.waitForExistence(timeout: 10), "Inline add button not visible in project view")
+        addButton.tap()
+
+        let titleInput = app.textFields["inlineTask.titleField"].firstMatch
+        XCTAssertTrue(titleInput.waitForExistence(timeout: 10), "Inline task title field did not appear")
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 5, pollInterval: 0.1) {
+                let lastTaskBottom = max(firstRow.frame.maxY, secondRow.frame.maxY)
+                return titleInput.frame.minY >= lastTaskBottom - 2
+            },
+            "Compact project composer should move below the existing project rows instead of covering them"
+        )
+    }
+
+    func testCompactProjectComposerFocusesTitleFieldImmediately() throws {
+        let storageOverride = makeStorageOverridePath()
+        try seedProjectMetadata(rootPath: storageOverride, projects: ["Italy"])
+        try seedProjectTask(rootPath: storageOverride, title: "Research Florence activities", project: "Italy", fileIndex: 1)
+        try seedProjectTask(rootPath: storageOverride, title: "Book tickets for Explora", project: "Italy", fileIndex: 2)
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-did_complete_onboarding", "YES"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        let browseTab = browseTabButton(in: app, timeout: 10)
+        XCTAssertTrue(browseTab.exists, "Browse tab not visible")
+        browseTab.tap()
+
+        let projectButton = app.buttons["root.browse.project:Italy"].firstMatch
+        XCTAssertTrue(reveal(element: projectButton, in: app), "Project entry was not visible in Browse")
+        projectButton.tap()
+
+        let addButton = app.buttons["root.inlineAddButton"].firstMatch
+        XCTAssertTrue(addButton.waitForExistence(timeout: 10), "Inline add button not visible in project view")
+        addButton.tap()
+
+        let titleInput = app.textFields["inlineTask.titleField"].firstMatch
+        XCTAssertTrue(titleInput.waitForExistence(timeout: 10), "Inline task title field did not appear")
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "Keyboard did not appear for compact project inline entry")
+
+        app.typeText("project focus without extra tap")
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 5, pollInterval: 0.1) {
+                (titleInput.value as? String) == "project focus without extra tap"
+            },
+            "Compact project composer should focus the title field immediately after opening"
         )
     }
 
@@ -592,11 +669,9 @@ final class TodoMDAppUITests: XCTestCase {
         let storageOverride = makeStorageOverridePath()
 
         let app = XCUIApplication()
-        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchArguments += ["-ui-testing", "-did_complete_onboarding", "YES"]
         app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
         app.launch()
-
-        completeOnboarding(app: app)
 
         let browseTab = browseTabButton(in: app, timeout: 10)
         XCTAssertTrue(browseTab.exists, "Browse tab not visible")
@@ -1322,6 +1397,42 @@ final class TodoMDAppUITests: XCTestCase {
         XCTAssertTrue(reveal(element: pomodoroButton, in: app), "Pomodoro entry not visible in Browse")
     }
 
+    func testRetappingBrowseTabResetsToBrowseRootFromProjectDestination() throws {
+        let storageOverride = makeStorageOverridePath()
+        try seedProjectMetadata(rootPath: storageOverride, projects: ["Errands"])
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-did_complete_onboarding", "YES"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        let browseTab = browseTabButton(in: app, timeout: 10)
+        XCTAssertTrue(browseTab.exists, "Browse tab not visible")
+        browseTab.tap()
+
+        let projectButton = app.buttons["root.browse.project:Errands"].firstMatch
+        XCTAssertTrue(reveal(element: projectButton, in: app), "Browse project entry was not visible")
+        projectButton.tap()
+
+        let inlineAddButton = app.buttons["root.inlineAddButton"].firstMatch
+        XCTAssertTrue(
+            inlineAddButton.waitForExistence(timeout: 10),
+            "Opening a project from Browse should leave the user inside the project destination"
+        )
+
+        browseTab.tap()
+
+        let browseSearchButton = app.buttons["root.browse.searchButton"].firstMatch
+        XCTAssertTrue(
+            browseSearchButton.waitForExistence(timeout: 10),
+            "Re-tapping Browse should return to the main Browse screen"
+        )
+        XCTAssertTrue(
+            waitForCondition(timeout: 5, pollInterval: 0.1) { !inlineAddButton.exists },
+            "Browse root should replace the project destination after re-tapping the Browse tab"
+        )
+    }
+
     func testIntegrationsSettingsContainsCalendarAndNewInstallsStartDisabledWithoutAccess() {
         let app = XCUIApplication()
         app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
@@ -1552,8 +1663,8 @@ final class TodoMDAppUITests: XCTestCase {
 
         let titleInput = app.textFields["inlineTask.titleField"].firstMatch
         XCTAssertTrue(titleInput.waitForExistence(timeout: 10), "Inline task title field did not appear")
-        titleInput.tap()
-        titleInput.typeText(title)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "Keyboard did not appear for inline task entry")
+        app.typeText(title)
         submitInlineTask(from: app)
 
         let createdTaskRow = app.descendants(matching: .any)["taskRow.\(title)"]
@@ -1786,6 +1897,30 @@ final class TodoMDAppUITests: XCTestCase {
         ]
         let data = try JSONSerialization.data(withJSONObject: metadata, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: metadataURL)
+    }
+
+    private func seedProjectTask(rootPath: String, title: String, project: String, fileIndex: Int) throws {
+        let rootURL = URL(fileURLWithPath: rootPath, isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+
+        let slug = title
+            .lowercased()
+            .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        let taskURL = rootURL.appendingPathComponent("20260310-\(String(format: "%04d", fileIndex))-\(slug).md")
+        let content = """
+        ---
+        title: "\(title)"
+        status: todo
+        priority: none
+        flagged: false
+        project: "\(project)"
+        created: "2026-03-10T00:\(String(format: "%02d", fileIndex)):00.000Z"
+        source: ui-test
+        ---
+
+        """
+        try content.write(to: taskURL, atomically: true, encoding: .utf8)
     }
 
     private func seedPerspective(rootPath: String, id: String, name: String) throws {
