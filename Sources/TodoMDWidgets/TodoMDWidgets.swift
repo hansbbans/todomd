@@ -769,7 +769,6 @@ struct TodoMDTasksWidgetView: View {
         let headerFontSize: CGFloat
         let countFontSize: CGFloat
         let taskFontSize: CGFloat
-        let dueFontSize: CGFloat
         let glyphFontSize: CGFloat
         let quickAddDiameter: CGFloat
         let quickAddGlyphSize: CGFloat
@@ -780,15 +779,17 @@ struct TodoMDTasksWidgetView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: metrics.contentSpacing) {
-            HStack {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(entry.viewTitle)
                     .font(widgetTitleFont)
                     .foregroundStyle(textPrimary)
                     .lineLimit(1)
-                Spacer(minLength: 8)
+                Spacer(minLength: 4)
                 Text("\(displayedTasks.count)")
                     .font(widgetCountFont)
                     .foregroundStyle(textSecondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
             }
 
             VStack(alignment: .leading, spacing: metrics.rowSpacing) {
@@ -828,7 +829,7 @@ struct TodoMDTasksWidgetView: View {
     }
 
     private func taskRow(_ task: WidgetTaskItem) -> some View {
-        HStack(spacing: 8) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
             if task.status == .done || task.status == .cancelled {
                 Image(systemName: "checkmark.circle.fill")
                     .font(widgetTaskGlyphFont)
@@ -844,25 +845,18 @@ struct TodoMDTasksWidgetView: View {
 
             if let taskURL = taskURL(for: task.path) {
                 Link(destination: taskURL) {
-                    HStack(spacing: 6) {
-                        Text(task.title)
-                            .font(widgetTaskTitleFont)
-                            .foregroundStyle(textPrimary)
-                            .lineLimit(1)
-
-                        if let dueISODate = task.dueISODate {
-                            Text(dueISODate)
-                                .font(widgetDueDateFont)
-                                .foregroundStyle(textSecondary)
-                                .lineLimit(1)
-                        }
-                    }
+                    Text(task.title)
+                        .font(widgetTaskTitleFont)
+                        .foregroundStyle(textPrimary)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
                 Text(task.title)
                     .font(widgetTaskTitleFont)
                     .foregroundStyle(textPrimary)
                     .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             Spacer(minLength: 0)
@@ -884,8 +878,8 @@ struct TodoMDTasksWidgetView: View {
                     .foregroundStyle(quickAddGlyphColor)
             }
             .frame(width: metrics.quickAddDiameter, height: metrics.quickAddDiameter)
-            .shadow(color: accent.opacity(0.28), radius: 16, x: 0, y: 8)
-            .shadow(color: .black.opacity(0.18), radius: 10, x: 0, y: 4)
+            .shadow(color: accent.opacity(0.22), radius: 10, x: 0, y: 5)
+            .shadow(color: .black.opacity(0.14), radius: 6, x: 0, y: 3)
         }
         .accessibilityLabel("Add Task")
     }
@@ -894,52 +888,48 @@ struct TodoMDTasksWidgetView: View {
         switch family {
         case .systemSmall:
             return WidgetMetrics(
-                headerFontSize: 15,
+                headerFontSize: 14,
                 countFontSize: 14,
-                taskFontSize: 14,
-                dueFontSize: 11,
-                glyphFontSize: 14,
-                quickAddDiameter: 44,
-                quickAddGlyphSize: 22,
+                taskFontSize: 13,
+                glyphFontSize: 13,
+                quickAddDiameter: 34,
+                quickAddGlyphSize: 18,
                 contentSpacing: 7,
                 rowSpacing: 5,
                 padding: 12
             )
         case .systemLarge:
             return WidgetMetrics(
-                headerFontSize: 19,
-                countFontSize: 18,
-                taskFontSize: 17,
-                dueFontSize: 13,
-                glyphFontSize: 17,
-                quickAddDiameter: 56,
-                quickAddGlyphSize: 29,
+                headerFontSize: 17,
+                countFontSize: 17,
+                taskFontSize: 15,
+                glyphFontSize: 15,
+                quickAddDiameter: 40,
+                quickAddGlyphSize: 22,
                 contentSpacing: 9,
                 rowSpacing: 7,
                 padding: 14
             )
         case .systemMedium:
             return WidgetMetrics(
-                headerFontSize: 18,
-                countFontSize: 17,
-                taskFontSize: 17,
-                dueFontSize: 13,
-                glyphFontSize: 17,
-                quickAddDiameter: 52,
-                quickAddGlyphSize: 27,
+                headerFontSize: 16,
+                countFontSize: 16,
+                taskFontSize: 14,
+                glyphFontSize: 14,
+                quickAddDiameter: 36,
+                quickAddGlyphSize: 20,
                 contentSpacing: 8,
                 rowSpacing: 6,
                 padding: 12
             )
         default:
             return WidgetMetrics(
-                headerFontSize: 18,
-                countFontSize: 17,
-                taskFontSize: 17,
-                dueFontSize: 13,
-                glyphFontSize: 17,
-                quickAddDiameter: 52,
-                quickAddGlyphSize: 27,
+                headerFontSize: 16,
+                countFontSize: 16,
+                taskFontSize: 14,
+                glyphFontSize: 14,
+                quickAddDiameter: 36,
+                quickAddGlyphSize: 20,
                 contentSpacing: 8,
                 rowSpacing: 6,
                 padding: 12
@@ -961,10 +951,6 @@ struct TodoMDTasksWidgetView: View {
 
     private var widgetTaskGlyphFont: Font {
         .system(size: metrics.glyphFontSize, weight: .regular)
-    }
-
-    private var widgetDueDateFont: Font {
-        .system(size: metrics.dueFontSize, weight: .medium)
     }
 
     private var widgetQuickAddGlyphFont: Font {
@@ -1091,7 +1077,7 @@ struct TodoMDTodayTomorrowWidgetView: View {
     @ViewBuilder
     private func taskColumn(title: String, countText: String, rows: [ColumnRow]) -> some View {
         VStack(alignment: .leading, spacing: metrics.sectionSpacing) {
-            HStack(spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(title)
                     .font(titleFont)
                     .foregroundStyle(textPrimary)
@@ -1128,7 +1114,7 @@ struct TodoMDTodayTomorrowWidgetView: View {
     }
 
     private func taskRow(_ task: WidgetTaskItem) -> some View {
-        HStack(spacing: 8) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
             if task.status == .done || task.status == .cancelled {
                 Image(systemName: "checkmark.circle.fill")
                     .font(taskGlyphFont)
@@ -1148,12 +1134,14 @@ struct TodoMDTodayTomorrowWidgetView: View {
                         .font(taskTitleFont)
                         .foregroundStyle(textPrimary)
                         .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
                 Text(task.title)
                     .font(taskTitleFont)
                     .foregroundStyle(textPrimary)
                     .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             Spacer(minLength: 0)
@@ -1196,8 +1184,8 @@ struct TodoMDTodayTomorrowWidgetView: View {
                     .foregroundStyle(quickAddGlyphColor)
             }
             .frame(width: metrics.quickAddDiameter, height: metrics.quickAddDiameter)
-            .shadow(color: accent.opacity(0.28), radius: 16, x: 0, y: 8)
-            .shadow(color: .black.opacity(0.18), radius: 10, x: 0, y: 4)
+            .shadow(color: accent.opacity(0.22), radius: 10, x: 0, y: 5)
+            .shadow(color: .black.opacity(0.14), radius: 6, x: 0, y: 3)
         }
         .accessibilityLabel("Add Task")
     }
@@ -1206,14 +1194,14 @@ struct TodoMDTodayTomorrowWidgetView: View {
         switch family {
         case .systemLarge:
             return Metrics(
-                headerFontSize: 19,
-                countFontSize: 18,
-                taskFontSize: 17,
+                headerFontSize: 17,
+                countFontSize: 17,
+                taskFontSize: 15,
                 eventFontSize: 15,
                 eventTimeFontSize: 12,
-                glyphFontSize: 17,
-                quickAddDiameter: 56,
-                quickAddGlyphSize: 29,
+                glyphFontSize: 15,
+                quickAddDiameter: 40,
+                quickAddGlyphSize: 22,
                 columnSpacing: 12,
                 sectionSpacing: 9,
                 rowSpacing: 7,
@@ -1226,14 +1214,14 @@ struct TodoMDTodayTomorrowWidgetView: View {
             )
         default:
             return Metrics(
-                headerFontSize: 18,
-                countFontSize: 17,
-                taskFontSize: 16,
+                headerFontSize: 16,
+                countFontSize: 16,
+                taskFontSize: 14,
                 eventFontSize: 13,
                 eventTimeFontSize: 11,
-                glyphFontSize: 16,
-                quickAddDiameter: 52,
-                quickAddGlyphSize: 27,
+                glyphFontSize: 14,
+                quickAddDiameter: 36,
+                quickAddGlyphSize: 20,
                 columnSpacing: 10,
                 sectionSpacing: 8,
                 rowSpacing: 6,
