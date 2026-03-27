@@ -103,7 +103,7 @@ struct AppContainerDuplicateTaskTests {
         #expect(duplicateFrontmatter.blockedBy == .refs(["t-dead"]))
         #expect(duplicateFrontmatter.locationReminder == sourceRecord.document.frontmatter.locationReminder)
         #expect(duplicateFrontmatter.source == "user")
-        #expect(persistedDuplicate.document.body == "Checklist body")
+        #expect(persistedDuplicate.document.body == "Checklist body\n")
         #expect(persistedDuplicate.document.unknownFrontmatter["custom_field"] == .string("keep-me"))
         #expect(duplicateFrontmatter.created >= duplicationStart)
         #expect(duplicateFrontmatter.modified == duplicateFrontmatter.created)
@@ -152,7 +152,7 @@ struct AppContainerDuplicateTaskTests {
         #expect(persistedDuplicate.document.frontmatter.status == .todo)
         #expect(persistedDuplicate.document.frontmatter.priority == .medium)
         #expect(persistedDuplicate.document.frontmatter.tags == ["finance"])
-        #expect(persistedDuplicate.document.body == "Body")
+        #expect(persistedDuplicate.document.body == "Body\n")
     }
 
     private func makeTempDirectory() throws -> URL {

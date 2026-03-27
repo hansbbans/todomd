@@ -390,4 +390,24 @@ final class TaskMarkdownCodecTests: XCTestCase {
             XCTAssertEqual(field, "scheduled_time")
         }
     }
+
+    func testURLParsesAndSerializes() throws {
+        let raw = """
+        ---
+        title: "Linked task"
+        status: "todo"
+        created: "2026-03-17T10:00:00Z"
+        source: "user"
+        url: "todomd://task/t-3f8a"
+        ---
+        """
+
+        let codec = TaskMarkdownCodec()
+        let parsed = try codec.parse(markdown: raw)
+        XCTAssertEqual(parsed.frontmatter.url, "todomd://task/t-3f8a")
+
+        let serialized = try codec.serialize(document: parsed)
+        XCTAssertTrue(serialized.contains("url"))
+        XCTAssertTrue(serialized.contains("todomd://task/t-3f8a"))
+    }
 }

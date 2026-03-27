@@ -70,6 +70,7 @@ public final class FileWatcherService: @unchecked Sendable {
         forceFullScan: Bool = false
     ) throws -> (summary: SyncSummary, events: [FileWatcherEvent], records: [TaskRecord]) {
         purgeStaleSelfWrites(reference: now)
+        try processInboxIfNeeded(now: now)
 
         let enumerateStart = ContinuousClock.now
         let discovery = try discoverChanges(forceFullScan: forceFullScan)
@@ -159,6 +160,18 @@ public final class FileWatcherService: @unchecked Sendable {
         )
 
         return (summary, events, records)
+    }
+
+    private func processInboxIfNeeded(now: Date) throws {
+        let inboxURL = rootURL.appendingPathComponent(".inbox", isDirectory: true)
+        guard fileIO.directoryExists(path: inboxURL.path) else { return }
+
+        let inboxService = InboxFolderService(
+            inboxURL: inboxURL,
+            repository: repository,
+            fileIO: fileIO
+        )
+        _ = try inboxService.processInbox(now: now)
     }
 
     private func elapsedMilliseconds(since start: ContinuousClock.Instant) -> Double {

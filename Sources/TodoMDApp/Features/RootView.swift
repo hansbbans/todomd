@@ -274,7 +274,7 @@ private struct InlineTaskDraft: Equatable {
     }
 }
 
-private struct SectionHeaderView: View {
+struct SectionHeaderView: View {
     let title: String
     let count: Int?
     let systemImage: String?
@@ -341,7 +341,7 @@ private struct RootListContentMaxYPreferenceKey: PreferenceKey {
     }
 }
 
-private struct RootListContentBoundaryReporter: ViewModifier {
+struct RootListContentBoundaryReporter: ViewModifier {
     func body(content: Content) -> some View {
         content.background {
             GeometryReader { proxy in
@@ -536,7 +536,7 @@ private struct RootPullToSearchMagnifyingGlass: View {
     }
 }
 
-private struct RootPullToSearchGestureModifier: ViewModifier {
+struct RootPullToSearchGestureModifier: ViewModifier {
     let isEnabled: Bool
     let onTrigger: () -> Void
 
@@ -1584,16 +1584,53 @@ struct RootView: View {
         }
         if container.selectedView == .builtIn(.upcoming) {
             return AnyView(
-                UpcomingCalendarView(sections: container.upcomingAgendaSections()) { record in
-                    taskRowItem(record)
-                }
-                .transition(rootScreenTransition)
+                upcomingMainContent()
+                    .transition(rootScreenTransition)
             )
         }
         if container.selectedView == .builtIn(.review) {
             return AnyView(
-                weeklyReviewContent()
+                ReviewTabView(
+                    sections: container.weeklyReviewSections(),
+                    backgroundColor: theme.backgroundColor,
+                    textPrimaryColor: theme.textPrimaryColor,
+                    textSecondaryColor: theme.textSecondaryColor,
+                    accentColor: theme.accentColor,
+                    isPullToSearchEnabled: shouldAllowPullToSearchGesture,
+                    onSearchTrigger: {
+                        Task { @MainActor in
+                            presentRootSearch()
+                        }
+                    },
+                    onSelectProject: { project in
+                        applyFilter(.project(project))
+                    },
+                    projectIcon: { project in
+                        container.projectIconSymbol(for: project)
+                    },
+                    projectColor: { project in
+                        color(forHex: container.projectColorHex(for: project))
+                    },
+                    heroRow: {
+                        mainHeroListRow
+                    },
+                    taskRow: { record in
+                        taskRowItem(record)
+                    }
+                )
                     .transition(rootScreenTransition)
+            )
+        }
+        if container.selectedView == .builtIn(.anytime) {
+            return AnyView(
+                anytimeMainContent(records: container.filteredRecords())
+                .transition(rootScreenTransition)
+            )
+        }
+        if container.selectedView == .builtIn(.someday) {
+            return AnyView(
+                somedayMainContent(records: container.filteredRecords())
+                .transition(rootScreenTransition)
             )
         }
         if container.selectedView == .builtIn(.logbook) {
@@ -1616,12 +1653,6 @@ struct RootView: View {
                 .transition(rootScreenTransition)
             )
         }
-        if container.selectedView == .builtIn(.logbook) {
-            return AnyView(
-                logbookMainContent(records: container.filteredRecords())
-                    .transition(rootScreenTransition)
-            )
-        }
         return AnyView(
             recordsMainContent(records: container.filteredRecords())
                 .transition(rootScreenTransition)
@@ -1641,6 +1672,12 @@ struct RootView: View {
                     }
                 )
             )
+        }
+        if container.selectedView == .builtIn(.today) {
+            return AnyView(todayMainContent(records: records))
+        }
+        if container.selectedView == .builtIn(.inbox) {
+            return AnyView(inboxMainContent(records: records))
         }
         if records.isEmpty, shouldRenderInlineTaskComposerInList {
             return AnyView(emptyInlineTaskComposerList)
@@ -1662,11 +1699,6 @@ struct RootView: View {
 #if os(iOS)
                     .modifier(RootListContentBoundaryReporter())
 #endif
-            }
-            if container.selectedView == .builtIn(.today) {
-                if container.isCalendarConnected {
-                    todayCalendarCardListRow
-                }
             }
         }
         .id("\(container.selectedView.rawValue)-inline-empty")
@@ -1700,9 +1732,6 @@ struct RootView: View {
     }
 
     private func emptyStateMainContent() -> AnyView {
-        if container.selectedView == .builtIn(.today) {
-            return AnyView(todayEmptyStateContent)
-        }
         if container.selectedView == .builtIn(.inbox) {
             return AnyView(inboxEmptyStateContent)
         }
@@ -1711,32 +1740,48 @@ struct RootView: View {
         )
     }
 
-    private var todayEmptyStateContent: some View {
-        taskList(id: "\(container.selectedView.rawValue)-empty") {
-            mainHeroListRow
+    private func todayMainContent(records: [TaskRecord]) -> some View {
+        let sections = container.todaySections()
+        let descriptor = TodayTabDescriptor.makeForRootState(
+            records: records,
+            sections: sections,
+            isCalendarConnected: container.isCalendarConnected,
+            showsInlineComposer: shouldRenderInlineTaskComposerInList,
+            isEditing: isEditing
+        )
 
-            if container.isCalendarConnected {
-                todayCalendarCardListRow
-            }
+        return taskList(id: descriptor.listID) {
+            TodayTabView(
+                descriptor: descriptor,
+                onReorder: { filenames in
+                    container.saveManualOrder(filenames: filenames)
+                },
+                heroRow: {
+                    mainHeroListRow
+                },
+                calendarCard: {
+                    todayCalendarCardListRow
+                },
+                inlineComposer: {
+                    inlineTaskComposerListRow
+                },
+                taskRow: { record in
+                    taskRowItem(record)
+                },
+                unparseableSummary: {
+                    unparseableFilesSummary
+                }
+            )
+        }
+    }
 
-            VStack(spacing: 12) {
-                IllustratedEmptyState(
-                    symbol: "star.fill",
-                    glowColor: Color(.systemYellow).opacity(0.2),
-                    title: "You're all caught up",
-                    subtitle: "Enjoy the rest of your day."
-                )
-                unparseableFilesSummary
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.top, ThingsSurfaceLayout.emptyStateTopPadding)
-            .padding(.bottom, ThingsSurfaceLayout.emptyStateBottomPadding)
-#if os(iOS)
-            .modifier(RootListContentBoundaryReporter())
-#endif
-            .listRowInsets(EdgeInsets())
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
+    private func upcomingMainContent() -> some View {
+        let descriptor = UpcomingTabDescriptor.makeForRootState(
+            sections: container.upcomingAgendaSections()
+        )
+
+        return UpcomingTabView(descriptor: descriptor) { record in
+            taskRowItem(record)
         }
     }
 
@@ -1794,37 +1839,126 @@ struct RootView: View {
         }
     }
 
+    private func anytimeMainContent(records: [TaskRecord]) -> some View {
+        let descriptor = AnytimeTabDescriptor.make(records: records)
+
+        return taskList(id: descriptor.listID) {
+            AnytimeTabView(
+                descriptor: descriptor,
+                records: records,
+                onReorder: { filenames in
+                    container.saveManualOrder(filenames: filenames)
+                },
+                heroRow: {
+                    mainHeroListRow
+                },
+                taskRow: { record in
+                    taskRowItem(record)
+                },
+                unparseableSummary: {
+                    unparseableFilesSummary
+                }
+            )
+        }
+    }
+
+    private func inboxMainContent(records: [TaskRecord]) -> some View {
+        let descriptor = InboxTabDescriptor.make(
+            records: records,
+            showsInlineComposer: shouldRenderInlineTaskComposerInList
+        )
+
+        return taskList(id: descriptor.listID) {
+            InboxTabView(
+                descriptor: descriptor,
+                records: records,
+                onReorder: { filenames in
+                    guard container.canManuallyReorderSelectedView() else { return }
+                    container.saveManualOrder(filenames: filenames)
+                },
+                heroRow: {
+                    mainHeroListRow
+                },
+                importPanel: {
+                    InboxRemindersImportPanel()
+#if os(iOS)
+                        .modifier(RootListContentBoundaryReporter())
+#endif
+                },
+                inlineComposer: {
+                    inlineTaskComposerListRow
+                },
+                taskRow: { record in
+                    taskRowItem(record)
+                },
+                unparseableSummary: {
+                    unparseableFilesSummary
+                }
+            )
+        }
+    }
+
+    private func somedayMainContent(records: [TaskRecord]) -> some View {
+        let descriptor = SomedayTabDescriptor.make(records: records)
+
+        return taskList(id: descriptor.listID) {
+            SomedayTabView(
+                descriptor: descriptor,
+                records: records,
+                onReorder: { filenames in
+                    container.saveManualOrder(filenames: filenames)
+                },
+                heroRow: {
+                    mainHeroListRow
+                },
+                taskRow: { record in
+                    taskRowItem(record)
+                },
+                unparseableSummary: {
+                    unparseableFilesSummary
+                }
+            )
+        }
+    }
+
     private func logbookMainContent(records: [TaskRecord]) -> some View {
         let filtered = logbookSearchEngine.filter(records: records, query: logbookSearchText)
+        let descriptor = LogbookTabDescriptor.make(records: records, filteredRecords: filtered)
 
-        return Group {
-            if records.isEmpty {
+        return LogbookTabView(
+            descriptor: descriptor,
+            searchText: $logbookSearchText,
+            filteredRecords: filtered,
+            genericEmptyContent: {
                 genericEmptyStateContent
-            } else if filtered.isEmpty {
-                logbookSearchEmptyStateContent
-            } else {
-                populatedRecordsMainContent(records: filtered)
+            },
+            searchEmptyContent: { searchEmptyState in
+                logbookSearchEmptyStateContent(
+                    listID: descriptor.listID,
+                    searchEmptyState: searchEmptyState
+                )
+            },
+            populatedContent: { filteredRecords in
+                populatedRecordsMainContent(records: filteredRecords)
             }
-        }
-        .searchable(
-            text: $logbookSearchText,
-            placement: .automatic,
-            prompt: "Search title, project:, tag:, status:, before:"
         )
     }
 
-    private var logbookSearchEmptyStateContent: some View {
-        taskList(id: "\(container.selectedView.rawValue)-search-empty") {
+    private func logbookSearchEmptyStateContent(
+        listID: String,
+        searchEmptyState: LogbookSearchEmptyState
+    ) -> some View {
+        taskList(id: listID) {
             mainHeroListRow
 
             VStack(spacing: 12) {
                 IllustratedEmptyState(
-                    symbol: "magnifyingglass",
+                    symbol: searchEmptyState.symbol,
                     glowColor: Color.green.opacity(0.14),
-                    title: "No logbook matches",
-                    subtitle: "Try a broader search or filters like project:, tag:, status:, before:, or after:."
+                    title: searchEmptyState.title,
+                    subtitle: searchEmptyState.subtitle
                 )
-                Text("Examples: `project:Work`, `tag:errands`, `status:cancelled`, `before:2026-03-01`")
+                Text(searchEmptyState.exampleQuery)
                     .font(.footnote)
                     .foregroundStyle(theme.textSecondaryColor)
                     .multilineTextAlignment(.center)
@@ -1859,63 +1993,22 @@ struct RootView: View {
 
     private func populatedRecordsMainContent(records: [TaskRecord]) -> some View {
         taskList(id: container.selectedView.rawValue) {
-            if container.selectedView == .builtIn(.today) {
-                mainHeroListRow
+            mainHeroListRow
 
-                if isEditing {
-                    if shouldRenderInlineTaskComposerInList {
-                        inlineTaskComposerListRow
-                    }
-                    ForEach(records) { record in
-                        taskRowItem(record)
-                    }
-                    .onMove { source, destination in
-                        var reordered = records
-                        reordered.move(fromOffsets: source, toOffset: destination)
-                        container.saveManualOrder(filenames: reordered.map { $0.identity.filename })
-                    }
-                } else {
-                    if container.isCalendarConnected {
-                        todayCalendarCardListRow
-                    }
-
-                    if shouldRenderInlineTaskComposerInList {
-                        inlineTaskComposerListRow
-                    }
-
-                    ForEach(container.todaySections()) { section in
-                        Section {
-                            ForEach(section.records) { record in
-                                taskRowItem(record)
-                            }
-                        } header: {
-                            SectionHeaderView(
-                                section.group.rawValue,
-                                count: section.records.count,
-                                systemImage: section.group == .scheduledEvening ? "moon.stars" : nil
-                            )
-                        }
-                    }
-
-                }
-            } else {
-                mainHeroListRow
-
-                if container.selectedView == .builtIn(.inbox) {
-                    InboxRemindersImportPanel()
-                }
-                if shouldRenderInlineTaskComposerInList {
-                    inlineTaskComposerListRow
-                }
-                ForEach(records) { record in
-                    taskRowItem(record)
-                }
-                .onMove { source, destination in
-                    guard container.canManuallyReorderSelectedView() else { return }
-                    var reordered = records
-                    reordered.move(fromOffsets: source, toOffset: destination)
-                    container.saveManualOrder(filenames: reordered.map { $0.identity.filename })
-                }
+            if container.selectedView == .builtIn(.inbox) {
+                InboxRemindersImportPanel()
+            }
+            if shouldRenderInlineTaskComposerInList {
+                inlineTaskComposerListRow
+            }
+            ForEach(records) { record in
+                taskRowItem(record)
+            }
+            .onMove { source, destination in
+                guard container.canManuallyReorderSelectedView() else { return }
+                var reordered = records
+                reordered.move(fromOffsets: source, toOffset: destination)
+                container.saveManualOrder(filenames: reordered.map { $0.identity.filename })
             }
         }
     }
@@ -5146,143 +5239,6 @@ struct RootView: View {
     }
 }
 
-extension RootView {
-    @ViewBuilder
-    private func weeklyReviewContent() -> some View {
-        let sections = container.weeklyReviewSections()
-
-        if sections.isEmpty {
-            List {
-                mainHeroListRow
-
-                ContentUnavailableView(
-                    "Review Is Clear",
-                    systemImage: "checkmark.circle",
-                    description: Text("Nothing is stale, overdue, deferred into someday, or missing a next action.")
-                )
-                .frame(maxWidth: .infinity)
-                .padding(.top, 20)
-                .padding(.bottom, 40)
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-            }
-            .id(container.selectedView.rawValue)
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .background(theme.backgroundColor)
-            .modifier(
-                RootPullToSearchGestureModifier(
-                    isEnabled: shouldAllowPullToSearchGesture,
-                    onTrigger: {
-                        Task { @MainActor in
-                            presentRootSearch()
-                        }
-                    }
-                )
-            )
-        } else {
-            List {
-                mainHeroListRow
-
-                ForEach(sections) { section in
-                    Section {
-                        switch section.kind {
-                        case .projectsWithoutNextAction:
-                            ForEach(section.projects) { summary in
-                                reviewProjectRow(summary)
-                            }
-                        case .overdue, .stale, .someday:
-                            ForEach(section.records) { record in
-                                taskRowItem(record)
-                            }
-                        }
-                    } header: {
-                        SectionHeaderView(section.kind.title, count: section.count)
-                    }
-                }
-            }
-            .id(container.selectedView.rawValue)
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .background(theme.backgroundColor)
-            .modifier(
-                RootPullToSearchGestureModifier(
-                    isEnabled: shouldAllowPullToSearchGesture,
-                    onTrigger: {
-                        Task { @MainActor in
-                            presentRootSearch()
-                        }
-                    }
-                )
-            )
-        }
-    }
-
-    private func reviewProjectRow(_ summary: WeeklyReviewProjectSummary) -> some View {
-        Button {
-            applyFilter(.project(summary.project))
-        } label: {
-            HStack(alignment: .top, spacing: 12) {
-                AppIconGlyph(
-                    icon: container.projectIconSymbol(for: summary.project),
-                    fallbackSymbol: "folder",
-                    pointSize: 18,
-                    weight: .semibold,
-                    tint: color(forHex: container.projectColorHex(for: summary.project)) ?? theme.accentColor
-                )
-                .frame(width: 28, height: 28)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(summary.project)
-                        .font(.body)
-                        .foregroundStyle(theme.textPrimaryColor)
-                        .lineLimit(2)
-
-                    Text(reviewProjectSummaryText(summary))
-                        .font(.caption)
-                        .foregroundStyle(theme.textSecondaryColor)
-                        .lineLimit(2)
-                }
-
-                Spacer(minLength: 0)
-
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(theme.textSecondaryColor)
-            }
-            .padding(.leading, 20)
-            .padding(.trailing, 16)
-            .padding(.vertical, 13)
-        }
-        .buttonStyle(.plain)
-#if os(iOS)
-        .modifier(RootListContentBoundaryReporter())
-#endif
-        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-        .listRowBackground(Color.clear)
-        .listRowSeparator(.hidden)
-    }
-
-    private func reviewProjectSummaryText(_ summary: WeeklyReviewProjectSummary) -> String {
-        var parts = ["\(summary.taskCount) open"]
-        if summary.blockedCount > 0 {
-            parts.append("\(summary.blockedCount) blocked")
-        }
-        if summary.delegatedCount > 0 {
-            parts.append("\(summary.delegatedCount) delegated")
-        }
-        if summary.deferredCount > 0 {
-            parts.append("\(summary.deferredCount) deferred")
-        }
-        if summary.somedayCount > 0 {
-            parts.append("\(summary.somedayCount) someday")
-        }
-        parts.append("no current next action")
-        return parts.joined(separator: "  ·  ")
-    }
-}
-
 private struct ExpandedTaskRow: View {
     private struct MetadataSegment {
         let text: String
@@ -5471,6 +5427,8 @@ private struct ExpandedTaskRow: View {
 
     private func collapsedTextContent(frontmatter: TaskFrontmatterV1) -> some View {
         let segments = metadataSegments(for: frontmatter)
+        let sourceBadge = TaskSourceAttribution.badge(for: frontmatter.source)
+        let metadataText = metadataLine(segments: segments)
 
         return VStack(alignment: .leading, spacing: 3) {
             Text(frontmatter.title)
@@ -5480,17 +5438,29 @@ private struct ExpandedTaskRow: View {
                 .strikethrough(isCompleting, color: theme.textSecondaryColor)
                 .lineLimit(2)
 
-            if let metadataText = metadataLine(segments: segments) {
-                metadataText
-                    .font(.footnote)
-                    .lineLimit(1)
-                    .accessibilityElement(children: .contain)
-                    .accessibilityLabel(metadataAccessibilityLabel(for: segments))
-                    .accessibilityChildren {
-                        ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
-                            Text(segment.accessibilityText ?? segment.text)
-                        }
+            if sourceBadge != nil || metadataText != nil {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    if let sourceBadge {
+                        TaskRowSourceBadge(badge: sourceBadge)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
+
+                    if let metadataText {
+                        metadataText
+                            .font(.footnote)
+                            .lineLimit(1)
+                    }
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(collapsedDetailAccessibilityLabel(badge: sourceBadge, segments: segments))
+                .accessibilityChildren {
+                    if let sourceBadge {
+                        Text(sourceBadge.accessibilityLabel)
+                    }
+                    ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                        Text(segment.accessibilityText ?? segment.text)
+                    }
+                }
             }
         }
     }
@@ -5776,6 +5746,20 @@ private struct ExpandedTaskRow: View {
         segments
             .map { $0.accessibilityText ?? $0.text }
             .joined(separator: ", ")
+    }
+
+    private func collapsedDetailAccessibilityLabel(
+        badge: TaskSourceAttribution.Badge?,
+        segments: [MetadataSegment]
+    ) -> String {
+        let rawComponents: [String?] = [
+            badge?.accessibilityLabel,
+            metadataAccessibilityLabel(for: segments)
+        ]
+        let components: [String] = rawComponents
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+        return components.joined(separator: ", ")
     }
 
     private func dueDisplayText(for frontmatter: TaskFrontmatterV1) -> String? {
@@ -6682,7 +6666,7 @@ private struct InlineTaskOptionButton: View {
     }
 }
 
-private struct IllustratedEmptyState: View {
+struct IllustratedEmptyState: View {
     let symbol: String
     let glowColor: Color
     let title: String

@@ -184,22 +184,30 @@ struct TaskDetailView: View {
     private var notesSection: some View {
         taskDetailCard {
             VStack(alignment: .leading, spacing: 12) {
-                taskDetailSectionTitle("Notes")
+                HStack {
+                    taskDetailSectionTitle("Notes")
+                    Spacer()
+                    Button(notesText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Add" : "Edit") {
+                        showNotesEditor = true
+                    }
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(theme.accentColor)
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("taskDetail.notes.editButton")
+                }
 
                 taskDetailInsetSurface(minHeight: 120) {
-                    ZStack(alignment: .topLeading) {
-                        if notesText.isEmpty {
+                    Group {
+                        if notesText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             Text("Add notes...")
                                 .font(.body)
                                 .foregroundStyle(theme.textSecondaryColor)
-                                .padding(.top, 2)
-                                .padding(.leading, 2)
-                                .allowsHitTesting(false)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        } else {
+                            MarkdownBodyView(taskBody: editState?.body ?? "")
+                                .foregroundStyle(theme.textPrimaryColor)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        TextEditor(text: notesBinding)
-                            .font(.body)
-                            .foregroundStyle(theme.textPrimaryColor)
-                            .scrollContentBackground(.hidden)
                     }
                 }
             }

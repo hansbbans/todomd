@@ -37,6 +37,10 @@ struct DebugView: View {
                 }
             }
 
+            Section("Source Activity") {
+                SourceActivityFeedView(entries: container.sourceActivityLog.recentEntries(limit: 12))
+            }
+
             Section("Widget") {
                 if let widgetDiagnostic {
                     LabeledContent("Last widget error", value: widgetDiagnostic.message)
