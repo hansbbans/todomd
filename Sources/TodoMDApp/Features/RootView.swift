@@ -1559,7 +1559,31 @@ struct RootView: View {
         }
 
         ToolbarItem(placement: .appTrailingAction) {
-            if horizontalSizeClass != .compact {
+            if let activeCustomPerspective {
+                Menu {
+                    Button {
+                        editingPerspective = activeCustomPerspective
+                    } label: {
+                        Label("Edit Perspective", systemImage: "pencil")
+                    }
+                    .accessibilityIdentifier("root.perspective.actions.edit")
+
+                    Button(role: .destructive) {
+                        pendingDeletePerspective = activeCustomPerspective
+                    } label: {
+                        Label("Delete Perspective", systemImage: "trash")
+                    }
+                    .accessibilityIdentifier("root.perspective.actions.delete")
+                } label: {
+                    Image(systemName: "gearshape.circle")
+                }
+                .accessibilityLabel("Perspective Actions")
+                .accessibilityIdentifier("root.perspective.actionsButton")
+            }
+        }
+
+        ToolbarItem(placement: .appTrailingAction) {
+            if horizontalSizeClass != .compact && activeCustomPerspective == nil {
                 NavigationLink {
                     SettingsView(quickFindStore: quickFindStore)
                 } label: {
@@ -3865,6 +3889,11 @@ struct RootView: View {
         let id = String(rawID.dropFirst(prefix.count))
         guard !id.isEmpty else { return nil }
         return container.perspectives.first(where: { $0.id == id })
+    }
+
+    private var activeCustomPerspective: PerspectiveDefinition? {
+        guard isAtActiveNavigationRoot else { return nil }
+        return perspective(for: container.selectedView)
     }
 
     private var shouldShowInlineTaskButton: Bool {
