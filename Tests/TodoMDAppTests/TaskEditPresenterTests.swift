@@ -229,3 +229,153 @@ struct TaskEditPresenterTests {
         #expect(duplicate.unknownFrontmatter["custom"] == YAMLValue.string("keep"))
     }
 }
+
+@Suite
+struct PerspectiveEditorSaveResolverTests {
+    @Test("Saving applies the typed natural-language query even if Parse Query was not tapped first")
+    func savingAppliesTypedNaturalLanguageQuery() throws {
+        let initialPerspective = PerspectiveDefinition(
+            name: "Friday Focus",
+            rules: PerspectiveRuleGroup(operator: .and, conditions: [])
+        )
+
+        let result = PerspectiveEditorSaveResolver.resolve(
+            initialPerspective: initialPerspective,
+            name: "Friday Focus",
+            icon: "list.bullet",
+            color: nil,
+            sortField: .due,
+            groupBy: .none,
+            layout: .default,
+            existingRules: initialPerspective.effectiveRules,
+            naturalLanguageQuery: "all tasks in project TL due this upcoming Friday",
+            parser: NaturalLanguagePerspectiveParser(calendar: Calendar(identifier: .gregorian)),
+            referenceDate: try #require(ISO8601DateFormatter().date(from: "2026-02-28T12:00:00Z"))
+        )
+
+        let saved = try #require(result.perspective)
+        let rules = flatten(saved.effectiveRules)
+
+        #expect(result.needsFallback == false)
+        #expect(rules.contains { $0.field == .project && $0.operator == .equals && $0.stringValue == "Tl" })
+        #expect(rules.contains { $0.field == .due && $0.operator == .on && $0.stringValue == "this upcoming friday" })
+    }
+
+    @Test("Saving rejects low-confidence natural-language text instead of silently keeping broad rules")
+    func savingRejectsLowConfidenceNaturalLanguageQuery() {
+        let existingRules = PerspectiveRuleGroup(
+            operator: .and,
+            conditions: [
+                .rule(PerspectiveRule(field: .project, operator: .equals, value: "Work"))
+            ]
+        )
+        let initialPerspective = PerspectiveDefinition(
+            name: "Work",
+            rules: existingRules
+        )
+
+        let result = PerspectiveEditorSaveResolver.resolve(
+            initialPerspective: initialPerspective,
+            name: "Work",
+            icon: "list.bullet",
+            color: nil,
+            sortField: .due,
+            groupBy: .none,
+            layout: .default,
+            existingRules: existingRules,
+            naturalLanguageQuery: "asdfghjkl",
+            parser: NaturalLanguagePerspectiveParser(calendar: Calendar(identifier: .gregorian)),
+            referenceDate: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        #expect(result.perspective == nil)
+        #expect(result.needsFallback)
+        #expect(result.feedback == "Could not apply query at 20% confidence.")
+    }
+
+    @Test("Saving a cleared natural-language query clears the saved rules")
+    func savingClearedNaturalLanguageQueryClearsRules() {
+        let existingRules = PerspectiveRuleGroup(
+            operator: .and,
+            conditions: [
+                .rule(PerspectiveRule(field: .project, operator: .equals, value: "Tl"))
+            ]
+        )
+        let initialPerspective = PerspectiveDefinition(
+            name: "Friday Focus",
+            rules: existingRules,
+            sourceQuery: "in project TL"
+        )
+
+        let result = PerspectiveEditorSaveResolver.resolve(
+            initialPerspective: initialPerspective,
+            name: "Friday Focus",
+            icon: "list.bullet",
+            color: nil,
+            sortField: .due,
+            groupBy: .none,
+            layout: .default,
+            existingRules: existingRules,
+            naturalLanguageQuery: "",
+            lastAppliedQuery: "in project TL",
+            parser: NaturalLanguagePerspectiveParser(calendar: Calendar(identifier: .gregorian)),
+            referenceDate: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        let saved = try? #require(result.perspective)
+        #expect(saved?.sourceQuery == nil)
+        #expect(saved?.effectiveRules.conditions.isEmpty == true)
+    }
+
+    @Test("Saving reparses when the visible query differs from the last applied query")
+    func savingReparsesAgainstLastAppliedQuery() throws {
+        let existingRules = PerspectiveRuleGroup(
+            operator: .and,
+            conditions: [
+                .rule(PerspectiveRule(field: .due, operator: .on, value: "tomorrow"))
+            ]
+        )
+        let initialPerspective = PerspectiveDefinition(
+            name: "Friday Focus",
+            rules: PerspectiveRuleGroup(
+                operator: .and,
+                conditions: [
+                    .rule(PerspectiveRule(field: .project, operator: .equals, value: "Tl"))
+                ]
+            ),
+            sourceQuery: "in project TL"
+        )
+
+        let result = PerspectiveEditorSaveResolver.resolve(
+            initialPerspective: initialPerspective,
+            name: "Friday Focus",
+            icon: "list.bullet",
+            color: nil,
+            sortField: .due,
+            groupBy: .none,
+            layout: .default,
+            existingRules: existingRules,
+            naturalLanguageQuery: "in project TL",
+            lastAppliedQuery: "due tomorrow",
+            parser: NaturalLanguagePerspectiveParser(calendar: Calendar(identifier: .gregorian)),
+            referenceDate: try #require(ISO8601DateFormatter().date(from: "2026-02-28T12:00:00Z"))
+        )
+
+        let saved = try #require(result.perspective)
+        let rules = flatten(saved.effectiveRules)
+
+        #expect(rules.contains { $0.field == .project && $0.operator == .equals && $0.stringValue == "Tl" })
+        #expect(!rules.contains { $0.field == .due && $0.operator == .on && $0.stringValue == "tomorrow" })
+    }
+
+    private func flatten(_ group: PerspectiveRuleGroup) -> [PerspectiveRule] {
+        group.conditions.flatMap { condition in
+            switch condition {
+            case .rule(let rule):
+                return [rule]
+            case .group(let subgroup):
+                return flatten(subgroup)
+            }
+        }
+    }
+}
