@@ -6,10 +6,6 @@ import SwiftData
 #if canImport(UIKit)
 import UIKit
 #endif
-#if canImport(WidgetKit)
-import WidgetKit
-#endif
-
 struct TodaySection: Identifiable, Equatable {
     let group: TodayGroup
     let records: [TaskRecord]
@@ -166,6 +162,7 @@ final class AppContainer: ObservableObject {
     private let urlRouter = URLRouter()
     private let appleCalendarService = AppleCalendarService()
     private lazy var calendarIntegrationManager = CalendarIntegrationManager(service: appleCalendarService)
+    private lazy var calendarCoordinator = CalendarCoordinator(manager: calendarIntegrationManager)
     private let usesFakeRemindersImportService: Bool
     private let remindersImportService: any RemindersImportServicing
     private let fileConflictCoordinator = FileConflictCoordinator()
@@ -193,7 +190,6 @@ final class AppContainer: ObservableObject {
     private let observationState = AppContainerObservationState()
     private var metadataQuery: NSMetadataQuery?
     private var suppressMetadataRefreshUntil: Date?
-    private var calendarRefreshTask: Task<Void, Never>?
     private var foregroundRefreshTimer: Timer?
     private var reminderImportRefreshGeneration = 0
     private var startupValidationPending = false
@@ -303,7 +299,7 @@ final class AppContainer: ObservableObject {
         self.perspectivesRepository = PerspectivesRepository()
 
         migrateIntegrationEnablementDefaultsIfNeeded()
-        selectedCalendarSourceIDs = calendarIntegrationManager.loadPersistedSourceSelection()
+        applyCalendarState(calendarCoordinator.initialState())
         loadReminderListSelection()
         loadLocationFavorites()
         loadProjectMetadataFromDisk()
@@ -311,7 +307,6 @@ final class AppContainer: ObservableObject {
         migrateLegacyProjectMetadataFromSettingsIfNeeded()
         loadPerspectivesFromDisk()
         migrateLegacyPerspectivesFromSettingsIfNeeded()
-        isCalendarConnected = appleCalendarService.isConnected
         hydrateInitialStateFromSnapshot()
         configureLifecycleObservers()
         startMetadataQuery()
@@ -2630,83 +2625,50 @@ final class AppContainer: ObservableObject {
     }
 
     func isCalendarSourceSelected(_ sourceID: String) -> Bool {
-        selectedCalendarSourceIDs.contains(sourceID)
+        calendarCoordinator.isSourceSelected(sourceID, state: currentCalendarState)
     }
 
     func setCalendarSourceSelected(sourceID: String, isSelected: Bool) {
-        if isSelected {
-            selectedCalendarSourceIDs.insert(sourceID)
-        } else {
-            selectedCalendarSourceIDs.remove(sourceID)
-        }
-        calendarIntegrationManager.persistSourceSelection(selectedCalendarSourceIDs)
+        var state = currentCalendarState
+        calendarCoordinator.setSourceSelected(
+            sourceID: sourceID,
+            isSelected: isSelected,
+            state: &state
+        )
+        applyCalendarState(state)
         scheduleCalendarRefresh(force: true)
     }
 
     func selectAllCalendarSources() {
-        selectedCalendarSourceIDs = Set(calendarSources.map(\.id))
-        calendarIntegrationManager.persistSourceSelection(selectedCalendarSourceIDs)
+        var state = currentCalendarState
+        calendarCoordinator.selectAllSources(state: &state)
+        applyCalendarState(state)
         scheduleCalendarRefresh(force: true)
     }
 
     func connectCalendar() async {
-        isCalendarSyncing = true
-        calendarStatusMessage = nil
-        do {
-            try await calendarIntegrationManager.connect()
-            isCalendarConnected = true
-            await refreshCalendar(force: true)
-        } catch {
-            calendarStatusMessage = error.localizedDescription
-            if case AppleCalendarServiceError.accessDenied = error {
-                isCalendarConnected = false
-                calendarTodayEvents = []
-                calendarUpcomingSections = []
-                clearWidgetCalendarSnapshot()
-            }
-        }
-        isCalendarSyncing = false
+        let updated = await calendarCoordinator.connect(state: currentCalendarState)
+        applyCalendarState(updated)
     }
 
     func refreshCalendar(force: Bool = false) async {
-        isCalendarSyncing = true
-        defer { isCalendarSyncing = false }
-
-        let result = calendarIntegrationManager.refresh(
-            force: force,
-            selectedSourceIDs: selectedCalendarSourceIDs
+        let updated = await calendarCoordinator.refresh(
+            state: currentCalendarState,
+            force: force
         )
-        guard !result.wasThrottled else {
-            return
-        }
-
-        isCalendarConnected = result.isConnected
-        calendarStatusMessage = result.statusMessage
-        calendarSources = result.sources
-        selectedCalendarSourceIDs = result.selectedSourceIDs
-        calendarTodayEvents = result.todayEvents
-        calendarUpcomingSections = result.upcomingSections
-
-        if result.shouldClearSnapshot {
-            clearWidgetCalendarSnapshot()
-        } else if let capturedAt = result.capturedAt {
-            saveWidgetCalendarSnapshot(capturedAt: capturedAt)
-        }
+        applyCalendarState(updated)
     }
 
     private func scheduleCalendarRefresh(force: Bool = false) {
-        if force {
-            calendarRefreshTask?.cancel()
-            calendarRefreshTask = nil
-        } else if calendarRefreshTask != nil {
-            return
-        }
-
-        calendarRefreshTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.refreshCalendar(force: force)
-            self.calendarRefreshTask = nil
-        }
+        calendarCoordinator.scheduleRefresh(
+            force: force,
+            stateProvider: { [weak self] in
+                self?.currentCalendarState ?? CalendarCoordinatorState()
+            },
+            apply: { [weak self] updatedState in
+                self?.applyCalendarState(updatedState)
+            }
+        )
     }
 
     private func loadReminderListSelection() {
@@ -3126,26 +3088,26 @@ final class AppContainer: ObservableObject {
         return normalized
     }
 
-    private func saveWidgetCalendarSnapshot(capturedAt: Date) {
-        let snapshot = WidgetCalendarSnapshot(
-            capturedAt: capturedAt,
-            capturedDay: LocalDate.today(in: .current),
-            todayEvents: calendarTodayEvents.map(\.widgetSnapshotValue),
-            upcomingSections: calendarUpcomingSections.map(\.widgetSnapshotValue)
+    private var currentCalendarState: CalendarCoordinatorState {
+        CalendarCoordinatorState(
+            isConnected: isCalendarConnected,
+            isSyncing: isCalendarSyncing,
+            statusMessage: calendarStatusMessage,
+            sources: calendarSources,
+            selectedSourceIDs: selectedCalendarSourceIDs,
+            todayEvents: calendarTodayEvents,
+            upcomingSections: calendarUpcomingSections
         )
-        WidgetCalendarSnapshotStore.save(snapshot)
-        reloadTodayTomorrowWidgetTimeline()
     }
 
-    private func clearWidgetCalendarSnapshot() {
-        WidgetCalendarSnapshotStore.clear()
-        reloadTodayTomorrowWidgetTimeline()
-    }
-
-    private func reloadTodayTomorrowWidgetTimeline() {
-#if canImport(WidgetKit)
-        WidgetCenter.shared.reloadTimelines(ofKind: "TodoMDTodayTomorrowWidget")
-#endif
+    private func applyCalendarState(_ state: CalendarCoordinatorState) {
+        isCalendarConnected = state.isConnected
+        isCalendarSyncing = state.isSyncing
+        calendarStatusMessage = state.statusMessage
+        calendarSources = state.sources
+        selectedCalendarSourceIDs = state.selectedSourceIDs
+        calendarTodayEvents = state.todayEvents
+        calendarUpcomingSections = state.upcomingSections
     }
 
     private func migrateLegacyPerspectivesFromSettingsIfNeeded() {

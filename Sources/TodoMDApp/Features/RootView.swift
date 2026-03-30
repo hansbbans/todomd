@@ -1837,6 +1837,12 @@ struct RootView: View {
         if container.selectedView == .builtIn(.inbox) {
             return AnyView(inboxMainContent(records: records))
         }
+        if isAreasSelection(container.selectedView) {
+            return AnyView(areasMainContent(records: records))
+        }
+        if isPerspectiveSelection(container.selectedView) {
+            return AnyView(perspectiveMainContent(records: records))
+        }
         if records.isEmpty, shouldRenderInlineTaskComposerInList {
             return AnyView(emptyInlineTaskComposerList)
         }
@@ -2009,6 +2015,68 @@ struct RootView: View {
                 },
                 heroRow: {
                     mainHeroListRow
+                },
+                taskRow: { record in
+                    taskRowItem(record)
+                },
+                unparseableSummary: {
+                    unparseableFilesSummary
+                }
+            )
+        }
+    }
+
+    private func areasMainContent(records: [TaskRecord]) -> some View {
+        let descriptor = AreasTabDescriptor.make(
+            view: container.selectedView,
+            records: records,
+            showsInlineComposer: shouldRenderInlineTaskComposerInList
+        )
+
+        return taskList(id: descriptor.listID, creationScrollTarget: records.last?.identity.path) {
+            AreasTabView(
+                descriptor: descriptor,
+                records: records,
+                onReorder: { filenames in
+                    guard container.canManuallyReorderSelectedView() else { return }
+                    container.saveManualOrder(filenames: filenames)
+                },
+                heroRow: {
+                    mainHeroListRow
+                },
+                inlineComposer: {
+                    inlineTaskComposerListRow
+                },
+                taskRow: { record in
+                    taskRowItem(record)
+                },
+                unparseableSummary: {
+                    unparseableFilesSummary
+                }
+            )
+        }
+    }
+
+    private func perspectiveMainContent(records: [TaskRecord]) -> some View {
+        let descriptor = PerspectiveTabDescriptor.make(
+            view: container.selectedView,
+            records: records,
+            showsInlineComposer: shouldRenderInlineTaskComposerInList
+        )
+
+        return taskList(id: descriptor.listID, creationScrollTarget: records.last?.identity.path) {
+            PerspectiveTabView(
+                descriptor: descriptor,
+                records: records,
+                onReorder: { filenames in
+                    guard container.canManuallyReorderSelectedView() else { return }
+                    container.saveManualOrder(filenames: filenames)
+                },
+                heroRow: {
+                    mainHeroListRow
+                },
+                inlineComposer: {
+                    inlineTaskComposerListRow
                 },
                 taskRow: { record in
                     taskRowItem(record)
@@ -2247,6 +2315,20 @@ struct RootView: View {
             }
             return MainViewHeroConfiguration(title: id, symbolName: "list.bullet", iconColor: theme.accentColor)
         }
+    }
+
+    private func isAreasSelection(_ view: ViewIdentifier) -> Bool {
+        switch view {
+        case .area, .project, .tag:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func isPerspectiveSelection(_ view: ViewIdentifier) -> Bool {
+        guard case .custom(let rawValue) = view else { return false }
+        return rawValue != ViewIdentifier.browseRawValue
     }
 
     private var todayCalendarCardListRow: some View {
