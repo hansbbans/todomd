@@ -1,6 +1,169 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+struct PerspectiveEditorSaveResolution {
+    let perspective: PerspectiveDefinition?
+    let needsFallback: Bool
+    let feedback: String?
+    let confidence: Double?
+    let appliedQuery: Bool
+}
+
+enum PerspectiveEditorSaveResolver {
+    static func resolve(
+        initialPerspective: PerspectiveDefinition,
+        name: String,
+        icon: String?,
+        color: String?,
+        sortField: PerspectiveSortField,
+        groupBy: PerspectiveGroupBy,
+        layout: PerspectiveLayout,
+        existingRules: PerspectiveRuleGroup,
+        naturalLanguageQuery: String,
+        lastAppliedQuery: String? = nil,
+        parser: NaturalLanguagePerspectiveParser,
+        referenceDate: Date
+    ) -> PerspectiveEditorSaveResolution {
+        let trimmedQuery = naturalLanguageQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let previousQuery = lastAppliedQuery?.trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? initialPerspective.sourceQuery?.trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? ""
+
+        var resolvedRules = existingRules
+        var feedback: String?
+        var confidence: Double?
+        var appliedQuery = false
+
+        if trimmedQuery != previousQuery {
+            guard !trimmedQuery.isEmpty else {
+                resolvedRules = PerspectiveRuleGroup(operator: .and, conditions: [])
+                appliedQuery = true
+                return finalizedResolution(
+                    initialPerspective: initialPerspective,
+                    name: name,
+                    icon: icon,
+                    color: color,
+                    sortField: sortField,
+                    groupBy: groupBy,
+                    layout: layout,
+                    resolvedRules: resolvedRules,
+                    trimmedQuery: trimmedQuery,
+                    feedback: feedback,
+                    confidence: confidence,
+                    appliedQuery: appliedQuery
+                )
+            }
+
+            let parsed = parser.parse(trimmedQuery, relativeTo: referenceDate)
+            confidence = parsed.confidence
+            let confidence = confidenceText(parsed.confidence)
+
+            guard !parsed.requiresCloudFallback else {
+                return PerspectiveEditorSaveResolution(
+                    perspective: nil,
+                    needsFallback: true,
+                    feedback: "Could not apply query at \(confidence) confidence.",
+                    confidence: parsed.confidence,
+                    appliedQuery: false
+                )
+            }
+
+            resolvedRules = parsed.rules
+            feedback = "Applied query with \(confidence) confidence."
+            appliedQuery = true
+        }
+
+        return finalizedResolution(
+            initialPerspective: initialPerspective,
+            name: name,
+            icon: icon,
+            color: color,
+            sortField: sortField,
+            groupBy: groupBy,
+            layout: layout,
+            resolvedRules: resolvedRules,
+            trimmedQuery: trimmedQuery,
+            feedback: feedback,
+            confidence: confidence,
+            appliedQuery: appliedQuery
+        )
+    }
+
+    private static func finalizedResolution(
+        initialPerspective: PerspectiveDefinition,
+        name: String,
+        icon: String?,
+        color: String?,
+        sortField: PerspectiveSortField,
+        groupBy: PerspectiveGroupBy,
+        layout: PerspectiveLayout,
+        resolvedRules: PerspectiveRuleGroup,
+        trimmedQuery: String,
+        feedback: String?,
+        confidence: Double?,
+        appliedQuery: Bool
+    ) -> PerspectiveEditorSaveResolution {
+        var updated = initialPerspective
+        updated.name = name
+        updated.icon = AppIconToken.normalizedSelection(icon, fallbackSymbol: "list.bullet")
+        updated.color = color
+        updated.sort = PerspectiveSort(field: sortField, direction: .asc)
+        updated.groupBy = groupBy
+        updated.layout = layout
+        updated.rules = resolvedRules
+        updated.sourceQuery = trimmedQuery.isEmpty ? nil : trimmedQuery
+
+        let legacy = extractLegacyRules(from: resolvedRules)
+        updated.allRules = legacy.all
+        updated.anyRules = legacy.any
+        updated.noneRules = legacy.none
+
+        return PerspectiveEditorSaveResolution(
+            perspective: updated,
+            needsFallback: false,
+            feedback: feedback,
+            confidence: confidence,
+            appliedQuery: appliedQuery
+        )
+    }
+
+    private static func confidenceText(_ confidence: Double) -> String {
+        let bounded = min(max(confidence, 0), 1)
+        return "\(Int((bounded * 100).rounded()))%"
+    }
+
+    private static func extractLegacyRules(from group: PerspectiveRuleGroup) -> (all: [PerspectiveRule], any: [PerspectiveRule], none: [PerspectiveRule]) {
+        guard group.operator == .and else { return ([], [], []) }
+
+        var allRules: [PerspectiveRule] = []
+        var anyRules: [PerspectiveRule] = []
+        var noneRules: [PerspectiveRule] = []
+
+        for condition in group.conditions {
+            switch condition {
+            case .rule(let rule):
+                allRules.append(rule)
+            case .group(let subgroup):
+                let rules = subgroup.conditions.compactMap { condition -> PerspectiveRule? in
+                    if case .rule(let rule) = condition { return rule }
+                    return nil
+                }
+                if rules.count != subgroup.conditions.count { continue }
+                switch subgroup.operator {
+                case .or:
+                    anyRules.append(contentsOf: rules)
+                case .not:
+                    noneRules.append(contentsOf: rules)
+                default:
+                    break
+                }
+            }
+        }
+
+        return (allRules, anyRules, noneRules)
+    }
+}
+
 struct PerspectivesView: View {
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var container: AppContainer
@@ -205,11 +368,13 @@ struct PerspectiveEditorSheet: View {
     @State private var layout: PerspectiveLayout
     @State private var rootRules: PerspectiveRuleGroup
     @State private var naturalLanguageQuery: String
+    @State private var lastAppliedNaturalLanguageQuery: String
     @State private var naturalLanguageSummary: String
     @State private var naturalLanguageNeedsFallback: Bool
     @State private var naturalLanguageConfidence: Double?
     @State private var naturalLanguageFeedback: String?
     private let nlParser = NaturalLanguagePerspectiveParser()
+    private let parserReferenceDate: Date
 
     private let colorChoices: [(name: String, hex: String?)] = [
         ("Default", nil),
@@ -228,6 +393,7 @@ struct PerspectiveEditorSheet: View {
     init(initialPerspective: PerspectiveDefinition, onSave: @escaping (PerspectiveDefinition) -> Void) {
         self.initialPerspective = initialPerspective
         self.onSave = onSave
+        parserReferenceDate = Date()
         _name = State(initialValue: initialPerspective.name)
         _icon = State(initialValue: AppIconToken(initialPerspective.icon, fallbackSymbol: "list.bullet").storageValue)
         _color = State(initialValue: initialPerspective.color)
@@ -236,6 +402,7 @@ struct PerspectiveEditorSheet: View {
         _layout = State(initialValue: initialPerspective.layout)
         _rootRules = State(initialValue: initialPerspective.effectiveRules)
         _naturalLanguageQuery = State(initialValue: initialPerspective.sourceQuery ?? "")
+        _lastAppliedNaturalLanguageQuery = State(initialValue: initialPerspective.sourceQuery ?? "")
         _naturalLanguageSummary = State(initialValue: RulesNaturalizer().naturalize(group: initialPerspective.effectiveRules))
         _naturalLanguageNeedsFallback = State(initialValue: false)
         _naturalLanguageConfidence = State(initialValue: nil)
@@ -333,20 +500,33 @@ struct PerspectiveEditorSheet: View {
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") {
-                    var updated = initialPerspective
-                    updated.name = name
-                    updated.icon = AppIconToken.normalizedSelection(icon, fallbackSymbol: "list.bullet")
-                    updated.color = color
-                    updated.sort = PerspectiveSort(field: sortField, direction: .asc)
-                    updated.groupBy = groupBy
-                    updated.layout = layout
-                    updated.rules = rootRules
-                    let trimmedQuery = naturalLanguageQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-                    updated.sourceQuery = trimmedQuery.isEmpty ? nil : trimmedQuery
-                    let legacy = extractLegacyRules(from: rootRules)
-                    updated.allRules = legacy.all
-                    updated.anyRules = legacy.any
-                    updated.noneRules = legacy.none
+                    let result = PerspectiveEditorSaveResolver.resolve(
+                        initialPerspective: initialPerspective,
+                        name: name,
+                        icon: icon,
+                        color: color,
+                        sortField: sortField,
+                        groupBy: groupBy,
+                        layout: layout,
+                        existingRules: rootRules,
+                        naturalLanguageQuery: naturalLanguageQuery,
+                        lastAppliedQuery: lastAppliedNaturalLanguageQuery,
+                        parser: nlParser,
+                        referenceDate: parserReferenceDate
+                    )
+
+                    naturalLanguageConfidence = result.confidence
+                    naturalLanguageNeedsFallback = result.needsFallback
+                    if let feedback = result.feedback {
+                        naturalLanguageFeedback = feedback
+                    }
+
+                    guard let updated = result.perspective else { return }
+                    if result.appliedQuery {
+                        rootRules = updated.effectiveRules
+                        naturalLanguageSummary = RulesNaturalizer().naturalize(group: updated.effectiveRules)
+                        lastAppliedNaturalLanguageQuery = naturalLanguageQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
                     onSave(updated)
                 }
                 .disabled(!canSave)
@@ -361,7 +541,7 @@ struct PerspectiveEditorSheet: View {
     private func applyNaturalLanguageQuery() {
         let query = naturalLanguageQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return }
-        let parsed = nlParser.parse(query)
+        let parsed = nlParser.parse(query, relativeTo: parserReferenceDate)
         naturalLanguageConfidence = parsed.confidence
         naturalLanguageNeedsFallback = parsed.requiresCloudFallback
         if parsed.requiresCloudFallback {
@@ -371,6 +551,7 @@ struct PerspectiveEditorSheet: View {
         rootRules = parsed.rules
         naturalLanguageSummary = parsed.summary
         naturalLanguageFeedback = "Applied query with \(confidenceText(parsed.confidence)) confidence."
+        lastAppliedNaturalLanguageQuery = query
         if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || name == initialPerspective.name {
             name = parsed.suggestedName
         }
@@ -379,37 +560,6 @@ struct PerspectiveEditorSheet: View {
     private func confidenceText(_ confidence: Double) -> String {
         let bounded = min(max(confidence, 0), 1)
         return "\(Int((bounded * 100).rounded()))%"
-    }
-
-    private func extractLegacyRules(from group: PerspectiveRuleGroup) -> (all: [PerspectiveRule], any: [PerspectiveRule], none: [PerspectiveRule]) {
-        guard group.operator == .and else { return ([], [], []) }
-
-        var allRules: [PerspectiveRule] = []
-        var anyRules: [PerspectiveRule] = []
-        var noneRules: [PerspectiveRule] = []
-
-        for condition in group.conditions {
-            switch condition {
-            case .rule(let rule):
-                allRules.append(rule)
-            case .group(let subgroup):
-                let rules = subgroup.conditions.compactMap { condition -> PerspectiveRule? in
-                    if case .rule(let rule) = condition { return rule }
-                    return nil
-                }
-                if rules.count != subgroup.conditions.count { continue }
-                switch subgroup.operator {
-                case .or:
-                    anyRules.append(contentsOf: rules)
-                case .not:
-                    noneRules.append(contentsOf: rules)
-                default:
-                    break
-                }
-            }
-        }
-
-        return (allRules, anyRules, noneRules)
     }
 
     private func sortLabel(_ value: PerspectiveSortField) -> String {

@@ -14,6 +14,12 @@
 		020A608FE4C35FD7466E2ABA /* TaskMetadataIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62DA532BFF4ACE698347D0F7 /* TaskMetadataIndex.swift */; };
 		020CCE4AB4B194FC1A1C87AF /* TaskIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B02E1A9E0F23E1CBF767DB86 /* TaskIntents.swift */; };
 		021E7FA61BD28FD396C3E65D /* InboxRemindersImportPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DE9BABA81B2FF42E317B82F /* InboxRemindersImportPanel.swift */; };
+		A1B2C3D40123456789ABC001 /* AreasTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40123456789ABC101 /* AreasTabView.swift */; };
+		A1B2C3D40123456789ABC002 /* AreasTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40123456789ABC101 /* AreasTabView.swift */; };
+		A1B2C3D40123456789ABC003 /* PerspectiveTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40123456789ABC102 /* PerspectiveTabView.swift */; };
+		A1B2C3D40123456789ABC004 /* PerspectiveTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40123456789ABC102 /* PerspectiveTabView.swift */; };
+		A1B2C3D40123456789ABC005 /* CalendarCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40123456789ABC103 /* CalendarCoordinator.swift */; };
+		A1B2C3D40123456789ABC006 /* CalendarCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40123456789ABC103 /* CalendarCoordinator.swift */; };
 		02EDA998A30DB24A8C86DEFE /* URLRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5ADF1FFE8B19282D2108D80 /* URLRouting.swift */; };
 		0365CA2DCEC04EE121F5FD45 /* NotificationPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C7E95727AD686EDD3808AAF /* NotificationPlanner.swift */; };
 		03E95671DF051AE2C7FD1B4F /* TaskFrontmatterV1.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC55D6E6844FFBD6FE1CADA9 /* TaskFrontmatterV1.swift */; };
@@ -540,6 +546,9 @@
 		6610505BFF0970DD488B404A /* RootNavigationCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootNavigationCatalog.swift; sourceTree = "<group>"; };
 		67D4CD5F6DEC2B7692A7513B /* WidgetCalendarSnapshotStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetCalendarSnapshotStoreTests.swift; sourceTree = "<group>"; };
 		698CBBDCE009990A0D752AE9 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		A1B2C3D40123456789ABC101 /* AreasTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AreasTabView.swift; sourceTree = "<group>"; };
+		A1B2C3D40123456789ABC102 /* PerspectiveTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerspectiveTabView.swift; sourceTree = "<group>"; };
+		A1B2C3D40123456789ABC103 /* CalendarCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarCoordinator.swift; sourceTree = "<group>"; };
 		6B6C0BE73203312AB750876B /* WeeklyReviewEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeklyReviewEngine.swift; sourceTree = "<group>"; };
 		6B85F1CCD3E02A5DB9F1E61C /* ReviewTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewTabView.swift; sourceTree = "<group>"; };
 		6BE46D21A865599F8076EB2C /* FileConflictCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileConflictCoordinator.swift; sourceTree = "<group>"; };
@@ -751,6 +760,7 @@
 			isa = PBXGroup;
 			children = (
 				98C4609ABA1B5BD6F04D10F1 /* AnytimeTabView.swift */,
+				A1B2C3D40123456789ABC101 /* AreasTabView.swift */,
 				F387E447C994E4A5B9425DD3 /* BuiltInView+Display.swift */,
 				B7E52DEF3F32A7ABED000AF8 /* CalendarPanels.swift */,
 				26DC654BE22CCC66514C29D8 /* ExpandedTaskConfiguration.swift */,
@@ -758,6 +768,7 @@
 				638E168BCFF93CF0D570065E /* InboxTabView.swift */,
 				06CD181104B5C469205FE442 /* InboxTriageView.swift */,
 				56701D6CD1DD2427C82B0B79 /* LogbookTabView.swift */,
+				A1B2C3D40123456789ABC102 /* PerspectiveTabView.swift */,
 				C4E2BFCBD61CB66DDF04581D /* PomodoroTimerView.swift */,
 				ABCB56B0C11890AF459AF643 /* QuickEntryConfiguration.swift */,
 				F2D180178D92493DC79037FE /* QuickEntrySheet.swift */,
@@ -818,6 +829,7 @@
 			children = (
 				29579C17BE615FA443E12FAA /* AppContainer.swift */,
 				5A604671F22BE76296C1EF55 /* AppDelegate.swift */,
+				A1B2C3D40123456789ABC103 /* CalendarCoordinator.swift */,
 				6BE46D21A865599F8076EB2C /* FileConflictCoordinator.swift */,
 				C48542C05CDBE5E0A330FDF0 /* NotificationActionCoordinator.swift */,
 				548B3909CB717B70664E503F /* OnboardingIntegrationPrimerCoordinator.swift */,
@@ -1315,12 +1327,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				6A0BAF5406D555F25C7DC14B /* AnytimeTabView.swift in Sources */,
+				A1B2C3D40123456789ABC001 /* AreasTabView.swift in Sources */,
 				987E7554188B02D4425F99D5 /* AppContainer.swift in Sources */,
 				1E4B560619871EE7ABEC3564 /* AppDelegate.swift in Sources */,
 				4707D253B0830FAA7C29C807 /* AppIconPicker.swift in Sources */,
 				0B81D6703C19995A6A1D6AE6 /* AppleCalendarService.swift in Sources */,
 				A4A035BF77B6E013C3CAE297 /* BuiltInView+Display.swift in Sources */,
 				9197037339E9819B6DECB721 /* CalendarAccessAuthorizing.swift in Sources */,
+				A1B2C3D40123456789ABC005 /* CalendarCoordinator.swift in Sources */,
 				B063885C69468BC6F882435E /* CalendarIntegrationManager.swift in Sources */,
 				B56A7688F08408473B7B0B58 /* CalendarPanels.swift in Sources */,
 				72E49D082F71F9235154494E /* CompactTabChoiceCatalog.swift in Sources */,
@@ -1356,6 +1370,7 @@
 				47FC4C9F4F0A135A81069A83 /* OrderDocument.swift in Sources */,
 				30814D39A52046FD042DB010 /* OrderRepository.swift in Sources */,
 				01ADC2BDE1327A94E2B05FC2 /* PendingWriteJournal.swift in Sources */,
+				A1B2C3D40123456789ABC003 /* PerspectiveTabView.swift in Sources */,
 				DFADF076222BA2A033F9369B /* PerspectiveQueryEngine.swift in Sources */,
 				B023B076F87D623BFC78F558 /* PerspectivesDocument.swift in Sources */,
 				430C95CA88935590410F5C62 /* PerspectivesRepository.swift in Sources */,
@@ -1430,12 +1445,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				679C60F82F004FBEDC0984D6 /* AnytimeTabView.swift in Sources */,
+				A1B2C3D40123456789ABC002 /* AreasTabView.swift in Sources */,
 				455849AF2DC031F8FA333681 /* AppContainer.swift in Sources */,
 				5A327CB70F0C08342370D8FB /* AppDelegate.swift in Sources */,
 				D3A2A6B72CED26990F51925A /* AppIconPicker.swift in Sources */,
 				12C303028A406F44A8064648 /* AppleCalendarService.swift in Sources */,
 				5714A6F46DA24A92E698FCE5 /* BuiltInView+Display.swift in Sources */,
 				296CC1248F8B85CC28829FFC /* CalendarAccessAuthorizing.swift in Sources */,
+				A1B2C3D40123456789ABC006 /* CalendarCoordinator.swift in Sources */,
 				79DA47A995D6801C136E9A5B /* CalendarIntegrationManager.swift in Sources */,
 				D2222D8F4982E43E705A3CEA /* CalendarPanels.swift in Sources */,
 				F5C60085DCB13E8731CF5E79 /* CompactTabChoiceCatalog.swift in Sources */,
@@ -1471,6 +1488,7 @@
 				B57467CDA86866342CA3EAAE /* OrderDocument.swift in Sources */,
 				72C047339CE8A372916FC8A9 /* OrderRepository.swift in Sources */,
 				6FF10D9E0B12F5D030EF2F3E /* PendingWriteJournal.swift in Sources */,
+				A1B2C3D40123456789ABC004 /* PerspectiveTabView.swift in Sources */,
 				9CF1D71EF770677F88EFD967 /* PerspectiveQueryEngine.swift in Sources */,
 				EEE0876E47F414659742B925 /* PerspectivesDocument.swift in Sources */,
 				4146A809509587BA4A3B3344 /* PerspectivesRepository.swift in Sources */,

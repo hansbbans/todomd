@@ -1592,6 +1592,50 @@ final class TodoMDAppUITests: XCTestCase {
         cancelButton.tap()
     }
 
+    func testPerspectiveToolbarMenuAllowsDeletingPerspective() throws {
+        let storageOverride = makeStorageOverridePath()
+        try seedPerspective(
+            rootPath: storageOverride,
+            id: "focus-mode",
+            name: "Focus Mode"
+        )
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-did_complete_onboarding", "YES"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        let browseTab = browseTabButton(in: app, timeout: 10)
+        XCTAssertTrue(browseTab.exists, "Browse tab not visible")
+        browseTab.tap()
+
+        let perspectiveButton = app.buttons["root.browse.perspective:focus-mode"].firstMatch
+        XCTAssertTrue(reveal(element: perspectiveButton, in: app), "Perspective entry was not visible in Browse")
+        perspectiveButton.tap()
+
+        let actionsButton = app.buttons["root.perspective.actionsButton"].firstMatch
+        XCTAssertTrue(actionsButton.waitForExistence(timeout: 10), "Perspective actions button not visible")
+        actionsButton.tap()
+
+        let editAction = app.buttons["root.perspective.actions.edit"].firstMatch
+        XCTAssertTrue(editAction.waitForExistence(timeout: 5), "Edit perspective action not visible")
+
+        let deleteAction = app.buttons["root.perspective.actions.delete"].firstMatch
+        XCTAssertTrue(deleteAction.waitForExistence(timeout: 5), "Delete perspective action not visible")
+        deleteAction.tap()
+
+        let confirmDeleteButton = app.alerts.buttons["Delete"].firstMatch
+        XCTAssertTrue(confirmDeleteButton.waitForExistence(timeout: 5), "Delete confirmation did not appear")
+        confirmDeleteButton.tap()
+
+        browseTab.tap()
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 5, pollInterval: 0.1) { !perspectiveButton.exists },
+            "Deleted perspective should no longer appear in Browse"
+        )
+    }
+
     func testInboxSmartTriageManualProjectAssignmentCanAdvanceQueue() throws {
         throw XCTSkip("Workflow placement is covered by RootNavigationCatalogTests; compact tab automation is still flaky in UI tests.")
     }
