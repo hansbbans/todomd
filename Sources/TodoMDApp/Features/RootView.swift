@@ -2165,7 +2165,7 @@ struct RootView: View {
             searchText: $logbookSearchText,
             filteredRecords: filtered,
             genericEmptyContent: {
-                genericEmptyStateContent
+                logbookEmptyStateContent
             },
             searchEmptyContent: { searchEmptyState in
                 logbookSearchEmptyStateContent(
@@ -2174,9 +2174,38 @@ struct RootView: View {
                 )
             },
             populatedContent: { filteredRecords in
-                populatedRecordsMainContent(records: filteredRecords)
+                logbookPopulatedContent(records: filteredRecords)
             }
         )
+    }
+
+    private var logbookEmptyStateContent: some View {
+        taskList(id: "\(container.selectedView.rawValue)-empty") {
+            mainHeroListRow
+
+            if shouldShowSourceActivityInLogbook {
+                logbookSourceActivityListRow
+            }
+
+            VStack(spacing: 12) {
+                IllustratedEmptyState(
+                    symbol: "checkmark.circle",
+                    glowColor: Color.teal.opacity(0.15),
+                    title: "Nothing in logbook yet",
+                    subtitle: "Completed and changed tasks will show up here."
+                )
+                unparseableFilesSummary
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, ThingsSurfaceLayout.emptyStateTopPadding)
+            .padding(.bottom, ThingsSurfaceLayout.emptyStateBottomPadding)
+#if os(iOS)
+            .modifier(RootListContentBoundaryReporter(isEnabled: shouldTrackTaskListBoundaryMetrics))
+#endif
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+        }
     }
 
     private func logbookSearchEmptyStateContent(
@@ -2249,6 +2278,71 @@ struct RootView: View {
                 container.saveManualOrder(filenames: reordered.map { $0.identity.filename })
             }
         }
+    }
+
+    private func logbookPopulatedContent(records: [TaskRecord]) -> some View {
+        taskList(
+            id: container.selectedView.rawValue,
+            creationScrollTarget: records.last?.identity.path
+        ) {
+            mainHeroListRow
+
+            if shouldShowSourceActivityInLogbook {
+                logbookSourceActivityListRow
+            }
+
+            ForEach(records) { record in
+                taskRowItem(record)
+            }
+        }
+    }
+
+    private var shouldShowSourceActivityInLogbook: Bool {
+        guard container.selectedView == .builtIn(.logbook) else { return false }
+        guard logbookSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        return !logbookSourceActivityEntries.isEmpty
+    }
+
+    private var logbookSourceActivityEntries: [SourceActivityEntry] {
+        container.sourceActivityLog.recentEntries(limit: 12)
+    }
+
+    private var logbookSourceActivityListRow: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Label("Recent Source Activity", systemImage: "bolt.horizontal.circle")
+                    .font(.headline)
+                    .foregroundStyle(theme.textPrimaryColor)
+
+                Spacer(minLength: 8)
+
+                Text("Latest external changes")
+                    .font(.caption)
+                    .foregroundStyle(theme.textSecondaryColor)
+            }
+
+            SourceActivityFeedView(entries: logbookSourceActivityEntries)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+        .background(
+            ThingsSurfaceBackdrop(
+                kind: .elevatedCard,
+                theme: theme,
+                colorScheme: colorScheme
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: ThingsSurfaceKind.elevatedCard.cornerRadius, style: .continuous))
+        .padding(.horizontal, ThingsSurfaceLayout.floatingCardHorizontalInset)
+        .padding(.top, ThingsSurfaceLayout.supportingCardTopPadding)
+        .padding(.bottom, ThingsSurfaceLayout.supportingCardBottomPadding)
+        .listRowInsets(EdgeInsets())
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+        .accessibilityIdentifier("logbook.sourceActivity")
+#if os(iOS)
+        .modifier(RootListContentBoundaryReporter(isEnabled: shouldTrackTaskListBoundaryMetrics))
+#endif
     }
 
     private var mainHeroListRow: some View {
