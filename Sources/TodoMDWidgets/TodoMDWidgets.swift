@@ -3,8 +3,11 @@ import SwiftUI
 import WidgetKit
 
 private let quickAddURL = URL(string: "todomd://quick-add")!
+private let voiceRambleURL = URL(string: "todomd://voice-ramble")!
 private let todoMDWidgetKind = "TodoMDTasksWidget"
 private let todoMDTodayTomorrowWidgetKind = "TodoMDTodayTomorrowWidget"
+private let todoMDQuickAddAccessoryWidgetKind = "TodoMDQuickAddAccessoryWidget"
+private let todoMDVoiceRambleAccessoryWidgetKind = "TodoMDVoiceRambleAccessoryWidget"
 
 enum WidgetTaskSourceOption: String, AppEnum {
     case today
@@ -179,6 +182,14 @@ struct TodoMDTodayTomorrowWidgetEntry: TimelineEntry, Codable {
     let tomorrowTasks: [WidgetTaskItem]
     let todayEvents: [WidgetCalendarEventSnapshot]
     let tomorrowEvents: [WidgetCalendarEventSnapshot]
+}
+
+struct TodoMDQuickAddAccessoryEntry: TimelineEntry {
+    let date: Date
+}
+
+struct TodoMDVoiceRambleAccessoryEntry: TimelineEntry {
+    let date: Date
 }
 
 private struct WidgetEntryCache {
@@ -754,6 +765,36 @@ struct TodayTomorrowTimelineProvider: TimelineProvider {
                 )
             ]
         )
+    }
+}
+
+struct TodoMDQuickAddAccessoryTimelineProvider: TimelineProvider {
+    func placeholder(in _: Context) -> TodoMDQuickAddAccessoryEntry {
+        TodoMDQuickAddAccessoryEntry(date: Date())
+    }
+
+    func getSnapshot(in _: Context, completion: @escaping (TodoMDQuickAddAccessoryEntry) -> Void) {
+        completion(TodoMDQuickAddAccessoryEntry(date: Date()))
+    }
+
+    func getTimeline(in _: Context, completion: @escaping (Timeline<TodoMDQuickAddAccessoryEntry>) -> Void) {
+        let entry = TodoMDQuickAddAccessoryEntry(date: Date())
+        completion(Timeline(entries: [entry], policy: .never))
+    }
+}
+
+struct TodoMDVoiceRambleAccessoryTimelineProvider: TimelineProvider {
+    func placeholder(in _: Context) -> TodoMDVoiceRambleAccessoryEntry {
+        TodoMDVoiceRambleAccessoryEntry(date: Date())
+    }
+
+    func getSnapshot(in _: Context, completion: @escaping (TodoMDVoiceRambleAccessoryEntry) -> Void) {
+        completion(TodoMDVoiceRambleAccessoryEntry(date: Date()))
+    }
+
+    func getTimeline(in _: Context, completion: @escaping (Timeline<TodoMDVoiceRambleAccessoryEntry>) -> Void) {
+        let entry = TodoMDVoiceRambleAccessoryEntry(date: Date())
+        completion(Timeline(entries: [entry], policy: .never))
     }
 }
 
@@ -1338,6 +1379,114 @@ struct TodoMDTodayTomorrowWidgetView: View {
     }
 }
 
+struct TodoMDQuickAddAccessoryWidgetView: View {
+    @Environment(\.widgetFamily) private var family
+
+    let entry: TodoMDQuickAddAccessoryEntry
+
+    var body: some View {
+        Group {
+            switch family {
+            case .accessoryCircular:
+                circularContent
+            case .accessoryRectangular:
+                rectangularContent
+            case .accessoryInline:
+                inlineContent
+            default:
+                inlineContent
+            }
+        }
+        .widgetURL(quickAddURL)
+    }
+
+    private var circularContent: some View {
+        ZStack {
+            Circle()
+                .fill(.clear)
+
+            Image(systemName: "plus")
+                .font(.system(size: 19, weight: .semibold))
+                .widgetAccentable()
+        }
+        .accessibilityLabel("Add Task")
+    }
+
+    private var rectangularContent: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Add Task")
+                .font(.system(.headline, design: .rounded).weight(.semibold))
+                .lineLimit(1)
+
+            Text("Open quick entry")
+                .font(.system(.caption2, design: .rounded))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .accessibilityLabel("Add Task")
+    }
+
+    private var inlineContent: some View {
+        Label("Add Task", systemImage: "plus")
+            .accessibilityLabel("Add Task")
+    }
+}
+
+struct TodoMDVoiceRambleAccessoryWidgetView: View {
+    @Environment(\.widgetFamily) private var family
+
+    let entry: TodoMDVoiceRambleAccessoryEntry
+
+    var body: some View {
+        Group {
+            switch family {
+            case .accessoryCircular:
+                circularContent
+            case .accessoryRectangular:
+                rectangularContent
+            case .accessoryInline:
+                inlineContent
+            default:
+                inlineContent
+            }
+        }
+        .widgetURL(voiceRambleURL)
+    }
+
+    private var circularContent: some View {
+        ZStack {
+            Circle()
+                .fill(.clear)
+
+            Image(systemName: "waveform")
+                .font(.system(size: 17, weight: .semibold))
+                .widgetAccentable()
+        }
+        .accessibilityLabel("Voice Ramble")
+    }
+
+    private var rectangularContent: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Voice Ramble")
+                .font(.system(.headline, design: .rounded).weight(.semibold))
+                .lineLimit(1)
+
+            Text("Open voice capture")
+                .font(.system(.caption2, design: .rounded))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .accessibilityLabel("Voice Ramble")
+    }
+
+    private var inlineContent: some View {
+        Label("Ramble", systemImage: "waveform")
+            .accessibilityLabel("Voice Ramble")
+    }
+}
+
 struct TodoMDTasksWidget: Widget {
     var body: some WidgetConfiguration {
         AppIntentConfiguration(
@@ -1367,11 +1516,41 @@ struct TodoMDTodayTomorrowWidget: Widget {
     }
 }
 
+struct TodoMDQuickAddAccessoryWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(
+            kind: todoMDQuickAddAccessoryWidgetKind,
+            provider: TodoMDQuickAddAccessoryTimelineProvider()
+        ) { entry in
+            TodoMDQuickAddAccessoryWidgetView(entry: entry)
+        }
+        .configurationDisplayName("Quick Add")
+        .description("Open todo.md and add a task from the Lock Screen.")
+        .supportedFamilies([.accessoryCircular, .accessoryRectangular, .accessoryInline])
+    }
+}
+
+struct TodoMDVoiceRambleAccessoryWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(
+            kind: todoMDVoiceRambleAccessoryWidgetKind,
+            provider: TodoMDVoiceRambleAccessoryTimelineProvider()
+        ) { entry in
+            TodoMDVoiceRambleAccessoryWidgetView(entry: entry)
+        }
+        .configurationDisplayName("Voice Ramble")
+        .description("Open todo.md and capture tasks with voice from the Lock Screen.")
+        .supportedFamilies([.accessoryCircular, .accessoryRectangular, .accessoryInline])
+    }
+}
+
 @main
 struct TodoMDWidgetsBundle: WidgetBundle {
     var body: some Widget {
         TodoMDTasksWidget()
         TodoMDTodayTomorrowWidget()
+        TodoMDQuickAddAccessoryWidget()
+        TodoMDVoiceRambleAccessoryWidget()
     }
 }
 

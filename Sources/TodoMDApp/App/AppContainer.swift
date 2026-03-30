@@ -130,6 +130,7 @@ final class AppContainer: ObservableObject {
     @Published var rateLimitAlertMessage: String?
     @Published var urlRoutingErrorMessage: String?
     @Published var shouldPresentQuickEntry = false
+    @Published var shouldPresentVoiceRamble = false
     @Published var conflicts: [ConflictSummary] = []
     @Published var navigationTaskPath: String?
     @Published var perspectives: [PerspectiveDefinition] = []
@@ -1764,6 +1765,14 @@ final class AppContainer: ObservableObject {
         shouldPresentQuickEntry = true
     }
 
+    func clearVoiceRambleRequest() {
+        shouldPresentVoiceRamble = false
+    }
+
+    func requestVoiceRamble() {
+        shouldPresentVoiceRamble = true
+    }
+
     func record(for path: String) -> TaskRecord? {
         if let cached = canonicalByPath[path] {
             if cached.document.body.isEmpty, let loaded = try? repository.load(path: path) {
@@ -2385,6 +2394,8 @@ final class AppContainer: ObservableObject {
                 }
             case .quickAdd:
                 shouldPresentQuickEntry = true
+            case .voiceRamble:
+                shouldPresentVoiceRamble = true
             }
         } catch {
             logger.error("URL routing failed", metadata: ["url": url.absoluteString, "error": error.localizedDescription])

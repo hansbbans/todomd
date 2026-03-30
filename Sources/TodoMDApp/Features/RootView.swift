@@ -1160,6 +1160,11 @@ struct RootView: View {
                 presentQuickEntryFromCurrentContext()
                 container.clearQuickEntryRequest()
             }
+            .onChange(of: container.shouldPresentVoiceRamble) { _, shouldPresent in
+                guard shouldPresent else { return }
+                presentInlineVoiceRambleFromCurrentContext()
+                container.clearVoiceRambleRequest()
+            }
             .onAppear {
                 normalizeCompactTabSettingsIfNeeded()
                 if horizontalSizeClass == .compact {
@@ -1173,6 +1178,10 @@ struct RootView: View {
                 if container.shouldPresentQuickEntry {
                     presentQuickEntryFromCurrentContext()
                     container.clearQuickEntryRequest()
+                }
+                if container.shouldPresentVoiceRamble {
+                    presentInlineVoiceRambleFromCurrentContext()
+                    container.clearVoiceRambleRequest()
                 }
                 if ProcessInfo.processInfo.arguments.contains("-ui-testing-show-quick-entry") {
                     showingQuickEntry = true
