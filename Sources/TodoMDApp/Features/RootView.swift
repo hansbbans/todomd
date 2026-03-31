@@ -1859,9 +1859,9 @@ struct RootView: View {
         } else if container.selectedView == .builtIn(.inbox) {
             inboxMainContent(records: records)
         } else if isAreasSelection(container.selectedView) {
-            areasMainContent(records: records)
+            AnyView(areasMainContent(records: records))
         } else if isPerspectiveSelection(container.selectedView) {
-            perspectiveMainContent(records: records)
+            AnyView(perspectiveMainContent(records: records))
         } else if records.isEmpty, shouldRenderInlineTaskComposerInList {
             emptyInlineTaskComposerList
         } else if records.isEmpty {
