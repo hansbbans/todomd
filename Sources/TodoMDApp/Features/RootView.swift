@@ -1773,6 +1773,11 @@ struct RootView: View {
 
     @ViewBuilder
     private var mainContent: some View {
+        AnyView(erasing: mainContentBody)
+    }
+
+    @ViewBuilder
+    private var mainContentBody: some View {
         if container.selectedView.isBrowse {
             browseContent()
                 .transition(rootScreenTransition)
