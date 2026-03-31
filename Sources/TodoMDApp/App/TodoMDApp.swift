@@ -1,4 +1,5 @@
 import SwiftUI
+import Observation
 #if canImport(SwiftData)
 import SwiftData
 #endif
@@ -8,8 +9,8 @@ struct TodoMDApp: App {
 #if canImport(UIKit)
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 #endif
-    @StateObject private var container = AppContainer()
-    @StateObject private var theme = ThemeManager()
+    @State private var container = AppContainer()
+    @State private var theme = ThemeManager()
     @AppStorage("did_complete_onboarding") private var didCompleteOnboarding = false
     @AppStorage("settings_appearance_mode") private var appearanceMode = "system"
     @State private var forceOnboardingForUITest: Bool
@@ -34,8 +35,8 @@ struct TodoMDApp: App {
                     }
                 }
             }
-            .environmentObject(container)
-            .environmentObject(theme)
+            .environment(container)
+            .environment(theme)
             .tint(theme.accentColor)
             .preferredColorScheme(preferredColorScheme)
 #if canImport(SwiftData)

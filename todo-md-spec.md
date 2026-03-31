@@ -473,7 +473,7 @@ EOF
 - Estimated time per task
 - Task descriptions (subtitle text)
 - Manual sort order (drag to reorder) with `.order.json`
-- Quick entry with natural language date parsing
+- Quick entry with natural language date parsing that treats typed date/time phrases as deadlines, with reminder UI defaulting to the same value
 - Share sheet extension
 - Swipe actions (complete, defer)
 - Deferred dates (OmniFocus model)

@@ -78,6 +78,8 @@ Unknown frontmatter keys MAY exist. On updates, preserve them unless explicitly 
 
 Field semantics that are easy to get wrong:
 
+- `due` / `due_time` are the task's deadline fields. In app text input and quick entry, if a user types a date or date+time phrase, agents should interpret that as the task's deadline.
+- The reminder UI defaults to the same date/time as `due` / `due_time` when those values come from typed input, but the task file does not have a separate reminder timestamp field.
 - `description` is a short subtitle shown in list views. It is separate from the body.
 - The body is where long notes live.
 - Checklist items are stored in the body, not in frontmatter.

@@ -142,6 +142,8 @@ private struct CompactTabBarImageConfigurator: UIViewRepresentable {
         var choices: [CompactTabChoice] = []
         var onTabReselection: ((CompactRootTab) -> Void)?
         private var pendingApplyWorkItem: DispatchWorkItem?
+        private weak var lastTabBar: UITabBar?
+        private var lastAppliedChoices: [CompactTabChoice] = []
         private var observedTabButtons: [UIControl] = []
         private var tabButtonHandlers: [TabButtonTapHandler] = []
 
@@ -190,23 +192,49 @@ private struct CompactTabBarImageConfigurator: UIViewRepresentable {
                 return
             }
 
+            let tabBarChanged = lastTabBar !== tabBar
+            let choicesChanged = lastAppliedChoices != choices
+
+            guard tabBarChanged || choicesChanged else {
+                return
+            }
+
+            lastTabBar = tabBar
             installTabBarTapHandlers(on: tabBar)
 
+            var didUpdateItems = false
             for (index, choice) in choices.enumerated() {
                 let item = items[index]
-                item.title = choice.title
-                item.accessibilityIdentifier = choice.accessibilityIdentifier
+                if item.title != choice.title {
+                    item.title = choice.title
+                    didUpdateItems = true
+                }
+                if item.accessibilityIdentifier != choice.accessibilityIdentifier {
+                    item.accessibilityIdentifier = choice.accessibilityIdentifier
+                }
 
-                guard !choice.iconToken.isEmoji,
-                      let image = CompactTabBarImageConfigurator.symbolImage(for: choice) else {
+                guard !choice.iconToken.isEmoji else {
+                    if item.image != nil || item.selectedImage != nil {
+                        item.image = nil
+                        item.selectedImage = nil
+                        didUpdateItems = true
+                    }
+                    continue
+                }
+
+                guard let image = CompactTabBarImageConfigurator.symbolImage(for: choice) else {
                     continue
                 }
 
                 let templatedImage = image.withRenderingMode(.alwaysTemplate)
                 item.image = templatedImage
                 item.selectedImage = templatedImage
+                didUpdateItems = true
             }
 
+            lastAppliedChoices = choices
+
+            guard didUpdateItems || tabBarChanged else { return }
             tabBar.setNeedsLayout()
             tabBar.layoutIfNeeded()
         }
@@ -266,9 +294,12 @@ private struct CompactTabBarImageConfigurator: UIViewRepresentable {
         guard let probeView = uiView as? ProbeView else {
             return
         }
+        let choicesChanged = probeView.choices != choices
         probeView.choices = choices
         probeView.onTabReselection = onTabReselection
-        probeView.scheduleApply()
+        if choicesChanged {
+            probeView.scheduleApply()
+        }
     }
 
     private static func symbolImage(for choice: CompactTabChoice) -> UIImage? {
@@ -375,7 +406,7 @@ struct SectionHeaderView: View {
     let title: String
     let count: Int?
     let systemImage: String?
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(ThemeManager.self) private var theme
 
     init(_ title: String, count: Int? = nil, systemImage: String? = nil) {
         self.title = title
@@ -785,8 +816,8 @@ private struct RootViewNeverAutocapitalization: ViewModifier {
 }
 
 struct RootView: View {
-    @EnvironmentObject private var container: AppContainer
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(AppContainer.self) private var container
+    @Environment(ThemeManager.self) private var theme
 #if os(iOS)
     @Environment(\.editMode) private var editMode
 #endif
@@ -927,7 +958,7 @@ struct RootView: View {
                                     }
                                 },
                                 resultsContent: { query in
-                                    AnyView(rootSearchResultsContent(query: query))
+                                    rootSearchResultsContent(query: query)
                                 }
                             )
                             .padding(.horizontal, 16)
@@ -1367,16 +1398,14 @@ struct RootView: View {
         return CompactTabChoice(view: choice.view, title: displayName, iconToken: choice.iconToken)
     }
 
-    private func compactTabScene(_ tab: CompactRootTab) -> AnyView {
+    private func compactTabScene(_ tab: CompactRootTab) -> some View {
         let choice = compactTabChoice(for: tab)
-        return AnyView(
-            compactTabContent(for: tab)
+        return compactTabContent(for: tab)
             .tabItem {
                 compactTabItemLabel(choice: choice)
             }
             .tag(tab)
             .accessibilityIdentifier(choice.accessibilityIdentifier)
-        )
     }
 
     private func compactTabContent(for tab: CompactRootTab) -> some View {
@@ -1742,123 +1771,104 @@ struct RootView: View {
         }
     }
 
-    private var mainContent: AnyView {
+    @ViewBuilder
+    private var mainContent: some View {
         if container.selectedView.isBrowse {
-            return AnyView(
-                browseContent()
-                    .transition(rootScreenTransition)
-            )
-        }
-        if container.selectedView == .builtIn(.upcoming) {
-            return AnyView(
-                upcomingMainContent()
-                    .transition(rootScreenTransition)
-            )
-        }
-        if container.selectedView == .builtIn(.review) {
-            return AnyView(
-                ReviewTabView(
-                    sections: container.weeklyReviewSections(),
-                    backgroundColor: theme.backgroundColor,
-                    textPrimaryColor: theme.textPrimaryColor,
-                    textSecondaryColor: theme.textSecondaryColor,
-                    accentColor: theme.accentColor,
-                    isPullToSearchEnabled: shouldAllowPullToSearchGesture,
-                    onSearchTrigger: {
-                        Task { @MainActor in
-                            presentRootSearch()
-                        }
-                    },
-                    onSelectProject: { project in
-                        applyFilter(.project(project))
-                    },
-                    projectIcon: { project in
-                        container.projectIconSymbol(for: project)
-                    },
-                    projectColor: { project in
-                        color(forHex: container.projectColorHex(for: project))
-                    },
-                    heroRow: {
-                        mainHeroListRow
-                    },
-                    taskRow: { record in
-                        taskRowItem(record)
+            browseContent()
+                .transition(rootScreenTransition)
+        } else if container.selectedView == .builtIn(.upcoming) {
+            upcomingMainContent()
+                .transition(rootScreenTransition)
+        } else if container.selectedView == .builtIn(.review) {
+            ReviewTabView(
+                sections: container.weeklyReviewSections(),
+                backgroundColor: theme.backgroundColor,
+                textPrimaryColor: theme.textPrimaryColor,
+                textSecondaryColor: theme.textSecondaryColor,
+                accentColor: theme.accentColor,
+                isPullToSearchEnabled: shouldAllowPullToSearchGesture,
+                onSearchTrigger: {
+                    Task { @MainActor in
+                        presentRootSearch()
                     }
-                )
+                },
+                onSelectProject: { project in
+                    applyFilter(.project(project))
+                },
+                projectIcon: { project in
+                    container.projectIconSymbol(for: project)
+                },
+                projectColor: { project in
+                    color(forHex: container.projectColorHex(for: project))
+                },
+                heroRow: {
+                    mainHeroListRow
+                },
+                taskRow: { record in
+                    taskRowItem(record)
+                }
+            )
+            .transition(rootScreenTransition)
+        } else if container.selectedView == .builtIn(.anytime) {
+            let currentRecords = container.filteredRecords()
+            anytimeMainContent(records: currentRecords)
+                .transition(rootScreenTransition)
+        } else if container.selectedView == .builtIn(.someday) {
+            let currentRecords = container.filteredRecords()
+            somedayMainContent(records: currentRecords)
+                .transition(rootScreenTransition)
+        } else if container.selectedView == .builtIn(.logbook) {
+            let currentRecords = container.filteredRecords()
+            logbookMainContent(records: currentRecords)
+                .transition(rootScreenTransition)
+        } else if container.selectedView == .builtIn(.pomodoro) {
+            if let configuration = currentMainHeroConfiguration {
+                PomodoroTimerView(showsHeader: true) {
+                    MainHeroHeader(
+                        title: configuration.title,
+                        symbolName: configuration.symbolName,
+                        iconColor: configuration.iconColor
+                    )
+                }
+                .transition(rootScreenTransition)
+            } else {
+                PomodoroTimerView()
                     .transition(rootScreenTransition)
-            )
-        }
-        if container.selectedView == .builtIn(.anytime) {
-            return AnyView(
-                anytimeMainContent(records: container.filteredRecords())
+            }
+        } else {
+            let currentRecords = container.filteredRecords()
+            recordsMainContent(records: currentRecords)
                 .transition(rootScreenTransition)
-            )
         }
-        if container.selectedView == .builtIn(.someday) {
-            return AnyView(
-                somedayMainContent(records: container.filteredRecords())
-                .transition(rootScreenTransition)
-            )
-        }
-        if container.selectedView == .builtIn(.logbook) {
-            return AnyView(
-                logbookMainContent(records: container.filteredRecords())
-                    .transition(rootScreenTransition)
-            )
-        }
-        if container.selectedView == .builtIn(.pomodoro) {
-            return AnyView(
-                PomodoroTimerView(
-                    header: currentMainHeroConfiguration.map { configuration in
-                        AnyView(MainHeroHeader(
-                            title: configuration.title,
-                            symbolName: configuration.symbolName,
-                            iconColor: configuration.iconColor
-                        ))
-                    }
-                )
-                .transition(rootScreenTransition)
-            )
-        }
-        return AnyView(
-            recordsMainContent(records: container.filteredRecords())
-                .transition(rootScreenTransition)
-        )
     }
 
-    private func recordsMainContent(records: [TaskRecord]) -> AnyView {
+    @ViewBuilder
+    private func recordsMainContent(records: [TaskRecord]) -> some View {
         if container.selectedView == .builtIn(.inbox), inboxTriageMode {
-            return AnyView(
-                InboxTriageView(
-                    records: records,
-                    skippedPaths: $inboxTriageSkippedPaths,
-                    pinnedPath: $inboxTriagePinnedPath,
-                    onExit: { resetInboxTriageMode() },
-                    onOpenDetail: { path in
-                        appendToActiveNavigationPath(path)
-                    }
-                )
+            InboxTriageView(
+                records: records,
+                skippedPaths: $inboxTriageSkippedPaths,
+                pinnedPath: $inboxTriagePinnedPath,
+                onExit: { resetInboxTriageMode() },
+                onOpenDetail: { path in
+                    appendToActiveNavigationPath(path)
+                }
             )
+        } else if container.selectedView == .builtIn(.today) {
+            todayMainContent(records: records)
+        } else if container.selectedView == .builtIn(.inbox) {
+            inboxMainContent(records: records)
+        } else if isAreasSelection(container.selectedView) {
+            areasMainContent(records: records)
+        } else if isPerspectiveSelection(container.selectedView) {
+            perspectiveMainContent(records: records)
+        } else if records.isEmpty, shouldRenderInlineTaskComposerInList {
+            emptyInlineTaskComposerList
+        } else if records.isEmpty {
+            emptyStateMainContent()
+        } else {
+            populatedRecordsMainContent(records: records)
         }
-        if container.selectedView == .builtIn(.today) {
-            return AnyView(todayMainContent(records: records))
-        }
-        if container.selectedView == .builtIn(.inbox) {
-            return AnyView(inboxMainContent(records: records))
-        }
-        if isAreasSelection(container.selectedView) {
-            return AnyView(areasMainContent(records: records))
-        }
-        if isPerspectiveSelection(container.selectedView) {
-            return AnyView(perspectiveMainContent(records: records))
-        }
-        if records.isEmpty, shouldRenderInlineTaskComposerInList {
-            return AnyView(emptyInlineTaskComposerList)
-        }
-        if records.isEmpty {
-            return emptyStateMainContent()
-        }
-        return AnyView(populatedRecordsMainContent(records: records))
     }
 
     private var emptyInlineTaskComposerList: some View {
@@ -1904,13 +1914,13 @@ struct RootView: View {
 #endif
     }
 
-    private func emptyStateMainContent() -> AnyView {
+    @ViewBuilder
+    private func emptyStateMainContent() -> some View {
         if container.selectedView == .builtIn(.inbox) {
-            return AnyView(inboxEmptyStateContent)
-        }
-        return AnyView(
+            inboxEmptyStateContent
+        } else {
             genericEmptyStateContent
-        )
+        }
     }
 
     private func todayMainContent(records: [TaskRecord]) -> some View {
@@ -2035,6 +2045,42 @@ struct RootView: View {
         }
     }
 
+    private func inboxMainContent(records: [TaskRecord]) -> some View {
+        let descriptor = InboxTabDescriptor.make(
+            records: records,
+            showsInlineComposer: shouldRenderInlineTaskComposerInList
+        )
+
+        return taskList(id: descriptor.listID, creationScrollTarget: records.last?.identity.path) {
+            InboxTabView(
+                descriptor: descriptor,
+                records: records,
+                onReorder: { filenames in
+                    guard container.canManuallyReorderSelectedView() else { return }
+                    container.saveManualOrder(filenames: filenames)
+                },
+                heroRow: {
+                    mainHeroListRow
+                },
+                importPanel: {
+                    InboxRemindersImportPanel()
+#if os(iOS)
+                        .modifier(RootListContentBoundaryReporter(isEnabled: shouldTrackTaskListBoundaryMetrics))
+#endif
+                },
+                inlineComposer: {
+                    inlineTaskComposerListRow
+                },
+                taskRow: { record in
+                    taskRowItem(record)
+                },
+                unparseableSummary: {
+                    unparseableFilesSummary
+                }
+            )
+        }
+    }
+
     private func areasMainContent(records: [TaskRecord]) -> some View {
         let descriptor = AreasTabDescriptor.make(
             view: container.selectedView,
@@ -2083,42 +2129,6 @@ struct RootView: View {
                 },
                 heroRow: {
                     mainHeroListRow
-                },
-                inlineComposer: {
-                    inlineTaskComposerListRow
-                },
-                taskRow: { record in
-                    taskRowItem(record)
-                },
-                unparseableSummary: {
-                    unparseableFilesSummary
-                }
-            )
-        }
-    }
-
-    private func inboxMainContent(records: [TaskRecord]) -> some View {
-        let descriptor = InboxTabDescriptor.make(
-            records: records,
-            showsInlineComposer: shouldRenderInlineTaskComposerInList
-        )
-
-        return taskList(id: descriptor.listID, creationScrollTarget: records.last?.identity.path) {
-            InboxTabView(
-                descriptor: descriptor,
-                records: records,
-                onReorder: { filenames in
-                    guard container.canManuallyReorderSelectedView() else { return }
-                    container.saveManualOrder(filenames: filenames)
-                },
-                heroRow: {
-                    mainHeroListRow
-                },
-                importPanel: {
-                    InboxRemindersImportPanel()
-#if os(iOS)
-                        .modifier(RootListContentBoundaryReporter(isEnabled: shouldTrackTaskListBoundaryMetrics))
-#endif
                 },
                 inlineComposer: {
                     inlineTaskComposerListRow
@@ -2240,46 +2250,6 @@ struct RootView: View {
         }
     }
 
-    @ViewBuilder
-    private var unparseableFilesSummary: some View {
-        if !container.diagnostics.isEmpty {
-            VStack(spacing: 6) {
-                Text("\(container.diagnostics.count) file(s) could not be parsed.")
-                    .font(.footnote)
-                    .foregroundStyle(theme.textSecondaryColor)
-                NavigationLink("Review Unparseable Files") {
-                    UnparseableFilesView()
-                }
-                .font(.footnote.weight(.semibold))
-            }
-        }
-    }
-
-    private func populatedRecordsMainContent(records: [TaskRecord]) -> some View {
-        taskList(
-            id: container.selectedView.rawValue,
-            creationScrollTarget: records.last?.identity.path
-        ) {
-            mainHeroListRow
-
-            if container.selectedView == .builtIn(.inbox) {
-                InboxRemindersImportPanel()
-            }
-            if shouldRenderInlineTaskComposerInList {
-                inlineTaskComposerListRow
-            }
-            ForEach(records) { record in
-                taskRowItem(record)
-            }
-            .onMove { source, destination in
-                guard container.canManuallyReorderSelectedView() else { return }
-                var reordered = records
-                reordered.move(fromOffsets: source, toOffset: destination)
-                container.saveManualOrder(filenames: reordered.map { $0.identity.filename })
-            }
-        }
-    }
-
     private func logbookPopulatedContent(records: [TaskRecord]) -> some View {
         taskList(
             id: container.selectedView.rawValue,
@@ -2343,6 +2313,46 @@ struct RootView: View {
 #if os(iOS)
         .modifier(RootListContentBoundaryReporter(isEnabled: shouldTrackTaskListBoundaryMetrics))
 #endif
+    }
+
+    @ViewBuilder
+    private var unparseableFilesSummary: some View {
+        if !container.diagnostics.isEmpty {
+            VStack(spacing: 6) {
+                Text("\(container.diagnostics.count) file(s) could not be parsed.")
+                    .font(.footnote)
+                    .foregroundStyle(theme.textSecondaryColor)
+                NavigationLink("Review Unparseable Files") {
+                    UnparseableFilesView()
+                }
+                .font(.footnote.weight(.semibold))
+            }
+        }
+    }
+
+    private func populatedRecordsMainContent(records: [TaskRecord]) -> some View {
+        taskList(
+            id: container.selectedView.rawValue,
+            creationScrollTarget: records.last?.identity.path
+        ) {
+            mainHeroListRow
+
+            if container.selectedView == .builtIn(.inbox) {
+                InboxRemindersImportPanel()
+            }
+            if shouldRenderInlineTaskComposerInList {
+                inlineTaskComposerListRow
+            }
+            ForEach(records) { record in
+                taskRowItem(record)
+            }
+            .onMove { source, destination in
+                guard container.canManuallyReorderSelectedView() else { return }
+                var reordered = records
+                reordered.move(fromOffsets: source, toOffset: destination)
+                container.saveManualOrder(filenames: reordered.map { $0.identity.filename })
+            }
+        }
     }
 
     private var mainHeroListRow: some View {
@@ -3203,10 +3213,15 @@ struct RootView: View {
         showingInlineTaskDateModal = false
     }
 
-    private func applyInlineDueDate(_ date: Date?, autoPhrase: String? = nil) {
+    private func applyInlineDueDate(_ date: Date?, dueTime: Date? = nil, autoPhrase: String? = nil) {
         inlineTaskDraft.dueDate = date
-        inlineTaskDraft.hasDueTime = false
-        inlineTaskDraft.dueTime = NotificationTimePreference().date(on: date ?? Date())
+        if let dueTime {
+            inlineTaskDraft.hasDueTime = date != nil
+            inlineTaskDraft.dueTime = dueTime
+        } else {
+            inlineTaskDraft.hasDueTime = false
+            inlineTaskDraft.dueTime = NotificationTimePreference().date(on: date ?? Date())
+        }
         inlineAutoDatePhrase = autoPhrase
     }
 
@@ -4609,7 +4624,6 @@ struct RootView: View {
             let parser = NaturalLanguageTaskParser(availableProjects: availableProjects)
             guard let parsed = parser.parse(capturedValue),
                   let due = parsed.due,
-                  parsed.dueTime == nil,
                   let phrase = parsed.recognizedDatePhrase else {
                 inlineTaskTitleParseTask = nil
                 return
@@ -4632,7 +4646,8 @@ struct RootView: View {
                     || loweredPhrase.hasPrefix("at ")
                     ? loweredPhrase
                     : "due \(loweredPhrase)"
-                applyInlineDueDate(dateFromLocalDate(due), autoPhrase: chipPhrase)
+                let parsedDueTime = parsed.dueTime.flatMap { dateFromLocalTime($0) }
+                applyInlineDueDate(dateFromLocalDate(due), dueTime: parsedDueTime, autoPhrase: chipPhrase)
             }
             inlineTaskTitleMutationInFlight = false
             inlineTaskTitleParseTask = nil
@@ -4774,6 +4789,13 @@ struct RootView: View {
         components.year = localDate.year
         components.month = localDate.month
         components.day = localDate.day
+        return Calendar.current.date(from: components)
+    }
+
+    private func dateFromLocalTime(_ localTime: LocalTime) -> Date? {
+        var components = DateComponents()
+        components.hour = localTime.hour
+        components.minute = localTime.minute
         return Calendar.current.date(from: components)
     }
 
@@ -5644,8 +5666,8 @@ private struct ExpandedTaskRow: View {
     let onMove: () -> Void
     let onDelete: () -> Void
     @Environment(\.colorScheme) private var colorScheme
-    @EnvironmentObject private var theme: ThemeManager
-    @EnvironmentObject private var container: AppContainer
+    @Environment(ThemeManager.self) private var theme
+    @Environment(AppContainer.self) private var container
     @FocusState private var focusedField: Field?
     @State private var titleDraft: String
     @State private var notesDraft: String
@@ -6450,7 +6472,7 @@ private struct ExpandedTaskFooterButtonStyle: ButtonStyle {
 }
 
 private struct InlineTaskDateEditorSheet: View {
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(ThemeManager.self) private var theme
 
     let hasDate: Binding<Bool>
     let date: Binding<Date>
@@ -6528,7 +6550,7 @@ private struct TapOutsideDismissBackdrop: View {
 }
 
 private struct ExpandedTaskDateEditorSheet: View {
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(ThemeManager.self) private var theme
     @State private var hasDate: Bool
     @State private var selectedDate: Date
     @State private var recurrence: String
@@ -6606,7 +6628,7 @@ private struct ExpandedTaskTagsEditorSheet: View {
     let onCancel: () -> Void
 
     @State private var tagsText: String
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(ThemeManager.self) private var theme
 
     init(
         initialTags: [String],
@@ -6709,7 +6731,7 @@ private struct ExpandedTaskMoveEditorSheet: View {
     let ungroupedProjects: [String]
     let onMove: (String?, String?) -> Void
     let onCancel: () -> Void
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(ThemeManager.self) private var theme
 
     var body: some View {
         NavigationStack {
@@ -6916,7 +6938,7 @@ private struct QuickAddChip: View {
     let isSet: Bool
     let tint: Color
     let action: () -> Void
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(ThemeManager.self) private var theme
 
     var body: some View {
         Button(action: action) {
@@ -7007,7 +7029,7 @@ private struct InlineTaskOptionButton: View {
     let tint: Color
     let accessibilityIdentifier: String?
     let action: () -> Void
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(ThemeManager.self) private var theme
 
     init(
         title: String,

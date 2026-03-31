@@ -367,7 +367,7 @@ struct AppIconPickerLink: View {
 
 struct AppIconPickerView: View {
     @Environment(\.colorScheme) private var colorScheme
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(ThemeManager.self) private var theme
 
     private enum Mode: String, CaseIterable, Identifiable {
         case symbols
@@ -550,7 +550,7 @@ struct AppIconPickerView: View {
 }
 
 private struct AppIconGridButton: View {
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(ThemeManager.self) private var theme
 
     let option: AppIconOption
     let fallbackSymbol: String

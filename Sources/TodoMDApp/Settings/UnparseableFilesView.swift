@@ -2,8 +2,8 @@ import SwiftUI
 
 struct UnparseableFilesView: View {
     @Environment(\.colorScheme) private var colorScheme
-    @EnvironmentObject private var container: AppContainer
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(AppContainer.self) private var container
+    @Environment(ThemeManager.self) private var theme
 
     var body: some View {
         List {

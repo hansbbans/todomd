@@ -912,6 +912,7 @@ Create the template as a string constant in the codebase (or a resource file). T
 - How to use the full format (with frontmatter)
 - Common patterns: "schedule for today", "add to project", "set a deadline"
 - What NOT to do: don't modify .order.json, don't delete files directly, don't modify completed tasks
+- Clarify that typed date/time phrases map to `due` / `due_time` (deadline fields), and reminder UI defaults to that same value rather than a separate stored reminder timestamp
 
 ```markdown
 # todo.md — Instructions for AI Agents
@@ -955,6 +956,13 @@ The app will auto-ingest it with smart defaults.
 ## Optional Fields
 
 [... list all optional fields with types and descriptions ...]
+
+## Date And Reminder Behavior
+
+- A typed date phrase such as "tomorrow" maps to the task deadline field: `due`
+- A typed date+time phrase such as "tomorrow at 3:15pm" maps to `due` + `due_time`
+- The app's reminder UI starts from that same deadline date/time by default
+- There is no separate reminder timestamp field in the task file format
 
 ## Rules
 

@@ -11,8 +11,8 @@ private enum ExpandedRow: Equatable {
 struct TaskDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
-    @EnvironmentObject private var container: AppContainer
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(AppContainer.self) private var container
+    @Environment(ThemeManager.self) private var theme
 
     let path: String
     let onDuplicate: ((String) -> Void)?
@@ -237,6 +237,23 @@ struct TaskDetailView: View {
                         accessibilityIdentifier: "taskDetail.row.due"
                     ) {
                         showingDueDateEditor = true
+                    }
+
+                    taskDetailInsetSurface {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Toggle(isOn: persistentReminderBinding) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Persistent reminders")
+                                        .font(.body.weight(.medium))
+                                        .foregroundStyle(theme.textPrimaryColor)
+                                    Text(persistentReminderHelperText)
+                                        .font(.footnote)
+                                        .foregroundStyle(theme.textSecondaryColor)
+                                }
+                            }
+                            .disabled(!canEnablePersistentReminder)
+                            .accessibilityIdentifier("taskDetail.persistentReminderToggle")
+                        }
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
@@ -589,9 +606,9 @@ struct TaskDetailView: View {
                 DateChooserView(
                     context: .due,
                     timeMode: .optional,
-                    hasDate: binding(\.hasDue),
+                    hasDate: dueDateEnabledBinding,
                     date: binding(\.dueDate),
-                    hasTime: binding(\.hasDueTime),
+                    hasTime: dueTimeEnabledBinding,
                     time: binding(\.dueTime),
                     recurrence: binding(\.recurrence)
                 )
@@ -908,6 +925,57 @@ struct TaskDetailView: View {
         Binding(get: { editState?.scheduledDate ?? Date() }, set: { _ in })
     }
 
+    private var dueDateEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { editState?.hasDue ?? false },
+            set: { newValue in
+                binding(\.hasDue).wrappedValue = newValue
+                if !newValue {
+                    binding(\.persistentReminderEnabled).wrappedValue = false
+                }
+            }
+        )
+    }
+
+    private var dueTimeEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { editState?.hasDueTime ?? false },
+            set: { newValue in
+                binding(\.hasDueTime).wrappedValue = newValue
+                if !newValue {
+                    binding(\.persistentReminderEnabled).wrappedValue = false
+                }
+            }
+        )
+    }
+
+    private var persistentReminderBinding: Binding<Bool> {
+        Binding(
+            get: {
+                guard canEnablePersistentReminder else { return false }
+                return editState?.persistentReminderEnabled ?? false
+            },
+            set: { newValue in
+                guard canEnablePersistentReminder else { return }
+                binding(\.persistentReminderEnabled).wrappedValue = newValue
+            }
+        )
+    }
+
+    private var canEnablePersistentReminder: Bool {
+        (editState?.hasDue ?? false) && (editState?.hasDueTime ?? false)
+    }
+
+    private var persistentReminderHelperText: String {
+        if canEnablePersistentReminder {
+            return "Keep reminding me at this task's deadline interval until I handle it."
+        }
+        if editState?.hasDue == true {
+            return "Add a deadline time to turn on a task-specific persistent reminder."
+        }
+        return "Set a deadline and time to turn on a task-specific persistent reminder."
+    }
+
     private var projectBinding: Binding<String> {
         Binding(
             get: { editState?.project ?? "" },
@@ -1130,7 +1198,7 @@ private struct PropertyRow<Content: View>: View {
     let accessibilityIdentifier: String?
     let onTap: () -> Void
     @ViewBuilder let expandedContent: () -> Content
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(ThemeManager.self) private var theme
     @Environment(\.colorScheme) private var colorScheme
 
     init(

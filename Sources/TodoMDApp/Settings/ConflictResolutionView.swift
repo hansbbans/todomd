@@ -2,8 +2,8 @@ import SwiftUI
 
 struct ConflictResolutionView: View {
     @Environment(\.colorScheme) private var colorScheme
-    @EnvironmentObject private var container: AppContainer
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(AppContainer.self) private var container
+    @Environment(ThemeManager.self) private var theme
 
     var body: some View {
         List {
@@ -116,8 +116,8 @@ struct ConflictResolutionView: View {
 private struct ConflictDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
-    @EnvironmentObject private var container: AppContainer
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(AppContainer.self) private var container
+    @Environment(ThemeManager.self) private var theme
 
     let conflict: ConflictSummary
     @State private var selectedVersionID: String = ""
