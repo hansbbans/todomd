@@ -4,7 +4,7 @@ struct MainHeroHeader: View {
     let title: String
     let symbolName: String
     let iconColor: Color
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(ThemeManager.self) private var theme
 
     var body: some View {
         HStack(alignment: .center, spacing: 11) {
@@ -100,7 +100,7 @@ struct CalendarHeroHeader: View {
 
 struct TodayCalendarCard: View {
     let events: [CalendarEventItem]
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(ThemeManager.self) private var theme
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -136,7 +136,7 @@ struct TodayCalendarCard: View {
 struct UpcomingCalendarView<TaskRowContent: View>: View {
     let sections: [UpcomingAgendaSection]
     let taskRow: (TaskRecord) -> TaskRowContent
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(ThemeManager.self) private var theme
 
     var body: some View {
         ScrollView {
@@ -159,7 +159,7 @@ struct UpcomingCalendarView<TaskRowContent: View>: View {
 private struct UpcomingDaySectionView<TaskRowContent: View>: View {
     let section: UpcomingAgendaSection
     let taskRow: (TaskRecord) -> TaskRowContent
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(ThemeManager.self) private var theme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -227,7 +227,7 @@ private struct UpcomingDaySectionView<TaskRowContent: View>: View {
 
 private struct UpcomingEventLineView: View {
     let event: CalendarEventItem
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(ThemeManager.self) private var theme
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 7) {
@@ -270,7 +270,7 @@ private struct UpcomingEventLineView: View {
 
 private struct TodayCalendarEventLineView: View {
     let event: CalendarEventItem
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(ThemeManager.self) private var theme
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 7) {

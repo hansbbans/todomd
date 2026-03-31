@@ -101,7 +101,7 @@ struct DateChooserView: View {
         var id: String { rawValue }
     }
 
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(ThemeManager.self) private var theme
     @AppStorage(NotificationTimePreference.hourKey) private var notificationHour = 9
     @AppStorage(NotificationTimePreference.minuteKey) private var notificationMinute = 0
 
@@ -890,13 +890,13 @@ struct DateChooserView: View {
 
 #Preview("Due") {
     DateChooserPreviewHost(context: .due, timeMode: .optional)
-        .environmentObject(ThemeManager())
+        .environment(ThemeManager())
         .padding()
 }
 
 #Preview("Scheduled") {
     DateChooserPreviewHost(context: .scheduled, timeMode: .hidden)
-        .environmentObject(ThemeManager())
+        .environment(ThemeManager())
         .padding()
 }
 

@@ -592,6 +592,109 @@ final class TodoMDAppUITests: XCTestCase {
         )
     }
 
+    func testTaskDetailPersistentReminderTogglePersistsForDatedTasks() throws {
+        let storageOverride = makeStorageOverridePath()
+        try seedInboxTaskWithDeadline(rootPath: storageOverride, title: "persistent reminder task")
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let taskRow = app.descendants(matching: .any)["taskRow.persistent reminder task"].firstMatch
+        XCTAssertTrue(taskRow.waitForExistence(timeout: 10), "Seeded task row was not visible")
+        taskRow.tap()
+
+        let moreButton = app.buttons["More"].firstMatch
+        let legacyMoreButton = app.buttons["Open full task editor"].firstMatch
+        XCTAssertTrue(
+            moreButton.waitForExistence(timeout: 2) || legacyMoreButton.waitForExistence(timeout: 10),
+            "Expanded task detail action button was not visible"
+        )
+        if moreButton.exists {
+            moreButton.tap()
+        } else {
+            legacyMoreButton.tap()
+        }
+
+        let persistentReminderToggle = app.switches["taskDetail.persistentReminderToggle"].firstMatch
+        XCTAssertTrue(
+            reveal(element: persistentReminderToggle, in: app),
+            "Persistent reminder toggle was not visible in task detail"
+        )
+        XCTAssertEqual(persistentReminderToggle.value as? String, "0", "Persistent reminder should start off")
+        persistentReminderToggle.tap()
+
+        let backButton = app.navigationBars.buttons.element(boundBy: 0)
+        XCTAssertTrue(backButton.waitForExistence(timeout: 10), "Back button was not visible after editing the task")
+        backButton.tap()
+
+        XCTAssertTrue(
+            waitForMarkdownStorage(rootPath: storageOverride) { content in
+                content.contains("persistent reminder task")
+                    && content.contains("persistent_reminder: true")
+            },
+            "Persistent reminder toggle did not persist to the markdown task"
+        )
+    }
+
+    func testTaskDetailPersistentReminderToggleEnablesAfterAddingDeadlineTime() {
+        let storageOverride = makeStorageOverridePath()
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        completeOnboarding(app: app)
+        createTask(app: app, title: "persistent reminder detail")
+
+        let taskRow = app.descendants(matching: .any)["taskRow.persistent reminder detail"].firstMatch
+        XCTAssertTrue(taskRow.waitForExistence(timeout: 10), "Created task row was not visible")
+        taskRow.tap()
+
+        let moreButton = app.buttons["More"].firstMatch
+        let legacyMoreButton = app.buttons["Open full task editor"].firstMatch
+        XCTAssertTrue(
+            moreButton.waitForExistence(timeout: 2) || legacyMoreButton.waitForExistence(timeout: 10),
+            "Expanded task detail action button was not visible"
+        )
+        if moreButton.exists {
+            moreButton.tap()
+        } else {
+            legacyMoreButton.tap()
+        }
+
+        let persistentReminderToggle = app.switches["taskDetail.persistentReminderToggle"].firstMatch
+        XCTAssertTrue(
+            reveal(element: persistentReminderToggle, in: app),
+            "Persistent reminder toggle was not visible in task detail"
+        )
+        XCTAssertFalse(
+            persistentReminderToggle.isEnabled,
+            "Persistent reminder should stay disabled until both a deadline and time are set"
+        )
+
+        let dueRow = app.buttons["taskDetail.row.due"].firstMatch
+        XCTAssertTrue(dueRow.waitForExistence(timeout: 10), "Deadline row was not visible in task detail")
+        dueRow.tap()
+
+        let tonightPreset = app.buttons["dateChooser.due.preset.tonight"].firstMatch
+        XCTAssertTrue(tonightPreset.waitForExistence(timeout: 10), "Tonight preset was not visible")
+        tonightPreset.tap()
+
+        let doneButton = app.buttons["Done"].firstMatch
+        XCTAssertTrue(doneButton.waitForExistence(timeout: 10), "Done button was not visible in the deadline editor")
+        doneButton.tap()
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 5, pollInterval: 0.1) { persistentReminderToggle.isEnabled },
+            "Persistent reminder should become available once the task has a deadline and time"
+        )
+    }
+
     func testInlineTaskDateButtonUsesSharedDateChooserAndPersistsDueTime() {
         let storageOverride = makeStorageOverridePath()
 
@@ -633,6 +736,33 @@ final class TodoMDAppUITests: XCTestCase {
                 content.contains("inline tonight chooser") && content.contains("due_time:")
             },
             "Inline task creation should persist a due time when Tonight is selected"
+        )
+    }
+
+    func testInlineTaskTypedDateTimeUpdatesDateButtonValue() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = makeStorageOverridePath()
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let addButton = app.buttons["root.inlineAddButton"].firstMatch
+        XCTAssertTrue(addButton.waitForExistence(timeout: 10), "Inline add button not visible")
+        addButton.tap()
+
+        let titleInput = app.textFields["inlineTask.titleField"].firstMatch
+        XCTAssertTrue(titleInput.waitForExistence(timeout: 10), "Inline task title field did not appear")
+        titleInput.tap()
+        titleInput.typeText("typed inline time tomorrow at 3:15pm")
+
+        let dateButton = app.buttons["inlineTask.dateButton"].firstMatch
+        XCTAssertTrue(
+            waitForCondition(timeout: 5, pollInterval: 0.1) {
+                ((dateButton.value as? String) ?? "").contains("Tomorrow")
+                    && (((dateButton.value as? String) ?? "").contains("3:15"))
+            },
+            "Inline task date button should surface the parsed deadline date and time from the typed title"
         )
     }
 
@@ -941,6 +1071,69 @@ final class TodoMDAppUITests: XCTestCase {
         )
     }
 
+    func testQuickEntryTypedDateTimePopulatesDeadlineAndReminderDefaults() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding", "-ui-testing-show-quick-entry"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = makeStorageOverridePath()
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let titleField = app.textFields["quickEntry.titleField"].firstMatch
+        XCTAssertTrue(titleField.waitForExistence(timeout: 10), "QuickEntry sheet did not appear")
+        titleField.tap()
+        titleField.typeText("typed quick entry tomorrow at 3:15pm")
+
+        let quickDateButton = app.buttons["quickEntry.quickDateButton"].firstMatch
+        XCTAssertTrue(
+            waitForCondition(timeout: 5, pollInterval: 0.1) {
+                quickDateButton.label.contains("Tomorrow")
+            },
+            "QuickEntry should surface the parsed deadline date from the typed title"
+        )
+
+        let revealDetailsButton = app.buttons["quickEntry.revealDetailsButton"].firstMatch
+        XCTAssertTrue(revealDetailsButton.waitForExistence(timeout: 10), "QuickEntry reveal details button did not appear")
+        revealDetailsButton.tap()
+
+        let reminderButton = app.buttons["quickEntry.reminderButton"].firstMatch
+        XCTAssertTrue(
+            waitForCondition(timeout: 5, pollInterval: 0.1) {
+                reminderButton.exists && reminderButton.label.contains("3:15")
+            },
+            "QuickEntry should default the reminder chip to the same parsed time"
+        )
+    }
+
+    func testQuickEntryTypedDateStillPopulatesVisibleDateChipWhenDateFieldsAreHidden() {
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-ui-testing",
+            "-ui-testing-reset",
+            "-ui-testing-force-onboarding",
+            "-ui-testing-show-quick-entry",
+            "-settings_quick_entry_fields", "priority,flag",
+            "-settings_quick_entry_default_due_date", "none"
+        ]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = makeStorageOverridePath()
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let titleField = app.textFields["quickEntry.titleField"].firstMatch
+        XCTAssertTrue(titleField.waitForExistence(timeout: 10), "QuickEntry sheet did not appear")
+        titleField.tap()
+        titleField.typeText("hidden fields tomorrow at 3:15pm")
+
+        let quickDateButton = app.buttons["quickEntry.quickDateButton"].firstMatch
+        XCTAssertTrue(
+            waitForCondition(timeout: 5, pollInterval: 0.1) {
+                quickDateButton.exists && quickDateButton.label.contains("Tomorrow")
+            },
+            "Typed date/time should still populate the visible date chip when Date and Reminders fields are hidden"
+        )
+    }
+
     func testLongPressingAddButtonShowsVoiceRamble() {
         let app = XCUIApplication()
         app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
@@ -985,6 +1178,36 @@ final class TodoMDAppUITests: XCTestCase {
                 !voiceRambleSheet.exists && !closeButton.exists
             },
             "Voice Ramble sheet did not dismiss after pressing Close"
+        )
+    }
+
+    func testInlineTaskTypingDateTimeUpdatesDateButtonBeforeSubmit() {
+        let storageOverride = makeStorageOverridePath()
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let addButton = app.buttons["root.inlineAddButton"].firstMatch
+        XCTAssertTrue(addButton.waitForExistence(timeout: 10), "Inline add button not visible")
+        addButton.tap()
+
+        let titleInput = app.textFields["inlineTask.titleField"].firstMatch
+        XCTAssertTrue(titleInput.waitForExistence(timeout: 10), "Inline task title field did not appear")
+        titleInput.tap()
+        titleInput.typeText("team sync tomorrow at 3:15pm")
+
+        let dateButton = app.buttons["inlineTask.dateButton"].firstMatch
+        XCTAssertTrue(dateButton.waitForExistence(timeout: 10), "Inline task date button was not visible")
+        XCTAssertTrue(
+            waitForCondition(timeout: 5, pollInterval: 0.1) {
+                let value = (dateButton.value as? String) ?? ""
+                return value.localizedCaseInsensitiveContains("tomorrow") && value.contains("3:15")
+            },
+            "Typed date/time should update the inline task date button before submit"
         )
     }
 
@@ -1465,6 +1688,39 @@ final class TodoMDAppUITests: XCTestCase {
         }
     }
 
+    func testIntegrationsSettingsShowsReminderListPickerWhenRemindersAreAvailable() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = makeStorageOverridePath()
+        app.launchEnvironment["TODOMD_FAKE_REMINDERS_IMPORT"] = "1"
+        app.launch()
+
+        completeOnboarding(app: app)
+        openSettings(app: app)
+
+        let integrationsSection = app.buttons["settings.section.integrations"].firstMatch
+        XCTAssertTrue(integrationsSection.waitForExistence(timeout: 10), "Integrations section not visible")
+        integrationsSection.tap()
+
+        let remindersToggle = app.switches["settings.integrations.remindersToggle"].firstMatch
+        XCTAssertTrue(remindersToggle.waitForExistence(timeout: 10), "Reminders toggle not visible")
+        if remindersToggle.value as? String == "0" {
+            remindersToggle.tap()
+        }
+
+        let reminderListPicker = app.descendants(matching: .any)["settings.integrations.reminderListPicker"].firstMatch
+        XCTAssertTrue(
+            reminderListPicker.waitForExistence(timeout: 10),
+            "Reminders list picker was not visible after Reminders became available"
+        )
+
+        let clearReminderListButton = app.buttons["settings.integrations.clearReminderListButton"].firstMatch
+        XCTAssertTrue(
+            clearReminderListButton.waitForExistence(timeout: 10),
+            "Pause Reminders Import button was not visible when a Reminders list was selected"
+        )
+    }
+
     func testSettingsHomeUsesJobBasedSections() {
         let app = XCUIApplication()
         app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
@@ -1529,6 +1785,36 @@ final class TodoMDAppUITests: XCTestCase {
         XCTAssertFalse(
             app.staticTexts["square.grid.2x2"].exists,
             "Browse tab should not render the raw SF Symbol name as visible text"
+        )
+    }
+
+    func testLogbookShowsRecentSourceActivityFeed() throws {
+        let storageOverride = makeStorageOverridePath()
+        try seedInboxTask(rootPath: storageOverride, title: "source activity seed")
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-ui-testing-reset", "-ui-testing-force-onboarding"]
+        app.launchEnvironment["TODOMD_STORAGE_OVERRIDE_PATH"] = storageOverride
+        app.launch()
+
+        completeOnboarding(app: app)
+
+        let browseTab = browseTabButton(in: app, timeout: 10)
+        XCTAssertTrue(browseTab.exists, "Browse tab not visible")
+        browseTab.tap()
+
+        let logbookButton = app.buttons["root.browse.builtin.logbook"].firstMatch
+        XCTAssertTrue(reveal(element: logbookButton, in: app), "Logbook entry was not visible in Browse")
+        logbookButton.tap()
+
+        let sourceActivityCard = app.descendants(matching: .any)["logbook.sourceActivity"].firstMatch
+        XCTAssertTrue(
+            sourceActivityCard.waitForExistence(timeout: 10),
+            "Recent source activity was not visible inside Logbook"
+        )
+        XCTAssertTrue(
+            app.staticTexts["Nothing in logbook yet"].firstMatch.waitForExistence(timeout: 10),
+            "Logbook empty state should still be visible below the source activity feed"
         )
     }
 
@@ -1921,6 +2207,27 @@ final class TodoMDAppUITests: XCTestCase {
         priority: none
         flagged: false
         created: "2026-03-10T00:01:00.000Z"
+        source: ui-test
+        ---
+
+        """
+        try content.write(to: taskURL, atomically: true, encoding: .utf8)
+    }
+
+    private func seedInboxTaskWithDeadline(rootPath: String, title: String) throws {
+        let rootURL = URL(fileURLWithPath: rootPath, isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+
+        let taskURL = rootURL.appendingPathComponent("20260310-0002-\(title.replacingOccurrences(of: " ", with: "-")).md")
+        let content = """
+        ---
+        title: "\(title)"
+        status: todo
+        due: 2026-03-31
+        due_time: "09:00"
+        priority: none
+        flagged: false
+        created: "2026-03-10T00:02:00.000Z"
         source: ui-test
         ---
 

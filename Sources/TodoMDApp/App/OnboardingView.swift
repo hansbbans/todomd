@@ -9,7 +9,7 @@ private enum OnboardingFolderChoice {
 struct OnboardingView: View {
     let onDone: () -> Void
 
-    @EnvironmentObject private var container: AppContainer
+    @Environment(AppContainer.self) private var container
 
     @State private var page = 0
     @State private var resolvedFolderPath: String?

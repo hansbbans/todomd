@@ -1,16 +1,14 @@
 import SwiftUI
 #if canImport(UIKit)
 import UIKit
-#elseif canImport(AppKit)
-import AppKit
 #endif
 
 struct QuickEntrySheet: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
-    @EnvironmentObject private var container: AppContainer
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(AppContainer.self) private var container
+    @Environment(ThemeManager.self) private var theme
     @AppStorage("settings_quick_entry_default_view") private var quickEntryDefaultView = BuiltInView.inbox.rawValue
     @AppStorage(QuickEntrySettings.fieldsKey) private var quickEntryFieldsRawValue = QuickEntrySettings.defaultFieldsRawValue
     @AppStorage(QuickEntrySettings.defaultDateModeKey) private var quickEntryDefaultDateModeRawValue = QuickEntryDefaultDateMode.none.rawValue
@@ -41,7 +39,13 @@ struct QuickEntrySheet: View {
     @State private var showingDetails = false
     @State private var focusTask: Task<Void, Never>?
     @State private var quickEntryParseTask: Task<Void, Never>?
+    @State private var hasManualDueSelection = false
+    @State private var hasAutoParsedDueSelection = false
     @State private var highlightedDatePhrase: String?
+    @State private var dueEditorInitialHasDate = false
+    @State private var dueEditorInitialDate = Date()
+    @State private var dueEditorInitialHasTime = false
+    @State private var dueEditorInitialTime = Date()
 
     @FocusState private var quickEntryTitleFocused: Bool
 
@@ -67,13 +71,9 @@ struct QuickEntrySheet: View {
         QuickEntryDefaultDateMode(rawValue: quickEntryDefaultDateModeRawValue) ?? .none
     }
 
-    private var supportsDueInputs: Bool {
-        activeFieldSet.contains(.dueDate)
-            || activeFieldSet.contains(.reminder)
-            || hasDueDate
-            || hasDueTime
-            || quickEntryDefaultDateMode != .none
-    }
+    // Quick entry always exposes the deadline chip in the collapsed row, even if
+    // the user hides Date and Reminders from the expanded field configuration.
+    private var supportsDueInputs: Bool { true }
 
     private var canSubmit: Bool {
         !quickEntryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -243,7 +243,9 @@ struct QuickEntrySheet: View {
             quickEntryParseTask?.cancel()
             quickEntryParseTask = nil
         }
-        .sheet(isPresented: $showingDueDateEditor) {
+        .sheet(isPresented: $showingDueDateEditor, onDismiss: {
+            finalizeDueEditorChangesIfNeeded()
+        }) {
             dueDateEditor
         }
         .sheet(isPresented: $showingReminderEditor) {
@@ -411,6 +413,7 @@ struct QuickEntrySheet: View {
             }
         case .dueDate:
             Button {
+                captureDueEditorInitialState()
                 showingDueDateEditor = true
             } label: {
                 chipLabelDeadline(
@@ -420,6 +423,7 @@ struct QuickEntrySheet: View {
                 )
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("quickEntry.deadlineButton")
         case .priority:
             Menu {
                 Button("Use default") {
@@ -451,6 +455,7 @@ struct QuickEntrySheet: View {
                 )
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("quickEntry.reminderButton")
         case .flag:
             Button {
                 flagged.toggle()
@@ -565,6 +570,7 @@ struct QuickEntrySheet: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
                 Button {
+                    captureDueEditorInitialState()
                     showingDueDateEditor = true
                 } label: {
                     chipLabelDeadline(
@@ -809,7 +815,11 @@ struct QuickEntrySheet: View {
                 )
 
                 Button("Clear Reminder", role: .destructive) {
+                    let reminderWasSet = hasDueDate && hasDueTime
                     hasDueTime = false
+                    if reminderWasSet {
+                        markDueSelectionAsManual()
+                    }
                     showingReminderEditor = false
                 }
             }
@@ -822,10 +832,19 @@ struct QuickEntrySheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
+                        let updatedDueDate = reminderDraftDate
+                        let updatedDueTime = reminderDraftDate
+                        let reminderChanged = !hasDueDate
+                            || !hasDueTime
+                            || dueDate != updatedDueDate
+                            || dueTime != updatedDueTime
                         hasDueDate = true
                         hasDueTime = true
-                        dueDate = reminderDraftDate
-                        dueTime = reminderDraftDate
+                        dueDate = updatedDueDate
+                        dueTime = updatedDueTime
+                        if reminderChanged {
+                            markDueSelectionAsManual()
+                        }
                         showingReminderEditor = false
                     }
                 }
@@ -861,18 +880,7 @@ struct QuickEntrySheet: View {
            let inferredProject = container.inferredTaskProject(for: container.selectedView) {
             selectedProject = inferredProject
         }
-        if supportsDueInputs {
-            switch quickEntryDefaultDateMode {
-            case .today:
-                hasDueDate = true
-                dueDate = Date()
-            case .none:
-                hasDueDate = false
-            }
-        } else {
-            hasDueDate = false
-        }
-        hasDueTime = false
+        applyDefaultDueSelection()
         showingDetails = hasVisibleMetadata
     }
 
@@ -914,15 +922,89 @@ struct QuickEntrySheet: View {
             let trimmedValue = capturedValue.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmedValue.isEmpty else {
                 highlightedDatePhrase = nil
+                if !hasManualDueSelection, hasAutoParsedDueSelection {
+                    applyDefaultDueSelection()
+                    hasAutoParsedDueSelection = false
+                }
                 quickEntryParseTask = nil
                 return
             }
 
             let parser = NaturalLanguageTaskParser(availableProjects: availableProjects)
-            let parsed = parser.parse(trimmedValue)
-            highlightedDatePhrase = parsed?.recognizedDatePhrase
+            guard let parsed = parser.parse(trimmedValue),
+                  let parsedDue = parsed.due,
+                  let parsedDueDate = dateFromLocalDate(parsedDue) else {
+                highlightedDatePhrase = nil
+                if !hasManualDueSelection, hasAutoParsedDueSelection {
+                    applyDefaultDueSelection()
+                    hasAutoParsedDueSelection = false
+                }
+                quickEntryParseTask = nil
+                return
+            }
+
+            highlightedDatePhrase = parsed.recognizedDatePhrase
+
+            guard !hasManualDueSelection else {
+                quickEntryParseTask = nil
+                return
+            }
+
+            hasDueDate = true
+            dueDate = parsedDueDate
+
+            if let parsedDueTime = parsed.dueTime,
+               let parsedDueTimeDate = dateFromLocalTime(parsedDueTime) {
+                hasDueTime = true
+                dueTime = parsedDueTimeDate
+            } else {
+                hasDueTime = false
+                dueTime = NotificationTimePreference().date(on: parsedDueDate, calendar: Calendar.current)
+            }
+
+            hasAutoParsedDueSelection = true
             quickEntryParseTask = nil
         }
+    }
+
+    private func markDueSelectionAsManual() {
+        hasManualDueSelection = true
+        hasAutoParsedDueSelection = false
+        quickEntryParseTask?.cancel()
+        quickEntryParseTask = nil
+    }
+
+    private func captureDueEditorInitialState() {
+        dueEditorInitialHasDate = hasDueDate
+        dueEditorInitialDate = dueDate
+        dueEditorInitialHasTime = hasDueTime
+        dueEditorInitialTime = dueTime
+    }
+
+    private func finalizeDueEditorChangesIfNeeded() {
+        let dueDateChanged = hasDueDate != dueEditorInitialHasDate
+            || (hasDueDate && dueDate != dueEditorInitialDate)
+        let dueTimeChanged = hasDueTime != dueEditorInitialHasTime
+            || (hasDueDate && hasDueTime && dueTime != dueEditorInitialTime)
+        if dueDateChanged || dueTimeChanged {
+            markDueSelectionAsManual()
+        }
+    }
+
+    private func applyDefaultDueSelection() {
+        if supportsDueInputs {
+            switch quickEntryDefaultDateMode {
+            case .today:
+                hasDueDate = true
+                dueDate = Date()
+            case .none:
+                hasDueDate = false
+            }
+        } else {
+            hasDueDate = false
+        }
+        hasDueTime = false
+        dueTime = NotificationTimePreference().date(on: dueDate, calendar: Calendar.current)
     }
 
     private func addTask() {
@@ -930,8 +1012,8 @@ struct QuickEntrySheet: View {
         guard !trimmedEntry.isEmpty else { return }
 
         let defaultView = BuiltInView(rawValue: quickEntryDefaultView)
-        let explicitDue = (supportsDueInputs && hasDueDate) ? localDate(from: dueDate) : nil
-        let explicitDueTime = (supportsDueInputs && hasDueDate && hasDueTime) ? localTime(from: dueTime) : nil
+        let explicitDue = hasDueDate ? localDate(from: dueDate) : nil
+        let explicitDueTime = (hasDueDate && hasDueTime) ? localTime(from: dueTime) : nil
         let explicitRecurrence: String? = {
             let trimmed = recurrence.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
@@ -969,12 +1051,27 @@ struct QuickEntrySheet: View {
         )) ?? .epoch
     }
 
+    private func dateFromLocalDate(_ localDate: LocalDate) -> Date? {
+        var components = DateComponents()
+        components.year = localDate.year
+        components.month = localDate.month
+        components.day = localDate.day
+        return Calendar.current.date(from: components)
+    }
+
     private func localTime(from date: Date) -> LocalTime {
         let components = Calendar.current.dateComponents([.hour, .minute], from: date)
         return (try? LocalTime(
             hour: components.hour ?? 0,
             minute: components.minute ?? 0
         )) ?? .midnight
+    }
+
+    private func dateFromLocalTime(_ localTime: LocalTime) -> Date? {
+        var components = DateComponents()
+        components.hour = localTime.hour
+        components.minute = localTime.minute
+        return Calendar.current.date(from: components)
     }
 
     private func parsedTags(from raw: String) -> [String] {
@@ -1011,53 +1108,7 @@ enum QuickEntryTextHighlighter {
             options: [.caseInsensitive, .backwards, .diacriticInsensitive]
         )
     }
-
-#if canImport(UIKit) || canImport(AppKit)
-    fileprivate static func attributedText(
-        for text: String,
-        phrase: String?,
-        font: QuickEntryPlatformFont,
-        textColor: QuickEntryPlatformColor,
-        highlightColor: QuickEntryPlatformColor
-    ) -> NSAttributedString {
-        let attributed = NSMutableAttributedString(
-            string: text,
-            attributes: [
-                .font: font,
-                .foregroundColor: textColor
-            ]
-        )
-
-        if let range = highlightedRange(in: text, phrase: phrase) {
-            attributed.addAttributes(
-                [
-                    .foregroundColor: highlightedTextColor,
-                    .backgroundColor: highlightColor.withAlphaComponent(0.6)
-                ],
-                range: NSRange(range, in: text)
-            )
-        }
-
-        return attributed
-    }
-
-    private static var highlightedTextColor: QuickEntryPlatformColor {
-        #if canImport(UIKit)
-        .white
-        #elseif canImport(AppKit)
-        .white
-        #endif
-    }
-#endif
 }
-
-#if canImport(UIKit)
-typealias QuickEntryPlatformColor = UIColor
-typealias QuickEntryPlatformFont = UIFont
-#elseif canImport(AppKit)
-typealias QuickEntryPlatformColor = NSColor
-typealias QuickEntryPlatformFont = NSFont
-#endif
 
 #if canImport(UIKit)
 private struct QuickEntryTitleField: UIViewRepresentable {
@@ -1093,10 +1144,7 @@ private struct QuickEntryTitleField: UIViewRepresentable {
         context.coordinator.parent = self
         applyAppearance(to: uiView, coordinator: context.coordinator)
 
-        if context.coordinator.lastRenderedText != text
-            || context.coordinator.lastHighlightedPhrase != highlightedPhrase
-            || context.coordinator.lastTextColor != UIColor(textColor)
-            || context.coordinator.lastHighlightColor != UIColor(highlightColor) {
+        if context.coordinator.lastRenderedText != text || context.coordinator.lastHighlightedPhrase != highlightedPhrase {
             let selection = context.coordinator.selectionOffsets(in: uiView)
             context.coordinator.isApplyingUpdate = true
             uiView.attributedText = attributedText()
@@ -1104,8 +1152,6 @@ private struct QuickEntryTitleField: UIViewRepresentable {
             context.coordinator.restoreSelection(selection, in: uiView)
             context.coordinator.lastRenderedText = text
             context.coordinator.lastHighlightedPhrase = highlightedPhrase
-            context.coordinator.lastTextColor = UIColor(textColor)
-            context.coordinator.lastHighlightColor = UIColor(highlightColor)
         }
 
         if isFocused.wrappedValue, !uiView.isFirstResponder {
@@ -1133,13 +1179,24 @@ private struct QuickEntryTitleField: UIViewRepresentable {
     }
 
     private func attributedText() -> NSAttributedString {
-        QuickEntryTextHighlighter.attributedText(
-            for: text,
-            phrase: highlightedPhrase,
-            font: roundedTitleFont(),
-            textColor: UIColor(textColor),
-            highlightColor: UIColor(highlightColor)
-        )
+        let font = roundedTitleFont()
+        let baseAttributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: UIColor(textColor)
+        ]
+        let attributed = NSMutableAttributedString(string: text, attributes: baseAttributes)
+
+        if let range = QuickEntryTextHighlighter.highlightedRange(in: text, phrase: highlightedPhrase) {
+            attributed.addAttributes(
+                [
+                    .foregroundColor: UIColor.white,
+                    .backgroundColor: UIColor(highlightColor).withAlphaComponent(0.6)
+                ],
+                range: NSRange(range, in: text)
+            )
+        }
+
+        return attributed
     }
 
     private func roundedTitleFont() -> UIFont {
@@ -1155,8 +1212,6 @@ private struct QuickEntryTitleField: UIViewRepresentable {
         var isApplyingUpdate = false
         var lastRenderedText = ""
         var lastHighlightedPhrase: String?
-        var lastTextColor: UIColor?
-        var lastHighlightColor: UIColor?
 
         init(parent: QuickEntryTitleField) {
             self.parent = parent
@@ -1206,167 +1261,6 @@ private struct QuickEntryTitleField: UIViewRepresentable {
         }
     }
 }
-#elseif canImport(AppKit)
-private struct QuickEntryTitleField: NSViewRepresentable {
-    let placeholder: String
-    @Binding var text: String
-    let highlightedPhrase: String?
-    let isFocused: Binding<Bool>
-    let textColor: Color
-    let highlightColor: Color
-    let onChange: (String) -> Void
-    let onSubmit: () -> Void
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(parent: self)
-    }
-
-    func makeNSView(context: Context) -> NSTextField {
-        let textField = NSTextField(string: text)
-        textField.isBordered = false
-        textField.drawsBackground = false
-        textField.focusRingType = .none
-        textField.isBezeled = false
-        textField.font = roundedTitleFont()
-        textField.delegate = context.coordinator
-        textField.lineBreakMode = .byTruncatingTail
-        textField.cell?.usesSingleLineMode = true
-        textField.cell?.wraps = false
-        applyAppearance(to: textField)
-        updateAttributedText(for: textField)
-        if context.coordinator.lastRenderedText.isEmpty && text.isEmpty {
-            textField.attributedStringValue = attributedText()
-        }
-        return textField
-    }
-
-    func updateNSView(_ textField: NSTextField, context: Context) {
-        context.coordinator.parent = self
-        applyAppearance(to: textField)
-        let textColor = NSColor(self.textColor)
-        let highlightColor = NSColor(self.highlightColor)
-        let shouldRefreshText = textField.stringValue != text
-            || context.coordinator.lastRenderedText != text
-            || context.coordinator.lastHighlightedPhrase != highlightedPhrase
-            || context.coordinator.lastTextColor?.isEqual(textColor) != true
-            || context.coordinator.lastHighlightColor?.isEqual(highlightColor) != true
-        if shouldRefreshText {
-            let selection = context.coordinator.selectionRange(in: textField)
-            context.coordinator.isApplyingUpdate = true
-            updateAttributedText(for: textField)
-            context.coordinator.restoreSelection(selection, in: textField)
-            context.coordinator.isApplyingUpdate = false
-            context.coordinator.lastRenderedText = text
-            context.coordinator.lastHighlightedPhrase = highlightedPhrase
-            context.coordinator.lastTextColor = textColor
-            context.coordinator.lastHighlightColor = highlightColor
-        }
-
-        if isFocused.wrappedValue {
-            if textField.window?.firstResponder !== textField.currentEditor() {
-                textField.window?.makeFirstResponder(textField)
-            }
-        } else if textField.window?.firstResponder === textField.currentEditor() {
-            textField.window?.makeFirstResponder(nil)
-        }
-    }
-
-    private func applyAppearance(to textField: NSTextField) {
-        let font = roundedTitleFont()
-        let platformTextColor = NSColor(textColor)
-        textField.font = font
-        textField.textColor = platformTextColor
-        textField.placeholderAttributedString = NSAttributedString(
-            string: placeholder,
-            attributes: [
-                .font: font,
-                .foregroundColor: platformTextColor.withAlphaComponent(0.45)
-            ]
-        )
-    }
-
-    private func updateAttributedText(for textField: NSTextField) {
-        let attributed = attributedText()
-        textField.attributedStringValue = attributed
-        if let editor = textField.currentEditor() as? NSTextView {
-            editor.textStorage?.setAttributedString(attributed)
-            editor.insertionPointColor = NSColor(textColor)
-        }
-    }
-
-    private func attributedText() -> NSAttributedString {
-        QuickEntryTextHighlighter.attributedText(
-            for: text,
-            phrase: highlightedPhrase,
-            font: roundedTitleFont(),
-            textColor: NSColor(textColor),
-            highlightColor: NSColor(highlightColor)
-        )
-    }
-
-    private func roundedTitleFont() -> NSFont {
-        let textStyle = NSFont.TextStyle.title2
-        let baseFont = NSFont.preferredFont(forTextStyle: textStyle)
-        let descriptor = baseFont.fontDescriptor.withDesign(.rounded) ?? baseFont.fontDescriptor
-        return NSFont(descriptor: descriptor, size: 0) ?? baseFont
-    }
-
-    final class Coordinator: NSObject, NSTextFieldDelegate {
-        var parent: QuickEntryTitleField
-        var isApplyingUpdate = false
-        var lastRenderedText = ""
-        var lastHighlightedPhrase: String?
-        var lastTextColor: NSColor?
-        var lastHighlightColor: NSColor?
-
-        init(parent: QuickEntryTitleField) {
-            self.parent = parent
-        }
-
-        func controlTextDidChange(_ notification: Notification) {
-            guard !isApplyingUpdate,
-                  let textField = notification.object as? NSTextField else { return }
-            let newValue = textField.stringValue
-            parent.text = newValue
-            parent.onChange(newValue)
-        }
-
-        func controlTextDidBeginEditing(_ notification: Notification) {
-            parent.isFocused.wrappedValue = true
-        }
-
-        func controlTextDidEndEditing(_ notification: Notification) {
-            parent.isFocused.wrappedValue = false
-        }
-
-        func control(
-            _ control: NSControl,
-            textView: NSTextView,
-            doCommandBy commandSelector: Selector
-        ) -> Bool {
-            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-                parent.onSubmit()
-                return true
-            }
-            return false
-        }
-
-        @MainActor
-        func selectionRange(in textField: NSTextField) -> NSRange? {
-            textField.currentEditor()?.selectedRange
-        }
-
-        @MainActor
-        func restoreSelection(_ range: NSRange?, in textField: NSTextField) {
-            guard let range,
-                  let editor = textField.currentEditor() else { return }
-            let textLength = textField.stringValue.utf16.count
-            let location = max(0, min(range.location, textLength))
-            let maxLength = max(0, textLength - location)
-            editor.selectedRange = NSRange(location: location, length: min(range.length, maxLength))
-        }
-    }
-}
 #else
 private struct QuickEntryTitleField: View {
     let placeholder: String
@@ -1387,6 +1281,7 @@ private struct QuickEntryTitleField: View {
                 onChange(newValue)
             }
             .onSubmit(onSubmit)
+            .focused(isFocused)
             .accessibilityIdentifier("quickEntry.titleField")
     }
 }

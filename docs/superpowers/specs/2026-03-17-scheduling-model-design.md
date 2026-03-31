@@ -230,7 +230,9 @@ The inline composer and `QuickEntrySheet` currently have a single date chip. Rep
 
 ### Natural language parsing
 
-Existing NLP date parsing currently populates `due` (the deadline field). **This spec does not change NLP behavior** — `due` remains the NLP target. The "When" (`scheduled`) field is set only via the explicit "When" chip or the star icon. Redirecting NLP output to `scheduled` is a future consideration, out of scope here.
+Existing NLP date parsing currently populates `due` and, when a time is present, `due_time` (the deadline fields). **This spec does not change NLP behavior** — typed date/time phrases remain deadline input, not "When" input. The "When" (`scheduled`) field is set only via the explicit "When" chip or the star icon. Redirecting NLP output to `scheduled` is a future consideration, out of scope here.
+
+When a typed phrase produces both a date and time, reminder UI should start from that same deadline date/time by default. This is a UI default only; there is still no separate reminder timestamp in the task model.
 
 ---
 

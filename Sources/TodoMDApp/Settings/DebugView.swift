@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct DebugView: View {
-    @EnvironmentObject private var container: AppContainer
+    @Environment(AppContainer.self) private var container
     private let widgetDiagnostic = TaskFolderPreferences.lastWidgetLoadDiagnostic()
 
     var body: some View {

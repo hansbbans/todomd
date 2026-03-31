@@ -57,10 +57,11 @@ private enum PomodoroPhase: String {
     }
 }
 
-struct PomodoroTimerView: View {
-    let header: AnyView?
+struct PomodoroTimerView<Header: View>: View {
+    let showsHeader: Bool
+    let header: Header
     @Environment(\.colorScheme) private var colorScheme
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(ThemeManager.self) private var theme
     @AppStorage("settings_pomodoro_mode") private var modeRawValue = PomodoroPreset.standard.rawValue
     @AppStorage("settings_pomodoro_auto_start_next") private var autoStartNext = false
     @AppStorage("settings_pomodoro_phase") private var phaseRawValue = PomodoroPhase.focus.rawValue
@@ -72,14 +73,18 @@ struct PomodoroTimerView: View {
     @ScaledMetric(relativeTo: .largeTitle) private var timerFontSize = 56
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
-    init(header: AnyView? = nil) {
-        self.header = header
+    init(
+        showsHeader: Bool = false,
+        @ViewBuilder header: () -> Header
+    ) {
+        self.showsHeader = showsHeader
+        self.header = header()
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                if let header {
+                if showsHeader {
                     header
                 }
 
@@ -87,8 +92,8 @@ struct PomodoroTimerView: View {
                 controlsCard
                 sessionCard
             }
-            .padding(.horizontal, header == nil ? 16 : 24)
-            .padding(.top, header == nil ? 18 : 72)
+            .padding(.horizontal, showsHeader ? 24 : 16)
+            .padding(.top, showsHeader ? 72 : 18)
             .padding(.bottom, 108)
         }
         .background(theme.backgroundColor.ignoresSafeArea())
@@ -418,5 +423,13 @@ struct PomodoroTimerView: View {
         isRunning = false
         endTimestamp = 0
         now = Date()
+    }
+}
+
+extension PomodoroTimerView where Header == EmptyView {
+    init() {
+        self.init(showsHeader: false) {
+            EmptyView()
+        }
     }
 }
