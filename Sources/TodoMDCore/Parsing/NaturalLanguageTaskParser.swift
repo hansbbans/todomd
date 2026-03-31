@@ -390,6 +390,7 @@ public struct NaturalLanguagePerspectiveParser {
     private struct ConcreteDuePhrase {
         let phrase: String
         let isExplicitDayMatch: Bool
+        let isLooseRelativeMatch: Bool
     }
 
     public init(calendar: Calendar = .current) {
@@ -456,7 +457,7 @@ public struct NaturalLanguagePerspectiveParser {
         var conditions: [PerspectiveCondition] = []
         let excludesDoneStatus = query.contains("not done")
             || query.contains("not completed")
-        let requestsIncompleteStatus = query.contains("incomplete")
+        let requestsIncompleteStatus = containsIncompleteStatusIntent(in: query)
 
         if let projects = parseProjectList(query), projects.count > 1 {
             let projectRules = projects.map { PerspectiveCondition.rule(PerspectiveRule(field: .project, operator: .equals, value: $0)) }
@@ -505,7 +506,7 @@ public struct NaturalLanguagePerspectiveParser {
             let dueOperator: PerspectiveOperator
             if concreteDuePhrase.isExplicitDayMatch {
                 dueOperator = .on
-            } else if excludesDoneStatus || requestsIncompleteStatus {
+            } else if concreteDuePhrase.isLooseRelativeMatch && (excludesDoneStatus || requestsIncompleteStatus) {
                 dueOperator = .onOrBefore
             } else {
                 dueOperator = .on
@@ -650,7 +651,8 @@ public struct NaturalLanguagePerspectiveParser {
         if let phrase = scopedPhrase(in: query, after: "in project ") {
             return titleCase(phrase)
         }
-        if let phrase = firstMatch(pattern: #"in ([a-z0-9 _\-]+) project"#, in: query) {
+        let alternateOrderPattern = #"in ([a-z0-9 _\-]+?) project(?=\s+(?:due|scheduled|tagged|high|medium|low|flagged|overdue|no|completed|not|blocked|unblocked|that|which|where|assigned|repeating|recurring|created|tasks|from)\b|$)"#
+        if let phrase = firstMatch(pattern: alternateOrderPattern, in: query) {
             return titleCase(phrase)
         }
         return nil
@@ -731,7 +733,12 @@ public struct NaturalLanguagePerspectiveParser {
 
         phrase = phrase.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !phrase.isEmpty else { return nil }
-        return ConcreteDuePhrase(phrase: phrase, isExplicitDayMatch: isExplicitDayMatch)
+        let isLooseRelativeMatch = isRelativeWeekdayPhrase(phrase.lowercased())
+        return ConcreteDuePhrase(
+            phrase: phrase,
+            isExplicitDayMatch: isExplicitDayMatch,
+            isLooseRelativeMatch: isLooseRelativeMatch
+        )
     }
 
     private func normalize(_ query: String) -> String {
@@ -810,6 +817,12 @@ public struct NaturalLanguagePerspectiveParser {
             return nil
         }
         return value[captureRange].trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func containsIncompleteStatusIntent(in value: String) -> Bool {
+        let normalized = normalize(value)
+        let pattern = #"^(?:(?:show me|show|anything)\s+)?(?:all\s+)?incomplete(?:\s+(?:item|items|task|tasks|thing|things))?(?:$|\s)"#
+        return normalized.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
     }
 
     private func resolvedDateValue(from phrase: String, referenceDate: Date) -> JSONValue? {

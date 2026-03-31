@@ -198,6 +198,119 @@ private let hardeningPerspectiveCases: [NaturalLanguagePerspectiveCase] = [
         expectedCloudFallback: false
     ),
     .init(
+        query: "show me all incomplete items in TL project due this upcoming Friday",
+        referenceISO8601: "2026-02-28T12:00:00Z",
+        expectedTopLevelOperator: .and,
+        expectedRules: [
+            .init(field: .project, operator: .equals, stringValue: "Tl"),
+            .init(field: .due, operator: .onOrBefore, stringValue: "this upcoming friday"),
+            .init(field: .status, operator: .in)
+        ],
+        expectedNestedOperators: [],
+        expectedConfidence: 1,
+        expectedCloudFallback: false
+    ),
+    .init(
+        query: "anything in project TL due March 6 not done",
+        referenceISO8601: "2026-02-28T12:00:00Z",
+        expectedTopLevelOperator: .and,
+        expectedRules: [
+            .init(field: .project, operator: .equals, stringValue: "Tl"),
+            .init(field: .due, operator: .on, stringValue: "2026-03-06"),
+            .init(field: .status, operator: .notEquals, stringValue: TaskStatus.done.rawValue)
+        ],
+        expectedNestedOperators: [],
+        expectedConfidence: 1,
+        expectedCloudFallback: false
+    ),
+    .init(
+        query: "in project Incomplete Migration due March 6",
+        referenceISO8601: "2026-02-28T12:00:00Z",
+        expectedTopLevelOperator: .and,
+        expectedRules: [
+            .init(field: .project, operator: .equals, stringValue: "Incomplete Migration"),
+            .init(field: .due, operator: .on, stringValue: "2026-03-06")
+        ],
+        expectedNestedOperators: [],
+        expectedConfidence: 1,
+        expectedCloudFallback: false
+    ),
+    .init(
+        query: "in project Incomplete due March 6",
+        referenceISO8601: "2026-02-28T12:00:00Z",
+        expectedTopLevelOperator: .and,
+        expectedRules: [
+            .init(field: .project, operator: .equals, stringValue: "Incomplete"),
+            .init(field: .due, operator: .on, stringValue: "2026-03-06")
+        ],
+        expectedNestedOperators: [],
+        expectedConfidence: 1,
+        expectedCloudFallback: false
+    ),
+    .init(
+        query: "in project Migration Incomplete due March 6",
+        referenceISO8601: "2026-02-28T12:00:00Z",
+        expectedTopLevelOperator: .and,
+        expectedRules: [
+            .init(field: .project, operator: .equals, stringValue: "Migration Incomplete"),
+            .init(field: .due, operator: .on, stringValue: "2026-03-06")
+        ],
+        expectedNestedOperators: [],
+        expectedConfidence: 1,
+        expectedCloudFallback: false
+    ),
+    .init(
+        query: "tagged incomplete due March 6",
+        referenceISO8601: "2026-02-28T12:00:00Z",
+        expectedTopLevelOperator: .and,
+        expectedRules: [
+            .init(field: .tags, operator: .contains, stringValue: "incomplete"),
+            .init(field: .due, operator: .on, stringValue: "2026-03-06")
+        ],
+        expectedNestedOperators: [],
+        expectedConfidence: 1,
+        expectedCloudFallback: false
+    ),
+    .init(
+        query: "assigned to incomplete due March 6",
+        referenceISO8601: "2026-02-28T12:00:00Z",
+        expectedTopLevelOperator: .and,
+        expectedRules: [
+            .init(field: .assignee, operator: .equals, stringValue: "incomplete"),
+            .init(field: .due, operator: .on, stringValue: "2026-03-06")
+        ],
+        expectedNestedOperators: [],
+        expectedConfidence: 1,
+        expectedCloudFallback: false
+    ),
+    .init(
+        query: "in projects Home and Incomplete due March 6",
+        referenceISO8601: "2026-02-28T12:00:00Z",
+        expectedTopLevelOperator: .and,
+        expectedRules: [
+            .init(field: .project, operator: .equals, stringValue: "Home"),
+            .init(field: .project, operator: .equals, stringValue: "Incomplete"),
+            .init(field: .due, operator: .on, stringValue: "2026-03-06")
+        ],
+        expectedNestedOperators: [.or],
+        expectedConfidence: 1,
+        expectedCloudFallback: false
+    ),
+    .init(
+        query: "in TL project completed by project-bot due March 6",
+        referenceISO8601: "2026-02-28T12:00:00Z",
+        expectedTopLevelOperator: .and,
+        expectedRules: [
+            .init(field: .project, operator: .equals, stringValue: "Tl"),
+            .init(field: .completedBy, operator: .equals, stringValue: "project-bot"),
+            .init(field: .due, operator: .on, stringValue: "2026-03-06"),
+            .init(field: .status, operator: .equals, stringValue: TaskStatus.done.rawValue)
+        ],
+        expectedNestedOperators: [],
+        expectedConfidence: 1,
+        expectedCloudFallback: false
+    ),
+    .init(
         query: "in project TL due by upcoming Friday",
         referenceISO8601: "2026-02-28T12:00:00Z",
         expectedTopLevelOperator: .and,
