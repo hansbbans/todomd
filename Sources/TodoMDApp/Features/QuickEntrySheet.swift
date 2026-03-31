@@ -1,6 +1,8 @@
 import SwiftUI
 #if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
 #endif
 
 struct QuickEntrySheet: View {
@@ -1009,7 +1011,53 @@ enum QuickEntryTextHighlighter {
             options: [.caseInsensitive, .backwards, .diacriticInsensitive]
         )
     }
+
+#if canImport(UIKit) || canImport(AppKit)
+    fileprivate static func attributedText(
+        for text: String,
+        phrase: String?,
+        font: QuickEntryPlatformFont,
+        textColor: QuickEntryPlatformColor,
+        highlightColor: QuickEntryPlatformColor
+    ) -> NSAttributedString {
+        let attributed = NSMutableAttributedString(
+            string: text,
+            attributes: [
+                .font: font,
+                .foregroundColor: textColor
+            ]
+        )
+
+        if let range = highlightedRange(in: text, phrase: phrase) {
+            attributed.addAttributes(
+                [
+                    .foregroundColor: highlightedTextColor,
+                    .backgroundColor: highlightColor.withAlphaComponent(0.6)
+                ],
+                range: NSRange(range, in: text)
+            )
+        }
+
+        return attributed
+    }
+
+    private static var highlightedTextColor: QuickEntryPlatformColor {
+        #if canImport(UIKit)
+        .white
+        #elseif canImport(AppKit)
+        .white
+        #endif
+    }
+#endif
 }
+
+#if canImport(UIKit)
+typealias QuickEntryPlatformColor = UIColor
+typealias QuickEntryPlatformFont = UIFont
+#elseif canImport(AppKit)
+typealias QuickEntryPlatformColor = NSColor
+typealias QuickEntryPlatformFont = NSFont
+#endif
 
 #if canImport(UIKit)
 private struct QuickEntryTitleField: UIViewRepresentable {
@@ -1085,24 +1133,13 @@ private struct QuickEntryTitleField: UIViewRepresentable {
     }
 
     private func attributedText() -> NSAttributedString {
-        let font = roundedTitleFont()
-        let baseAttributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: UIColor(textColor)
-        ]
-        let attributed = NSMutableAttributedString(string: text, attributes: baseAttributes)
-
-        if let range = QuickEntryTextHighlighter.highlightedRange(in: text, phrase: highlightedPhrase) {
-            attributed.addAttributes(
-                [
-                    .foregroundColor: UIColor.white,
-                    .backgroundColor: UIColor(highlightColor).withAlphaComponent(0.6)
-                ],
-                range: NSRange(range, in: text)
-            )
-        }
-
-        return attributed
+        QuickEntryTextHighlighter.attributedText(
+            for: text,
+            phrase: highlightedPhrase,
+            font: roundedTitleFont(),
+            textColor: UIColor(textColor),
+            highlightColor: UIColor(highlightColor)
+        )
     }
 
     private func roundedTitleFont() -> UIFont {
@@ -1169,6 +1206,163 @@ private struct QuickEntryTitleField: UIViewRepresentable {
         }
     }
 }
+#elseif canImport(AppKit)
+private struct QuickEntryTitleField: NSViewRepresentable {
+    let placeholder: String
+    @Binding var text: String
+    let highlightedPhrase: String?
+    let isFocused: Binding<Bool>
+    let textColor: Color
+    let highlightColor: Color
+    let onChange: (String) -> Void
+    let onSubmit: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let textField = NSTextField(string: text)
+        textField.isBordered = false
+        textField.drawsBackground = false
+        textField.focusRingType = .none
+        textField.isBezeled = false
+        textField.font = roundedTitleFont()
+        textField.delegate = context.coordinator
+        textField.lineBreakMode = .byTruncatingTail
+        textField.cell?.usesSingleLineMode = true
+        textField.cell?.wraps = false
+        applyAppearance(to: textField)
+        updateAttributedText(for: textField)
+        if context.coordinator.lastRenderedText.isEmpty && text.isEmpty {
+            textField.attributedStringValue = attributedText()
+        }
+        return textField
+    }
+
+    func updateNSView(_ textField: NSTextField, context: Context) {
+        context.coordinator.parent = self
+        applyAppearance(to: textField)
+        let textColor = NSColor(self.textColor)
+        let highlightColor = NSColor(self.highlightColor)
+        let shouldRefreshText = textField.stringValue != text
+            || context.coordinator.lastRenderedText != text
+            || context.coordinator.lastHighlightedPhrase != highlightedPhrase
+            || context.coordinator.lastTextColor?.isEqual(textColor) != true
+            || context.coordinator.lastHighlightColor?.isEqual(highlightColor) != true
+        if shouldRefreshText {
+            let selection = context.coordinator.selectionRange(in: textField)
+            context.coordinator.isApplyingUpdate = true
+            updateAttributedText(for: textField)
+            context.coordinator.restoreSelection(selection, in: textField)
+            context.coordinator.isApplyingUpdate = false
+        }
+
+        if isFocused.wrappedValue {
+            if textField.window?.firstResponder !== textField.currentEditor() {
+                textField.window?.makeFirstResponder(textField)
+            }
+        } else if textField.window?.firstResponder === textField.currentEditor() {
+            textField.window?.makeFirstResponder(nil)
+        }
+    }
+
+    private func applyAppearance(to textField: NSTextField) {
+        let font = roundedTitleFont()
+        let platformTextColor = NSColor(textColor)
+        textField.font = font
+        textField.textColor = platformTextColor
+        textField.placeholderAttributedString = NSAttributedString(
+            string: placeholder,
+            attributes: [
+                .font: font,
+                .foregroundColor: platformTextColor.withAlphaComponent(0.45)
+            ]
+        )
+    }
+
+    private func updateAttributedText(for textField: NSTextField) {
+        let attributed = attributedText()
+        textField.attributedStringValue = attributed
+        if let editor = textField.currentEditor() as? NSTextView {
+            editor.textStorage?.setAttributedString(attributed)
+            editor.insertionPointColor = NSColor(textColor)
+        }
+    }
+
+    private func attributedText() -> NSAttributedString {
+        QuickEntryTextHighlighter.attributedText(
+            for: text,
+            phrase: highlightedPhrase,
+            font: roundedTitleFont(),
+            textColor: NSColor(textColor),
+            highlightColor: NSColor(highlightColor)
+        )
+    }
+
+    private func roundedTitleFont() -> NSFont {
+        let textStyle = NSFont.TextStyle.title2
+        let baseFont = NSFont.preferredFont(forTextStyle: textStyle)
+        let descriptor = baseFont.fontDescriptor.withDesign(.rounded) ?? baseFont.fontDescriptor
+        return NSFont(descriptor: descriptor, size: 0) ?? baseFont
+    }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: QuickEntryTitleField
+        var isApplyingUpdate = false
+        var lastRenderedText = ""
+        var lastHighlightedPhrase: String?
+        var lastTextColor: NSColor?
+        var lastHighlightColor: NSColor?
+
+        init(parent: QuickEntryTitleField) {
+            self.parent = parent
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard !isApplyingUpdate,
+                  let textField = notification.object as? NSTextField else { return }
+            let newValue = textField.stringValue
+            parent.text = newValue
+            parent.onChange(newValue)
+        }
+
+        func controlTextDidBeginEditing(_ notification: Notification) {
+            parent.isFocused.wrappedValue = true
+        }
+
+        func controlTextDidEndEditing(_ notification: Notification) {
+            parent.isFocused.wrappedValue = false
+        }
+
+        func control(
+            _ control: NSControl,
+            textView: NSTextView,
+            doCommandBy commandSelector: Selector
+        ) -> Bool {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                parent.onSubmit()
+                return true
+            }
+            return false
+        }
+
+        @MainActor
+        func selectionRange(in textField: NSTextField) -> NSRange? {
+            textField.currentEditor()?.selectedRange
+        }
+
+        @MainActor
+        func restoreSelection(_ range: NSRange?, in textField: NSTextField) {
+            guard let range,
+                  let editor = textField.currentEditor() else { return }
+            let textLength = textField.stringValue.utf16.count
+            let location = max(0, min(range.location, textLength))
+            let maxLength = max(0, textLength - location)
+            editor.selectedRange = NSRange(location: location, length: min(range.length, maxLength))
+        }
+    }
+}
 #else
 private struct QuickEntryTitleField: View {
     let placeholder: String
@@ -1189,7 +1383,6 @@ private struct QuickEntryTitleField: View {
                 onChange(newValue)
             }
             .onSubmit(onSubmit)
-            .focused(isFocused)
             .accessibilityIdentifier("quickEntry.titleField")
     }
 }

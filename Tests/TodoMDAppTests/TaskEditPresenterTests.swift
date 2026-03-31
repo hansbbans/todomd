@@ -1,4 +1,9 @@
 import Foundation
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 import Testing
 @testable import TodoMDApp
 
@@ -271,7 +276,71 @@ struct TaskEditPresenterTests {
 
         #expect(range == nil)
     }
+
+#if canImport(UIKit) || canImport(AppKit)
+    @Test("quick entry highlighter applies background to the full matched phrase")
+    func quickEntryHighlighterAppliesBackgroundToMatchedPhrase() {
+        let text = "This Is A Test Due Monday 8pm"
+        let attributed = QuickEntryTextHighlighter.attributedText(
+            for: text,
+            phrase: "Due Monday 8pm",
+            font: quickEntryHighlightTestFont(),
+            textColor: quickEntryHighlightTestTextColor(),
+            highlightColor: quickEntryHighlightTestAccentColor()
+        )
+        let matchRange = NSRange(
+            QuickEntryTextHighlighter.highlightedRange(in: text, phrase: "Due Monday 8pm")!,
+            in: text
+        )
+
+        var effectiveRange = NSRange()
+        let background = attributed.attribute(.backgroundColor, at: matchRange.location, effectiveRange: &effectiveRange)
+
+        #expect(background != nil)
+        #expect(NSEqualRanges(effectiveRange, matchRange))
+        #expect(attributed.attribute(.backgroundColor, at: 0, effectiveRange: nil) == nil)
+    }
+
+    @Test("quick entry highlighter does not add inline background when the phrase is absent")
+    func quickEntryHighlighterOmitsBackgroundWhenPhraseIsMissing() {
+        let attributed = QuickEntryTextHighlighter.attributedText(
+            for: "Inbox cleanup tomorrow",
+            phrase: "next friday 3pm",
+            font: quickEntryHighlightTestFont(),
+            textColor: quickEntryHighlightTestTextColor(),
+            highlightColor: quickEntryHighlightTestAccentColor()
+        )
+
+        #expect(attributed.attribute(.backgroundColor, at: 0, effectiveRange: nil) == nil)
+    }
+#endif
 }
+
+#if canImport(UIKit)
+private func quickEntryHighlightTestFont() -> UIFont {
+    UIFont.systemFont(ofSize: 17)
+}
+
+private func quickEntryHighlightTestTextColor() -> UIColor {
+    .label
+}
+
+private func quickEntryHighlightTestAccentColor() -> UIColor {
+    .systemRed
+}
+#elseif canImport(AppKit)
+private func quickEntryHighlightTestFont() -> NSFont {
+    NSFont.systemFont(ofSize: 17)
+}
+
+private func quickEntryHighlightTestTextColor() -> NSColor {
+    .labelColor
+}
+
+private func quickEntryHighlightTestAccentColor() -> NSColor {
+    .systemRed
+}
+#endif
 
 @Suite
 struct PerspectiveEditorSaveResolverTests {
