@@ -228,6 +228,49 @@ struct TaskEditPresenterTests {
         #expect(duplicate.body == "Body")
         #expect(duplicate.unknownFrontmatter["custom"] == YAMLValue.string("keep"))
     }
+
+    @Test("quick entry highlighter matches an explicit due phrase including time")
+    func quickEntryHighlighterMatchesExplicitDuePhraseIncludingTime() {
+        let text = "This Is A Test Due Monday 8pm"
+        let range = QuickEntryTextHighlighter.highlightedRange(
+            in: text,
+            phrase: "Due Monday 8pm"
+        )
+
+        #expect(range.map { String(text[$0]) } == "Due Monday 8pm")
+    }
+
+    @Test("quick entry highlighter matches case-insensitively")
+    func quickEntryHighlighterMatchesCaseInsensitively() {
+        let text = "Follow up due monday 8pm"
+        let range = QuickEntryTextHighlighter.highlightedRange(
+            in: text,
+            phrase: "Due Monday 8PM"
+        )
+
+        #expect(range.map { String(text[$0]) } == "due monday 8pm")
+    }
+
+    @Test("quick entry highlighter prefers the last matching phrase")
+    func quickEntryHighlighterPrefersLastMatchingPhrase() {
+        let text = "monday prep due monday 8pm"
+        let range = QuickEntryTextHighlighter.highlightedRange(
+            in: text,
+            phrase: "DUE MONDAY 8PM"
+        )
+
+        #expect(range.map { String(text[$0]) } == "due monday 8pm")
+    }
+
+    @Test("quick entry highlighter returns nil when the phrase is absent")
+    func quickEntryHighlighterReturnsNilWhenPhraseIsMissing() {
+        let range = QuickEntryTextHighlighter.highlightedRange(
+            in: "Inbox cleanup tomorrow",
+            phrase: "next friday 3pm"
+        )
+
+        #expect(range == nil)
+    }
 }
 
 @Suite

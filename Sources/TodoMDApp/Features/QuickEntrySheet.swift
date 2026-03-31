@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct QuickEntrySheet: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -35,6 +38,8 @@ struct QuickEntrySheet: View {
     @State private var showAllFields = false
     @State private var showingDetails = false
     @State private var focusTask: Task<Void, Never>?
+    @State private var quickEntryParseTask: Task<Void, Never>?
+    @State private var highlightedDatePhrase: String?
 
     @FocusState private var quickEntryTitleFocused: Bool
 
@@ -233,6 +238,8 @@ struct QuickEntrySheet: View {
         .onDisappear {
             focusTask?.cancel()
             focusTask = nil
+            quickEntryParseTask?.cancel()
+            quickEntryParseTask = nil
         }
         .sheet(isPresented: $showingDueDateEditor) {
             dueDateEditor
@@ -270,15 +277,24 @@ struct QuickEntrySheet: View {
                     .fill(theme.accentColor)
                     .frame(width: 4, height: descriptionInputHeight)
 
-                TextField("New To-Do", text: $quickEntryText)
-                    .font(.system(.title2, design: .rounded).weight(.regular))
-                    .modifier(QuickEntryAutocapitalization(sentences: true))
-                    .autocorrectionDisabled(false)
-                    .submitLabel(.done)
-                    .onSubmit { if canSubmit { addTask() } }
+                QuickEntryTitleField(
+                    placeholder: "New To-Do",
+                    text: $quickEntryText,
+                    highlightedPhrase: highlightedDatePhrase,
+                    isFocused: Binding(
+                        get: { quickEntryTitleFocused },
+                        set: { quickEntryTitleFocused = $0 }
+                    ),
+                    textColor: theme.textPrimaryColor,
+                    highlightColor: theme.accentColor,
+                    onChange: handleQuickEntryTitleChanged,
+                    onSubmit: {
+                        if canSubmit {
+                            addTask()
+                        }
+                    }
+                )
                     .frame(maxWidth: CGFloat.infinity, minHeight: descriptionInputHeight, alignment: Alignment.leading)
-                    .focused($quickEntryTitleFocused)
-                    .accessibilityIdentifier("quickEntry.titleField")
             }
             .accessibilityIdentifier("quickEntry.titleField")
 
@@ -881,6 +897,32 @@ struct QuickEntrySheet: View {
         reminderDraftDate = Calendar.current.date(from: components) ?? Date()
     }
 
+    private func handleQuickEntryTitleChanged(_ value: String) {
+        quickEntryParseTask?.cancel()
+
+        let capturedValue = value
+        let availableProjects = container.allProjects()
+        quickEntryParseTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 140_000_000)
+            guard !Task.isCancelled,
+                  quickEntryText == capturedValue else {
+                return
+            }
+
+            let trimmedValue = capturedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedValue.isEmpty else {
+                highlightedDatePhrase = nil
+                quickEntryParseTask = nil
+                return
+            }
+
+            let parser = NaturalLanguageTaskParser(availableProjects: availableProjects)
+            let parsed = parser.parse(trimmedValue)
+            highlightedDatePhrase = parsed?.recognizedDatePhrase
+            quickEntryParseTask = nil
+        }
+    }
+
     private func addTask() {
         let trimmedEntry = quickEntryText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedEntry.isEmpty else { return }
@@ -957,6 +999,201 @@ struct QuickEntrySheet: View {
         }
     }
 }
+
+enum QuickEntryTextHighlighter {
+    static func highlightedRange(in text: String, phrase: String?) -> Range<String.Index>? {
+        let trimmedPhrase = phrase?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmedPhrase.isEmpty else { return nil }
+        return text.range(
+            of: trimmedPhrase,
+            options: [.caseInsensitive, .backwards, .diacriticInsensitive]
+        )
+    }
+}
+
+#if canImport(UIKit)
+private struct QuickEntryTitleField: UIViewRepresentable {
+    let placeholder: String
+    @Binding var text: String
+    let highlightedPhrase: String?
+    let isFocused: Binding<Bool>
+    let textColor: Color
+    let highlightColor: Color
+    let onChange: (String) -> Void
+    let onSubmit: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeUIView(context: Context) -> UITextField {
+        let textField = UITextField(frame: .zero)
+        textField.delegate = context.coordinator
+        textField.adjustsFontForContentSizeCategory = true
+        textField.autocorrectionType = .yes
+        textField.autocapitalizationType = .sentences
+        textField.returnKeyType = .done
+        textField.borderStyle = .none
+        textField.backgroundColor = .clear
+        textField.accessibilityIdentifier = "quickEntry.titleField"
+        textField.addTarget(context.coordinator, action: #selector(Coordinator.textDidChange(_:)), for: .editingChanged)
+        applyAppearance(to: textField, coordinator: context.coordinator)
+        return textField
+    }
+
+    func updateUIView(_ uiView: UITextField, context: Context) {
+        context.coordinator.parent = self
+        applyAppearance(to: uiView, coordinator: context.coordinator)
+
+        if context.coordinator.lastRenderedText != text
+            || context.coordinator.lastHighlightedPhrase != highlightedPhrase
+            || context.coordinator.lastTextColor != UIColor(textColor)
+            || context.coordinator.lastHighlightColor != UIColor(highlightColor) {
+            let selection = context.coordinator.selectionOffsets(in: uiView)
+            context.coordinator.isApplyingUpdate = true
+            uiView.attributedText = attributedText()
+            context.coordinator.isApplyingUpdate = false
+            context.coordinator.restoreSelection(selection, in: uiView)
+            context.coordinator.lastRenderedText = text
+            context.coordinator.lastHighlightedPhrase = highlightedPhrase
+            context.coordinator.lastTextColor = UIColor(textColor)
+            context.coordinator.lastHighlightColor = UIColor(highlightColor)
+        }
+
+        if isFocused.wrappedValue, !uiView.isFirstResponder {
+            uiView.becomeFirstResponder()
+        } else if !isFocused.wrappedValue, uiView.isFirstResponder {
+            uiView.resignFirstResponder()
+        }
+    }
+
+    private func applyAppearance(to textField: UITextField, coordinator: Coordinator) {
+        let font = roundedTitleFont()
+        textField.font = font
+        textField.textColor = UIColor(textColor)
+        textField.tintColor = UIColor(textColor)
+        textField.attributedPlaceholder = NSAttributedString(
+            string: placeholder,
+            attributes: [
+                .font: font,
+                .foregroundColor: UIColor(textColor).withAlphaComponent(0.45)
+            ]
+        )
+        if coordinator.lastRenderedText.isEmpty && text.isEmpty {
+            textField.attributedText = attributedText()
+        }
+    }
+
+    private func attributedText() -> NSAttributedString {
+        let font = roundedTitleFont()
+        let baseAttributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: UIColor(textColor)
+        ]
+        let attributed = NSMutableAttributedString(string: text, attributes: baseAttributes)
+
+        if let range = QuickEntryTextHighlighter.highlightedRange(in: text, phrase: highlightedPhrase) {
+            attributed.addAttributes(
+                [
+                    .foregroundColor: UIColor.white,
+                    .backgroundColor: UIColor(highlightColor).withAlphaComponent(0.6)
+                ],
+                range: NSRange(range, in: text)
+            )
+        }
+
+        return attributed
+    }
+
+    private func roundedTitleFont() -> UIFont {
+        let textStyle = UIFont.TextStyle.title2
+        let baseFont = UIFont.preferredFont(forTextStyle: textStyle)
+        let descriptor = baseFont.fontDescriptor.withDesign(.rounded) ?? baseFont.fontDescriptor
+        let rounded = UIFont(descriptor: descriptor, size: 0)
+        return UIFontMetrics(forTextStyle: textStyle).scaledFont(for: rounded)
+    }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var parent: QuickEntryTitleField
+        var isApplyingUpdate = false
+        var lastRenderedText = ""
+        var lastHighlightedPhrase: String?
+        var lastTextColor: UIColor?
+        var lastHighlightColor: UIColor?
+
+        init(parent: QuickEntryTitleField) {
+            self.parent = parent
+        }
+
+        @objc func textDidChange(_ textField: UITextField) {
+            guard !isApplyingUpdate else { return }
+            let newValue = textField.text ?? ""
+            parent.text = newValue
+            parent.onChange(newValue)
+        }
+
+        func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+            parent.onSubmit()
+            return false
+        }
+
+        func textFieldDidBeginEditing(_ textField: UITextField) {
+            parent.isFocused.wrappedValue = true
+        }
+
+        func textFieldDidEndEditing(_ textField: UITextField) {
+            parent.isFocused.wrappedValue = false
+        }
+
+        func selectionOffsets(in textField: UITextField) -> (start: Int, end: Int)? {
+            guard let start = textField.selectedTextRange?.start,
+                  let end = textField.selectedTextRange?.end else {
+                return nil
+            }
+            return (
+                textField.offset(from: textField.beginningOfDocument, to: start),
+                textField.offset(from: textField.beginningOfDocument, to: end)
+            )
+        }
+
+        func restoreSelection(_ offsets: (start: Int, end: Int)?, in textField: UITextField) {
+            guard let offsets else { return }
+            let textLength = textField.text?.utf16.count ?? 0
+            let startOffset = max(0, min(offsets.start, textLength))
+            let endOffset = max(startOffset, min(offsets.end, textLength))
+            guard let start = textField.position(from: textField.beginningOfDocument, offset: startOffset),
+                  let end = textField.position(from: textField.beginningOfDocument, offset: endOffset) else {
+                return
+            }
+            textField.selectedTextRange = textField.textRange(from: start, to: end)
+        }
+    }
+}
+#else
+private struct QuickEntryTitleField: View {
+    let placeholder: String
+    @Binding var text: String
+    let highlightedPhrase: String?
+    let isFocused: Binding<Bool>
+    let textColor: Color
+    let highlightColor: Color
+    let onChange: (String) -> Void
+    let onSubmit: () -> Void
+
+    var body: some View {
+        TextField(placeholder, text: $text)
+            .font(.system(.title2, design: .rounded).weight(.regular))
+            .modifier(QuickEntryAutocapitalization(sentences: true))
+            .autocorrectionDisabled(false)
+            .onChange(of: text) { _, newValue in
+                onChange(newValue)
+            }
+            .onSubmit(onSubmit)
+            .focused(isFocused)
+            .accessibilityIdentifier("quickEntry.titleField")
+    }
+}
+#endif
 
 private struct QuickEntryAutocapitalization: ViewModifier {
     let sentences: Bool
