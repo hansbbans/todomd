@@ -1256,6 +1256,10 @@ private struct QuickEntryTitleField: NSViewRepresentable {
             updateAttributedText(for: textField)
             context.coordinator.restoreSelection(selection, in: textField)
             context.coordinator.isApplyingUpdate = false
+            context.coordinator.lastRenderedText = text
+            context.coordinator.lastHighlightedPhrase = highlightedPhrase
+            context.coordinator.lastTextColor = textColor
+            context.coordinator.lastHighlightColor = highlightColor
         }
 
         if isFocused.wrappedValue {
