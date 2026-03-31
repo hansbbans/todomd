@@ -5,8 +5,8 @@ private enum InboxTriageField: Hashable {
 }
 
 struct InboxTriageView: View {
-    @EnvironmentObject private var container: AppContainer
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(AppContainer.self) private var container
+    @Environment(ThemeManager.self) private var theme
 
     let records: [TaskRecord]
     @Binding var skippedPaths: Set<String>

@@ -122,6 +122,36 @@ final class NaturalLanguagePerspectiveParserTests: XCTestCase {
         XCTAssertFalse(result.requiresCloudFallback)
     }
 
+    func testIncompleteItemsInAlternateProjectOrderIncludeOverdueByUpcomingFriday() {
+        let result = parser.parse(
+            "incomplete items in TL project due this upcoming Friday",
+            relativeTo: referenceDate
+        )
+        let rules = flattenedRules(result.rules)
+        let dueRule = rules.first { $0.field == .due && $0.operator == .onOrBefore }
+        let statusRule = rules.first { $0.field == .status && $0.operator == .in }
+
+        XCTAssertEqual(result.rules.operator, .and)
+        XCTAssertTrue(rules.contains { $0.field == .project && $0.operator == .equals && $0.stringValue == "Tl" })
+        XCTAssertEqual(
+            dueRule?.value,
+            .object([
+                "op": .string("date_phrase"),
+                "phrase": .string("this upcoming friday")
+            ])
+        )
+        XCTAssertEqual(
+            statusRule?.value,
+            .array([
+                .string(TaskStatus.todo.rawValue),
+                .string(TaskStatus.inProgress.rawValue),
+                .string(TaskStatus.someday.rawValue)
+            ])
+        )
+        XCTAssertEqual(result.confidence, 1)
+        XCTAssertFalse(result.requiresCloudFallback)
+    }
+
     func testDueByUpcomingFridayParsesToOnOrBeforeRule() {
         let result = parser.parse(
             "in project TL due by upcoming Friday",

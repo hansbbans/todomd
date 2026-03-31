@@ -88,7 +88,7 @@ struct UpcomingTabDescriptor: Equatable {
 struct UpcomingTabView<TaskRowContent: View>: View {
     let descriptor: UpcomingTabDescriptor
     let taskRow: (TaskRecord) -> TaskRowContent
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(ThemeManager.self) private var theme
 
     var body: some View {
         ScrollView {
@@ -111,7 +111,7 @@ struct UpcomingTabView<TaskRowContent: View>: View {
 private struct UpcomingTabSectionView<TaskRowContent: View>: View {
     let section: UpcomingTabSectionDescriptor
     let taskRow: (TaskRecord) -> TaskRowContent
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(ThemeManager.self) private var theme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -164,7 +164,7 @@ private struct UpcomingTabSectionView<TaskRowContent: View>: View {
 
 private struct UpcomingTabEventLineView: View {
     let event: UpcomingTabEventDescriptor
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(ThemeManager.self) private var theme
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 7) {

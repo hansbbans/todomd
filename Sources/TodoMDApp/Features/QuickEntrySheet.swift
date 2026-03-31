@@ -1,11 +1,14 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct QuickEntrySheet: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
-    @EnvironmentObject private var container: AppContainer
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(AppContainer.self) private var container
+    @Environment(ThemeManager.self) private var theme
     @AppStorage("settings_quick_entry_default_view") private var quickEntryDefaultView = BuiltInView.inbox.rawValue
     @AppStorage(QuickEntrySettings.fieldsKey) private var quickEntryFieldsRawValue = QuickEntrySettings.defaultFieldsRawValue
     @AppStorage(QuickEntrySettings.defaultDateModeKey) private var quickEntryDefaultDateModeRawValue = QuickEntryDefaultDateMode.none.rawValue
@@ -35,6 +38,14 @@ struct QuickEntrySheet: View {
     @State private var showAllFields = false
     @State private var showingDetails = false
     @State private var focusTask: Task<Void, Never>?
+    @State private var quickEntryParseTask: Task<Void, Never>?
+    @State private var hasManualDueSelection = false
+    @State private var hasAutoParsedDueSelection = false
+    @State private var highlightedDatePhrase: String?
+    @State private var dueEditorInitialHasDate = false
+    @State private var dueEditorInitialDate = Date()
+    @State private var dueEditorInitialHasTime = false
+    @State private var dueEditorInitialTime = Date()
 
     @FocusState private var quickEntryTitleFocused: Bool
 
@@ -60,13 +71,9 @@ struct QuickEntrySheet: View {
         QuickEntryDefaultDateMode(rawValue: quickEntryDefaultDateModeRawValue) ?? .none
     }
 
-    private var supportsDueInputs: Bool {
-        activeFieldSet.contains(.dueDate)
-            || activeFieldSet.contains(.reminder)
-            || hasDueDate
-            || hasDueTime
-            || quickEntryDefaultDateMode != .none
-    }
+    // Quick entry always exposes the deadline chip in the collapsed row, even if
+    // the user hides Date and Reminders from the expanded field configuration.
+    private var supportsDueInputs: Bool { true }
 
     private var canSubmit: Bool {
         !quickEntryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -233,8 +240,12 @@ struct QuickEntrySheet: View {
         .onDisappear {
             focusTask?.cancel()
             focusTask = nil
+            quickEntryParseTask?.cancel()
+            quickEntryParseTask = nil
         }
-        .sheet(isPresented: $showingDueDateEditor) {
+        .sheet(isPresented: $showingDueDateEditor, onDismiss: {
+            finalizeDueEditorChangesIfNeeded()
+        }) {
             dueDateEditor
         }
         .sheet(isPresented: $showingReminderEditor) {
@@ -270,15 +281,24 @@ struct QuickEntrySheet: View {
                     .fill(theme.accentColor)
                     .frame(width: 4, height: descriptionInputHeight)
 
-                TextField("New To-Do", text: $quickEntryText)
-                    .font(.system(.title2, design: .rounded).weight(.regular))
-                    .modifier(QuickEntryAutocapitalization(sentences: true))
-                    .autocorrectionDisabled(false)
-                    .submitLabel(.done)
-                    .onSubmit { if canSubmit { addTask() } }
+                QuickEntryTitleField(
+                    placeholder: "New To-Do",
+                    text: $quickEntryText,
+                    highlightedPhrase: highlightedDatePhrase,
+                    isFocused: Binding(
+                        get: { quickEntryTitleFocused },
+                        set: { quickEntryTitleFocused = $0 }
+                    ),
+                    textColor: theme.textPrimaryColor,
+                    highlightColor: theme.accentColor,
+                    onChange: handleQuickEntryTitleChanged,
+                    onSubmit: {
+                        if canSubmit {
+                            addTask()
+                        }
+                    }
+                )
                     .frame(maxWidth: CGFloat.infinity, minHeight: descriptionInputHeight, alignment: Alignment.leading)
-                    .focused($quickEntryTitleFocused)
-                    .accessibilityIdentifier("quickEntry.titleField")
             }
             .accessibilityIdentifier("quickEntry.titleField")
 
@@ -393,6 +413,7 @@ struct QuickEntrySheet: View {
             }
         case .dueDate:
             Button {
+                captureDueEditorInitialState()
                 showingDueDateEditor = true
             } label: {
                 chipLabelDeadline(
@@ -402,6 +423,7 @@ struct QuickEntrySheet: View {
                 )
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("quickEntry.deadlineButton")
         case .priority:
             Menu {
                 Button("Use default") {
@@ -433,6 +455,7 @@ struct QuickEntrySheet: View {
                 )
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("quickEntry.reminderButton")
         case .flag:
             Button {
                 flagged.toggle()
@@ -547,6 +570,7 @@ struct QuickEntrySheet: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
                 Button {
+                    captureDueEditorInitialState()
                     showingDueDateEditor = true
                 } label: {
                     chipLabelDeadline(
@@ -791,7 +815,11 @@ struct QuickEntrySheet: View {
                 )
 
                 Button("Clear Reminder", role: .destructive) {
+                    let reminderWasSet = hasDueDate && hasDueTime
                     hasDueTime = false
+                    if reminderWasSet {
+                        markDueSelectionAsManual()
+                    }
                     showingReminderEditor = false
                 }
             }
@@ -804,10 +832,19 @@ struct QuickEntrySheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
+                        let updatedDueDate = reminderDraftDate
+                        let updatedDueTime = reminderDraftDate
+                        let reminderChanged = !hasDueDate
+                            || !hasDueTime
+                            || dueDate != updatedDueDate
+                            || dueTime != updatedDueTime
                         hasDueDate = true
                         hasDueTime = true
-                        dueDate = reminderDraftDate
-                        dueTime = reminderDraftDate
+                        dueDate = updatedDueDate
+                        dueTime = updatedDueTime
+                        if reminderChanged {
+                            markDueSelectionAsManual()
+                        }
                         showingReminderEditor = false
                     }
                 }
@@ -843,18 +880,7 @@ struct QuickEntrySheet: View {
            let inferredProject = container.inferredTaskProject(for: container.selectedView) {
             selectedProject = inferredProject
         }
-        if supportsDueInputs {
-            switch quickEntryDefaultDateMode {
-            case .today:
-                hasDueDate = true
-                dueDate = Date()
-            case .none:
-                hasDueDate = false
-            }
-        } else {
-            hasDueDate = false
-        }
-        hasDueTime = false
+        applyDefaultDueSelection()
         showingDetails = hasVisibleMetadata
     }
 
@@ -881,13 +907,113 @@ struct QuickEntrySheet: View {
         reminderDraftDate = Calendar.current.date(from: components) ?? Date()
     }
 
+    private func handleQuickEntryTitleChanged(_ value: String) {
+        quickEntryParseTask?.cancel()
+
+        let capturedValue = value
+        let availableProjects = container.allProjects()
+        quickEntryParseTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 140_000_000)
+            guard !Task.isCancelled,
+                  quickEntryText == capturedValue else {
+                return
+            }
+
+            let trimmedValue = capturedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedValue.isEmpty else {
+                highlightedDatePhrase = nil
+                if !hasManualDueSelection, hasAutoParsedDueSelection {
+                    applyDefaultDueSelection()
+                    hasAutoParsedDueSelection = false
+                }
+                quickEntryParseTask = nil
+                return
+            }
+
+            let parser = NaturalLanguageTaskParser(availableProjects: availableProjects)
+            guard let parsed = parser.parse(trimmedValue),
+                  let parsedDue = parsed.due,
+                  let parsedDueDate = dateFromLocalDate(parsedDue) else {
+                highlightedDatePhrase = nil
+                if !hasManualDueSelection, hasAutoParsedDueSelection {
+                    applyDefaultDueSelection()
+                    hasAutoParsedDueSelection = false
+                }
+                quickEntryParseTask = nil
+                return
+            }
+
+            highlightedDatePhrase = parsed.recognizedDatePhrase
+
+            guard !hasManualDueSelection else {
+                quickEntryParseTask = nil
+                return
+            }
+
+            hasDueDate = true
+            dueDate = parsedDueDate
+
+            if let parsedDueTime = parsed.dueTime,
+               let parsedDueTimeDate = dateFromLocalTime(parsedDueTime) {
+                hasDueTime = true
+                dueTime = parsedDueTimeDate
+            } else {
+                hasDueTime = false
+                dueTime = NotificationTimePreference().date(on: parsedDueDate, calendar: Calendar.current)
+            }
+
+            hasAutoParsedDueSelection = true
+            quickEntryParseTask = nil
+        }
+    }
+
+    private func markDueSelectionAsManual() {
+        hasManualDueSelection = true
+        hasAutoParsedDueSelection = false
+        quickEntryParseTask?.cancel()
+        quickEntryParseTask = nil
+    }
+
+    private func captureDueEditorInitialState() {
+        dueEditorInitialHasDate = hasDueDate
+        dueEditorInitialDate = dueDate
+        dueEditorInitialHasTime = hasDueTime
+        dueEditorInitialTime = dueTime
+    }
+
+    private func finalizeDueEditorChangesIfNeeded() {
+        let dueDateChanged = hasDueDate != dueEditorInitialHasDate
+            || (hasDueDate && dueDate != dueEditorInitialDate)
+        let dueTimeChanged = hasDueTime != dueEditorInitialHasTime
+            || (hasDueDate && hasDueTime && dueTime != dueEditorInitialTime)
+        if dueDateChanged || dueTimeChanged {
+            markDueSelectionAsManual()
+        }
+    }
+
+    private func applyDefaultDueSelection() {
+        if supportsDueInputs {
+            switch quickEntryDefaultDateMode {
+            case .today:
+                hasDueDate = true
+                dueDate = Date()
+            case .none:
+                hasDueDate = false
+            }
+        } else {
+            hasDueDate = false
+        }
+        hasDueTime = false
+        dueTime = NotificationTimePreference().date(on: dueDate, calendar: Calendar.current)
+    }
+
     private func addTask() {
         let trimmedEntry = quickEntryText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedEntry.isEmpty else { return }
 
         let defaultView = BuiltInView(rawValue: quickEntryDefaultView)
-        let explicitDue = (supportsDueInputs && hasDueDate) ? localDate(from: dueDate) : nil
-        let explicitDueTime = (supportsDueInputs && hasDueDate && hasDueTime) ? localTime(from: dueTime) : nil
+        let explicitDue = hasDueDate ? localDate(from: dueDate) : nil
+        let explicitDueTime = (hasDueDate && hasDueTime) ? localTime(from: dueTime) : nil
         let explicitRecurrence: String? = {
             let trimmed = recurrence.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
@@ -925,12 +1051,27 @@ struct QuickEntrySheet: View {
         )) ?? .epoch
     }
 
+    private func dateFromLocalDate(_ localDate: LocalDate) -> Date? {
+        var components = DateComponents()
+        components.year = localDate.year
+        components.month = localDate.month
+        components.day = localDate.day
+        return Calendar.current.date(from: components)
+    }
+
     private func localTime(from date: Date) -> LocalTime {
         let components = Calendar.current.dateComponents([.hour, .minute], from: date)
         return (try? LocalTime(
             hour: components.hour ?? 0,
             minute: components.minute ?? 0
         )) ?? .midnight
+    }
+
+    private func dateFromLocalTime(_ localTime: LocalTime) -> Date? {
+        var components = DateComponents()
+        components.hour = localTime.hour
+        components.minute = localTime.minute
+        return Calendar.current.date(from: components)
     }
 
     private func parsedTags(from raw: String) -> [String] {
@@ -957,6 +1098,194 @@ struct QuickEntrySheet: View {
         }
     }
 }
+
+enum QuickEntryTextHighlighter {
+    static func highlightedRange(in text: String, phrase: String?) -> Range<String.Index>? {
+        let trimmedPhrase = phrase?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmedPhrase.isEmpty else { return nil }
+        return text.range(
+            of: trimmedPhrase,
+            options: [.caseInsensitive, .backwards, .diacriticInsensitive]
+        )
+    }
+}
+
+#if canImport(UIKit)
+private struct QuickEntryTitleField: UIViewRepresentable {
+    let placeholder: String
+    @Binding var text: String
+    let highlightedPhrase: String?
+    let isFocused: Binding<Bool>
+    let textColor: Color
+    let highlightColor: Color
+    let onChange: (String) -> Void
+    let onSubmit: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeUIView(context: Context) -> UITextField {
+        let textField = UITextField(frame: .zero)
+        textField.delegate = context.coordinator
+        textField.adjustsFontForContentSizeCategory = true
+        textField.autocorrectionType = .yes
+        textField.autocapitalizationType = .sentences
+        textField.returnKeyType = .done
+        textField.borderStyle = .none
+        textField.backgroundColor = .clear
+        textField.accessibilityIdentifier = "quickEntry.titleField"
+        textField.addTarget(context.coordinator, action: #selector(Coordinator.textDidChange(_:)), for: .editingChanged)
+        applyAppearance(to: textField, coordinator: context.coordinator)
+        return textField
+    }
+
+    func updateUIView(_ uiView: UITextField, context: Context) {
+        context.coordinator.parent = self
+        applyAppearance(to: uiView, coordinator: context.coordinator)
+
+        if context.coordinator.lastRenderedText != text || context.coordinator.lastHighlightedPhrase != highlightedPhrase {
+            let selection = context.coordinator.selectionOffsets(in: uiView)
+            context.coordinator.isApplyingUpdate = true
+            uiView.attributedText = attributedText()
+            context.coordinator.isApplyingUpdate = false
+            context.coordinator.restoreSelection(selection, in: uiView)
+            context.coordinator.lastRenderedText = text
+            context.coordinator.lastHighlightedPhrase = highlightedPhrase
+        }
+
+        if isFocused.wrappedValue, !uiView.isFirstResponder {
+            uiView.becomeFirstResponder()
+        } else if !isFocused.wrappedValue, uiView.isFirstResponder {
+            uiView.resignFirstResponder()
+        }
+    }
+
+    private func applyAppearance(to textField: UITextField, coordinator: Coordinator) {
+        let font = roundedTitleFont()
+        textField.font = font
+        textField.textColor = UIColor(textColor)
+        textField.tintColor = UIColor(textColor)
+        textField.attributedPlaceholder = NSAttributedString(
+            string: placeholder,
+            attributes: [
+                .font: font,
+                .foregroundColor: UIColor(textColor).withAlphaComponent(0.45)
+            ]
+        )
+        if coordinator.lastRenderedText.isEmpty && text.isEmpty {
+            textField.attributedText = attributedText()
+        }
+    }
+
+    private func attributedText() -> NSAttributedString {
+        let font = roundedTitleFont()
+        let baseAttributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: UIColor(textColor)
+        ]
+        let attributed = NSMutableAttributedString(string: text, attributes: baseAttributes)
+
+        if let range = QuickEntryTextHighlighter.highlightedRange(in: text, phrase: highlightedPhrase) {
+            attributed.addAttributes(
+                [
+                    .foregroundColor: UIColor.white,
+                    .backgroundColor: UIColor(highlightColor).withAlphaComponent(0.6)
+                ],
+                range: NSRange(range, in: text)
+            )
+        }
+
+        return attributed
+    }
+
+    private func roundedTitleFont() -> UIFont {
+        let textStyle = UIFont.TextStyle.title2
+        let baseFont = UIFont.preferredFont(forTextStyle: textStyle)
+        let descriptor = baseFont.fontDescriptor.withDesign(.rounded) ?? baseFont.fontDescriptor
+        let rounded = UIFont(descriptor: descriptor, size: 0)
+        return UIFontMetrics(forTextStyle: textStyle).scaledFont(for: rounded)
+    }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var parent: QuickEntryTitleField
+        var isApplyingUpdate = false
+        var lastRenderedText = ""
+        var lastHighlightedPhrase: String?
+
+        init(parent: QuickEntryTitleField) {
+            self.parent = parent
+        }
+
+        @objc func textDidChange(_ textField: UITextField) {
+            guard !isApplyingUpdate else { return }
+            let newValue = textField.text ?? ""
+            parent.text = newValue
+            parent.onChange(newValue)
+        }
+
+        func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+            parent.onSubmit()
+            return false
+        }
+
+        func textFieldDidBeginEditing(_ textField: UITextField) {
+            parent.isFocused.wrappedValue = true
+        }
+
+        func textFieldDidEndEditing(_ textField: UITextField) {
+            parent.isFocused.wrappedValue = false
+        }
+
+        func selectionOffsets(in textField: UITextField) -> (start: Int, end: Int)? {
+            guard let start = textField.selectedTextRange?.start,
+                  let end = textField.selectedTextRange?.end else {
+                return nil
+            }
+            return (
+                textField.offset(from: textField.beginningOfDocument, to: start),
+                textField.offset(from: textField.beginningOfDocument, to: end)
+            )
+        }
+
+        func restoreSelection(_ offsets: (start: Int, end: Int)?, in textField: UITextField) {
+            guard let offsets else { return }
+            let textLength = textField.text?.utf16.count ?? 0
+            let startOffset = max(0, min(offsets.start, textLength))
+            let endOffset = max(startOffset, min(offsets.end, textLength))
+            guard let start = textField.position(from: textField.beginningOfDocument, offset: startOffset),
+                  let end = textField.position(from: textField.beginningOfDocument, offset: endOffset) else {
+                return
+            }
+            textField.selectedTextRange = textField.textRange(from: start, to: end)
+        }
+    }
+}
+#else
+private struct QuickEntryTitleField: View {
+    let placeholder: String
+    @Binding var text: String
+    let highlightedPhrase: String?
+    let isFocused: Binding<Bool>
+    let textColor: Color
+    let highlightColor: Color
+    let onChange: (String) -> Void
+    let onSubmit: () -> Void
+
+    var body: some View {
+        TextField(placeholder, text: $text)
+            .font(.system(.title2, design: .rounded).weight(.regular))
+            .modifier(QuickEntryAutocapitalization(sentences: true))
+            .autocorrectionDisabled(false)
+            .onChange(of: text) { _, newValue in
+                onChange(newValue)
+            }
+            .onSubmit(onSubmit)
+            .focused(isFocused)
+            .accessibilityIdentifier("quickEntry.titleField")
+    }
+}
+#endif
 
 private struct QuickEntryAutocapitalization: ViewModifier {
     let sentences: Bool

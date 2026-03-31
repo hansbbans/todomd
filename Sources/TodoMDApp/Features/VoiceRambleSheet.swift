@@ -442,8 +442,8 @@ private struct VoiceRambleDraftEditorState: Identifiable {
 struct VoiceRambleSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
-    @EnvironmentObject private var container: AppContainer
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(AppContainer.self) private var container
+    @Environment(ThemeManager.self) private var theme
 
     @StateObject private var controller = VoiceRambleController()
     @State private var draftEditor: VoiceRambleDraftEditorState?

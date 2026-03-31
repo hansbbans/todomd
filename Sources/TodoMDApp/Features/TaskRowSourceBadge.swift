@@ -2,7 +2,7 @@ import SwiftUI
 
 struct TaskRowSourceBadge: View {
     let badge: TaskSourceAttribution.Badge
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(ThemeManager.self) private var theme
 
     var body: some View {
         Label(badge.label, systemImage: badge.systemImage)

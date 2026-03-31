@@ -1,8 +1,8 @@
 import SwiftUI
 
 struct InboxRemindersImportPanel: View {
-    @EnvironmentObject private var container: AppContainer
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(AppContainer.self) private var container
+    @Environment(ThemeManager.self) private var theme
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {

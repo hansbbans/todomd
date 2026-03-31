@@ -146,8 +146,8 @@ private struct CompactTabDisplayNameEditor: Identifiable {
 struct SettingsView: View {
     @Bindable var quickFindStore: QuickFindStore   // injected from RootView
 
-    @EnvironmentObject private var container: AppContainer
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(AppContainer.self) private var container
+    @Environment(ThemeManager.self) private var theme
     @Environment(\.colorScheme) private var colorScheme
 
     @AppStorage("settings_notification_hour") private var notificationHour = 9
@@ -320,6 +320,59 @@ struct SettingsView: View {
                     .disabled(container.isRemindersImportBusy)
                     .accessibilityIdentifier("settings.integrations.allowRemindersAccessButton")
                 }
+
+                if remindersImportEnabled, container.isRemindersAccessGranted {
+                    if !container.reminderLists.isEmpty {
+                        Picker("Import from", selection: selectedReminderListBinding) {
+                            Text("Choose a list").tag("")
+                            ForEach(container.reminderLists) { list in
+                                Text(list.displayName).tag(list.id)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .accessibilityIdentifier("settings.integrations.reminderListPicker")
+
+                        if let selectedReminderListDisplayName {
+                            Text("todo.md imports incomplete items from \(selectedReminderListDisplayName) into Inbox.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
+                            Button("Pause Reminders Import") {
+                                container.setReminderListSelected(id: "")
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(container.isRemindersImportBusy)
+                            .accessibilityIdentifier("settings.integrations.clearReminderListButton")
+                        } else {
+                            Text("Reminders import is paused. Choose a list to resume importing incomplete items into Inbox.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Button("Refresh Reminders Lists") {
+                            Task {
+                                await container.refreshReminderLists()
+                            }
+                        }
+                        .disabled(container.isRemindersImportBusy)
+                        .accessibilityIdentifier("settings.integrations.refreshReminderListsButton")
+                    } else if container.isRefreshingReminderImports {
+                        ProgressView("Loading Reminders lists…")
+                            .accessibilityIdentifier("settings.integrations.reminderListLoading")
+                    } else {
+                        Text("No Reminders lists are available yet.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Button("Refresh Reminders Lists") {
+                            Task {
+                                await container.refreshReminderLists()
+                            }
+                        }
+                        .disabled(container.isRemindersImportBusy)
+                        .accessibilityIdentifier("settings.integrations.refreshReminderListsButton")
+                    }
+                }
             }
 
             Section("Calendar") {
@@ -410,6 +463,10 @@ struct SettingsView: View {
                 await container.refreshCalendar(force: true)
             }
         }
+        .task(id: remindersImportEnabled) {
+            guard remindersImportEnabled else { return }
+            await container.refreshReminderListsIfNeeded()
+        }
         .alert(item: $pendingAccessPrimer) { primer in
             Alert(
                 title: Text(primer.title),
@@ -460,6 +517,26 @@ struct SettingsView: View {
                 calendarEnabled = isOn
             }
         )
+    }
+
+    private var selectedReminderListBinding: Binding<String> {
+        Binding(
+            get: {
+                guard let selectedReminderListID = container.selectedReminderListID,
+                      container.reminderLists.contains(where: { $0.id == selectedReminderListID }) else {
+                    return ""
+                }
+                return selectedReminderListID
+            },
+            set: { newValue in
+                container.setReminderListSelected(id: newValue)
+            }
+        )
+    }
+
+    private var selectedReminderListDisplayName: String? {
+        guard let selectedReminderListID = container.selectedReminderListID else { return nil }
+        return container.reminderLists.first(where: { $0.id == selectedReminderListID })?.displayName
     }
 
     private var pomodoroToggleBinding: Binding<Bool> {
@@ -1312,7 +1389,7 @@ private struct SettingsNoAutocapitalization: ViewModifier {
 }
 
 private struct SettingsIntroCard: View {
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(ThemeManager.self) private var theme
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -1339,7 +1416,7 @@ private struct SettingsIntroCard: View {
 }
 
 private struct SettingsOverviewCard: View {
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(ThemeManager.self) private var theme
     @Environment(\.colorScheme) private var colorScheme
 
     let title: String

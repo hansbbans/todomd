@@ -9,7 +9,7 @@ struct QuickFindCard<Results: View>: View {
     var onSelectRecent: (RecentItem) -> Void
     @ViewBuilder var resultsContent: (String) -> Results
 
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(ThemeManager.self) private var theme
     @Environment(\.colorScheme) private var colorScheme
     @FocusState private var isSearchFieldFocused: Bool
     private var normalizedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }

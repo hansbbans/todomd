@@ -228,6 +228,116 @@ struct TaskEditPresenterTests {
         #expect(duplicate.body == "Body")
         #expect(duplicate.unknownFrontmatter["custom"] == YAMLValue.string("keep"))
     }
+
+    @Test("apply disables persistent reminder when a deadline time is missing")
+    func applyClearsPersistentReminderWithoutDueTime() throws {
+        let presenter = TaskEditPresenter(
+            persistentReminderDefault: false,
+            quickEntryParser: NaturalLanguageTaskParser(),
+            now: { Date(timeIntervalSince1970: 1_800_000_000) }
+        )
+        var document = TaskDocument(
+            frontmatter: TaskFrontmatterV1(
+                title: "Follow up",
+                status: .todo,
+                due: try LocalDate(isoDate: "2026-04-03"),
+                priority: .none,
+                flagged: false,
+                created: Date(timeIntervalSince1970: 1_700_000_000),
+                source: "user"
+            ),
+            body: ""
+        )
+        let editState = TaskEditState(
+            ref: "",
+            title: "Follow up",
+            subtitle: "",
+            status: .todo,
+            flagged: false,
+            priority: .none,
+            assignee: "",
+            blockedByManual: false,
+            blockedByRefsText: "",
+            completedBy: "",
+            hasDue: true,
+            dueDate: try #require(Calendar.current.date(from: DateComponents(year: 2026, month: 4, day: 3))),
+            hasDueTime: false,
+            dueTime: try #require(Calendar.current.date(from: DateComponents(hour: 9, minute: 0))),
+            persistentReminderEnabled: true,
+            hasDefer: false,
+            deferDate: Date(timeIntervalSince1970: 0),
+            hasScheduled: false,
+            scheduledDate: Date(timeIntervalSince1970: 0),
+            hasScheduledTime: false,
+            scheduledTime: Date(timeIntervalSince1970: 0),
+            hasEstimatedMinutes: false,
+            estimatedMinutes: 15,
+            area: "",
+            project: "",
+            tagsText: "",
+            recurrence: "",
+            body: "",
+            hasLocationReminder: false,
+            locationName: "",
+            locationLatitude: "",
+            locationLongitude: "",
+            locationRadiusMeters: 100,
+            locationTrigger: .onArrival,
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            modifiedAt: nil,
+            completedAt: nil,
+            source: "user"
+        )
+
+        presenter.apply(editState: editState, to: &document)
+
+        #expect(document.frontmatter.persistentReminder == false)
+        #expect(document.frontmatter.due?.isoString == "2026-04-03")
+        #expect(document.frontmatter.dueTime == nil)
+    }
+
+    @Test("quick entry highlighter matches an explicit due phrase including time")
+    func quickEntryHighlighterMatchesExplicitDuePhraseIncludingTime() {
+        let text = "This Is A Test Due Monday 8pm"
+        let range = QuickEntryTextHighlighter.highlightedRange(
+            in: text,
+            phrase: "Due Monday 8pm"
+        )
+
+        #expect(range.map { String(text[$0]) } == "Due Monday 8pm")
+    }
+
+    @Test("quick entry highlighter matches case-insensitively")
+    func quickEntryHighlighterMatchesCaseInsensitively() {
+        let text = "Follow up due monday 8pm"
+        let range = QuickEntryTextHighlighter.highlightedRange(
+            in: text,
+            phrase: "Due Monday 8PM"
+        )
+
+        #expect(range.map { String(text[$0]) } == "due monday 8pm")
+    }
+
+    @Test("quick entry highlighter prefers the last matching phrase")
+    func quickEntryHighlighterPrefersLastMatchingPhrase() {
+        let text = "monday prep due monday 8pm"
+        let range = QuickEntryTextHighlighter.highlightedRange(
+            in: text,
+            phrase: "DUE MONDAY 8PM"
+        )
+
+        #expect(range.map { String(text[$0]) } == "due monday 8pm")
+    }
+
+    @Test("quick entry highlighter returns nil when the phrase is absent")
+    func quickEntryHighlighterReturnsNilWhenPhraseIsMissing() {
+        let range = QuickEntryTextHighlighter.highlightedRange(
+            in: "Inbox cleanup tomorrow",
+            phrase: "next friday 3pm"
+        )
+
+        #expect(range == nil)
+    }
 }
 
 @Suite
@@ -259,6 +369,36 @@ struct PerspectiveEditorSaveResolverTests {
         #expect(result.needsFallback == false)
         #expect(rules.contains { $0.field == .project && $0.operator == .equals && $0.stringValue == "Tl" })
         #expect(rules.contains { $0.field == .due && $0.operator == .on && $0.stringValue == "this upcoming friday" })
+    }
+
+    @Test("Saving preserves incomplete by Friday intent for alternate project wording")
+    func savingAppliesIncompleteByFridayPerspective() throws {
+        let initialPerspective = PerspectiveDefinition(
+            name: "Friday Focus",
+            rules: PerspectiveRuleGroup(operator: .and, conditions: [])
+        )
+
+        let result = PerspectiveEditorSaveResolver.resolve(
+            initialPerspective: initialPerspective,
+            name: "Friday Focus",
+            icon: "list.bullet",
+            color: nil,
+            sortField: .due,
+            groupBy: .none,
+            layout: .default,
+            existingRules: initialPerspective.effectiveRules,
+            naturalLanguageQuery: "incomplete items in TL project due this upcoming Friday",
+            parser: NaturalLanguagePerspectiveParser(calendar: Calendar(identifier: .gregorian)),
+            referenceDate: try #require(ISO8601DateFormatter().date(from: "2026-02-28T12:00:00Z"))
+        )
+
+        let saved = try #require(result.perspective)
+        let rules = flatten(saved.effectiveRules)
+
+        #expect(result.needsFallback == false)
+        #expect(rules.contains { $0.field == .project && $0.operator == .equals && $0.stringValue == "Tl" })
+        #expect(rules.contains { $0.field == .due && $0.operator == .onOrBefore && $0.stringValue == "this upcoming friday" })
+        #expect(rules.contains { $0.field == .status && $0.operator == .notEquals && $0.stringValue == TaskStatus.done.rawValue })
     }
 
     @Test("Saving rejects low-confidence natural-language text instead of silently keeping broad rules")

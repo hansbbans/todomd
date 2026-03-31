@@ -1,12 +1,14 @@
 import SwiftUI
+import Observation
 #if canImport(UIKit)
 import UIKit
 #elseif canImport(AppKit)
 import AppKit
 #endif
 
-final class ThemeManager: ObservableObject {
-    @Published private(set) var tokens: ThemeTokens
+@Observable
+final class ThemeManager {
+    private(set) var tokens: ThemeTokens
 
     init(loader: ThemeTokenLoading = ThemeTokenStore()) {
         self.tokens = loader.loadPreset(.classic)

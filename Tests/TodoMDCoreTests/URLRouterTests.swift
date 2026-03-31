@@ -77,6 +77,19 @@ final class URLRouterTests: XCTestCase {
         }
     }
 
+    func testVoiceRambleURL() throws {
+        let router = URLRouter()
+        let url = URL(string: "todomd://voice-ramble")!
+        let action = try router.parse(url: url)
+
+        switch action {
+        case .voiceRamble:
+            break
+        default:
+            XCTFail("Expected voiceRamble action")
+        }
+    }
+
     func testTaskRefURL() throws {
         let router = URLRouter()
         let action = try router.parse(url: URL(string: "todomd://task/t-3f8a")!)

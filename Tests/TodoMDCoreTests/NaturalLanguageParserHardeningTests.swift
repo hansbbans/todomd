@@ -185,6 +185,19 @@ private let hardeningPerspectiveCases: [NaturalLanguagePerspectiveCase] = [
         expectedCloudFallback: false
     ),
     .init(
+        query: "incomplete items in TL project due this upcoming Friday",
+        referenceISO8601: "2026-02-28T12:00:00Z",
+        expectedTopLevelOperator: .and,
+        expectedRules: [
+            .init(field: .project, operator: .equals, stringValue: "Tl"),
+            .init(field: .due, operator: .onOrBefore, stringValue: "this upcoming friday"),
+            .init(field: .status, operator: .in)
+        ],
+        expectedNestedOperators: [],
+        expectedConfidence: 1,
+        expectedCloudFallback: false
+    ),
+    .init(
         query: "in project TL due by upcoming Friday",
         referenceISO8601: "2026-02-28T12:00:00Z",
         expectedTopLevelOperator: .and,

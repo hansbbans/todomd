@@ -204,6 +204,88 @@ final class PerspectiveQueryEngineTests: XCTestCase {
         )
     }
 
+    func testIncompleteItemsDueThisUpcomingFridayIncludesOverdueRecords() throws {
+        let parser = NaturalLanguagePerspectiveParser(calendar: Calendar(identifier: .gregorian))
+        let creationDate = ISO8601DateFormatter().date(from: "2026-02-28T12:00:00Z")!
+        let parsed = parser.parse("incomplete items in TL project due this upcoming Friday", relativeTo: creationDate)
+
+        var overdueFrontmatter = TestSupport.sampleFrontmatter(
+            title: "Overdue follow-up",
+            due: try LocalDate(isoDate: "2026-03-05")
+        )
+        overdueFrontmatter.project = "Tl"
+        let overdueRecord = TaskRecord(
+            identity: TaskFileIdentity(path: "/tmp/relative-friday-overdue-match.md"),
+            document: .init(frontmatter: overdueFrontmatter, body: "")
+        )
+
+        var fridayFrontmatter = TestSupport.sampleFrontmatter(
+            title: "Friday deadline",
+            due: try LocalDate(isoDate: "2026-03-06")
+        )
+        fridayFrontmatter.project = "Tl"
+        let fridayRecord = TaskRecord(
+            identity: TaskFileIdentity(path: "/tmp/relative-friday-on-match.md"),
+            document: .init(frontmatter: fridayFrontmatter, body: "")
+        )
+
+        var laterFrontmatter = TestSupport.sampleFrontmatter(
+            title: "Later follow-up",
+            due: try LocalDate(isoDate: "2026-03-07")
+        )
+        laterFrontmatter.project = "Tl"
+        let laterRecord = TaskRecord(
+            identity: TaskFileIdentity(path: "/tmp/relative-friday-later.md"),
+            document: .init(frontmatter: laterFrontmatter, body: "")
+        )
+
+        var completedFrontmatter = TestSupport.sampleFrontmatter(
+            title: "Completed overdue",
+            due: try LocalDate(isoDate: "2026-03-04")
+        )
+        completedFrontmatter.project = "Tl"
+        completedFrontmatter.status = .done
+        let completedRecord = TaskRecord(
+            identity: TaskFileIdentity(path: "/tmp/relative-friday-completed.md"),
+            document: .init(frontmatter: completedFrontmatter, body: "")
+        )
+
+        var cancelledFrontmatter = TestSupport.sampleFrontmatter(
+            title: "Cancelled overdue",
+            due: try LocalDate(isoDate: "2026-03-04")
+        )
+        cancelledFrontmatter.project = "Tl"
+        cancelledFrontmatter.status = .cancelled
+        let cancelledRecord = TaskRecord(
+            identity: TaskFileIdentity(path: "/tmp/relative-friday-cancelled.md"),
+            document: .init(frontmatter: cancelledFrontmatter, body: "")
+        )
+
+        let allRecords = [overdueRecord, fridayRecord, laterRecord, completedRecord, cancelledRecord]
+        let index = TaskMetadataIndex.build(from: allRecords)
+        let perspective = PerspectiveDefinition(name: "Friday Incomplete", rules: parsed.rules)
+        let today = try LocalDate(isoDate: "2026-03-03")
+
+        let candidatePaths = try XCTUnwrap(
+            engine.candidatePaths(for: perspective, using: index, today: today)
+        )
+
+        XCTAssertEqual(
+            candidatePaths,
+            Set([overdueRecord.identity.path, fridayRecord.identity.path])
+        )
+
+        let recordsByPath = Dictionary(uniqueKeysWithValues: allRecords.map { ($0.identity.path, $0) })
+        let filtered = candidatePaths
+            .compactMap { recordsByPath[$0] }
+            .filter { engine.matches($0, perspective: perspective, today: today) }
+
+        XCTAssertEqual(
+            Set(filtered.map(\.identity.path)),
+            Set([overdueRecord.identity.path, fridayRecord.identity.path])
+        )
+    }
+
     func testCandidateSelectionUsesIndexedNegatedRelativeWeekdayRule() throws {
         let perspective = PerspectiveDefinition(
             name: "Not Due By Upcoming Friday",

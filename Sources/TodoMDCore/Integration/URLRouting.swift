@@ -6,6 +6,7 @@ public enum URLAction: Equatable, Sendable {
     case showTask(path: String)
     case showTaskRef(ref: String)
     case quickAdd
+    case voiceRamble
 }
 
 public struct TaskCreateRequest: Equatable, Sendable {
@@ -74,6 +75,10 @@ public struct URLRouter {
 
         if url.host == "quick-add" || url.host == "quickadd" {
             return .quickAdd
+        }
+
+        if url.host == "voice-ramble" || url.host == "voiceramble" || url.host == "ramble" {
+            return .voiceRamble
         }
 
         throw TaskError.unsupportedURLAction("Unsupported action host: \(url.host ?? "<none>")")

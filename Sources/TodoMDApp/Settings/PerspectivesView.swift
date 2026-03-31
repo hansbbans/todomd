@@ -166,8 +166,8 @@ enum PerspectiveEditorSaveResolver {
 
 struct PerspectivesView: View {
     @Environment(\.colorScheme) private var colorScheme
-    @EnvironmentObject private var container: AppContainer
-    @EnvironmentObject private var theme: ThemeManager
+    @Environment(AppContainer.self) private var container
+    @Environment(ThemeManager.self) private var theme
     @State private var editingPerspective: PerspectiveDefinition?
     @State private var pendingDeletePerspective: PerspectiveDefinition?
 

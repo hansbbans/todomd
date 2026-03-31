@@ -11,13 +11,19 @@ import UserNotifications
 
 #if canImport(UIKit) && canImport(UserNotifications)
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    private var shouldManageBackgroundRefreshTasks: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
+    }
+
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
 #if canImport(BackgroundTasks)
-        NotificationBackgroundRefreshCoordinator.registerBackgroundTask()
-        NotificationBackgroundRefreshCoordinator.scheduleNextRefresh()
+        if shouldManageBackgroundRefreshTasks {
+            NotificationBackgroundRefreshCoordinator.registerBackgroundTask()
+            NotificationBackgroundRefreshCoordinator.scheduleNextRefresh()
+        }
 #endif
 
         let center = UNUserNotificationCenter.current()
@@ -60,7 +66,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
     func applicationDidEnterBackground(_ application: UIApplication) {
 #if canImport(BackgroundTasks)
-        NotificationBackgroundRefreshCoordinator.scheduleNextRefresh()
+        if shouldManageBackgroundRefreshTasks {
+            NotificationBackgroundRefreshCoordinator.scheduleNextRefresh()
+        }
 #endif
     }
 
@@ -260,8 +268,16 @@ final class AppDelegate: NSObject {}
 enum NotificationBackgroundRefreshCoordinator {
     static let taskIdentifier = "com.hans.todomd.notifications.refresh"
     private static let minimumRefreshInterval: TimeInterval = 30 * 60
+    private static var isDisabledForCurrentProcess: Bool {
+        let processInfo = ProcessInfo.processInfo
+        if processInfo.arguments.contains("-ui-testing") {
+            return true
+        }
+        return processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
 
     static func registerBackgroundTask() {
+        guard !isDisabledForCurrentProcess else { return }
         BGTaskScheduler.shared.register(forTaskWithIdentifier: taskIdentifier, using: nil) { task in
             guard let appRefreshTask = task as? BGAppRefreshTask else {
                 task.setTaskCompleted(success: false)
@@ -272,6 +288,7 @@ enum NotificationBackgroundRefreshCoordinator {
     }
 
     static func scheduleNextRefresh() {
+        guard !isDisabledForCurrentProcess else { return }
         let request = BGAppRefreshTaskRequest(identifier: taskIdentifier)
         request.earliestBeginDate = Date(timeIntervalSinceNow: minimumRefreshInterval)
 
@@ -283,6 +300,10 @@ enum NotificationBackgroundRefreshCoordinator {
     }
 
     private static func handle(_ task: BGAppRefreshTask) {
+        guard !isDisabledForCurrentProcess else {
+            task.setTaskCompleted(success: false)
+            return
+        }
         scheduleNextRefresh()
 
         let refreshTask = Task {

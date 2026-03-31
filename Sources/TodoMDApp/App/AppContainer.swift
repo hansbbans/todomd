@@ -1,13 +1,11 @@
 import EventKit
 @preconcurrency import Foundation
+import Observation
 #if canImport(SwiftData)
 import SwiftData
 #endif
 #if canImport(UIKit)
 import UIKit
-#endif
-#if canImport(WidgetKit)
-import WidgetKit
 #endif
 
 struct TodaySection: Identifiable, Equatable {
@@ -117,87 +115,124 @@ private struct PerspectivesReloadResult: Sendable {
     let errorDescription: String?
 }
 
+private struct TodaySectionsCache {
+    let version: Int
+    let today: LocalDate
+    let eveningStart: LocalTime
+    let sections: [TodaySection]
+}
+
+private struct UpcomingSectionsCache {
+    let version: Int
+    let today: LocalDate
+    let eveningStart: LocalTime
+    let sections: [UpcomingSection]
+}
+
+private struct ProjectPickerCacheKey: Equatable {
+    let version: Int
+    let exclusion: String?
+}
+
+private struct ProjectPickerContentCache {
+    let key: ProjectPickerCacheKey
+    let content: ProjectPickerContent
+}
+
 @MainActor
-final class AppContainer: ObservableObject {
-    @Published var selectedView: ViewIdentifier = .builtIn(.inbox) {
+@Observable
+final class AppContainer {
+    var selectedView: ViewIdentifier = .builtIn(.inbox) {
         didSet { _ = applyCurrentViewFilter() }
     }
-    @Published var records: [TaskRecord] = []
-    @Published var diagnostics: [ParseFailureDiagnostic] = []
-    @Published private(set) var sourceActivityLog = SourceActivityLog()
-    @Published var counters: RuntimeCounters = .init()
-    @Published var lastSyncSummary: SyncSummary?
-    @Published var rateLimitAlertMessage: String?
-    @Published var urlRoutingErrorMessage: String?
-    @Published var shouldPresentQuickEntry = false
-    @Published var conflicts: [ConflictSummary] = []
-    @Published var navigationTaskPath: String?
-    @Published var perspectives: [PerspectiveDefinition] = []
-    @Published var perspectivesWarningMessage: String?
-    @Published var isCalendarConnected = false
-    @Published var isCalendarSyncing = false
-    @Published var calendarStatusMessage: String?
-    @Published private(set) var userProjects: [String] = []
-    @Published private(set) var projectColorsByProject: [String: String] = [:]
-    @Published private(set) var projectIconsByProject: [String: String] = [:]
-    @Published private(set) var calendarSources: [CalendarSource] = []
-    @Published private(set) var selectedCalendarSourceIDs: Set<String> = []
-    @Published var calendarTodayEvents: [CalendarEventItem] = []
-    @Published var calendarUpcomingSections: [CalendarDaySection] = []
-    @Published private(set) var reminderLists: [ReminderList] = []
-    @Published private(set) var pendingReminderImports: [ReminderImportItem] = []
-    @Published private(set) var selectedReminderListID: String?
-    @Published var remindersImportStatusMessage: String?
-    @Published var isRefreshingReminderImports = false
-    @Published var isRemindersImporting = false
-    @Published private(set) var locationFavorites: [LocationFavorite] = []
+    var records: [TaskRecord] = []
+    var diagnostics: [ParseFailureDiagnostic] = []
+    private(set) var sourceActivityLog = SourceActivityLog()
+    var counters: RuntimeCounters = .init()
+    var lastSyncSummary: SyncSummary?
+    var rateLimitAlertMessage: String?
+    var urlRoutingErrorMessage: String?
+    var shouldPresentQuickEntry = false
+    var shouldPresentVoiceRamble = false
+    var conflicts: [ConflictSummary] = []
+    var navigationTaskPath: String?
+    var perspectives: [PerspectiveDefinition] = []
+    var perspectivesWarningMessage: String?
+    var isCalendarConnected = false
+    var isCalendarSyncing = false
+    var calendarStatusMessage: String?
+    private(set) var userProjects: [String] = [] {
+        didSet { invalidateProjectPickerCache() }
+    }
+    private(set) var projectColorsByProject: [String: String] = [:] {
+        didSet { invalidateProjectPickerCache() }
+    }
+    private(set) var projectIconsByProject: [String: String] = [:] {
+        didSet { invalidateProjectPickerCache() }
+    }
+    private(set) var calendarSources: [CalendarSource] = []
+    private(set) var selectedCalendarSourceIDs: Set<String> = []
+    var calendarTodayEvents: [CalendarEventItem] = []
+    var calendarUpcomingSections: [CalendarDaySection] = []
+    private(set) var reminderLists: [ReminderList] = []
+    private(set) var pendingReminderImports: [ReminderImportItem] = []
+    private(set) var selectedReminderListID: String?
+    var remindersImportStatusMessage: String?
+    var isRefreshingReminderImports = false
+    var isRemindersImporting = false
+    private(set) var locationFavorites: [LocationFavorite] = []
+    private var isReminderListSelectionExplicitlyCleared = false
 
-    private var repository: FileTaskRepository
-    private var fileWatcher: FileWatcherService
-    private var manualOrderService: ManualOrderService
-    private var projectMetadataRepository: ProjectMetadataRepository
-    private var triageRulesRepository: TriageRulesRepository
-    private var perspectivesRepository: PerspectivesRepository
-    private let queryEngine = TaskQueryEngine()
-    private let triageSuggestionEngine = ProjectTriageSuggestionEngine()
-    private let weeklyReviewEngine = WeeklyReviewEngine()
-    private let perspectiveQueryEngine = PerspectiveQueryEngine()
-    private let dateParser = NaturalLanguageDateParser()
-    private let urlRouter = URLRouter()
-    private let appleCalendarService = AppleCalendarService()
-    private lazy var calendarIntegrationManager = CalendarIntegrationManager(service: appleCalendarService)
-    private let usesFakeRemindersImportService: Bool
-    private let remindersImportService: any RemindersImportServicing
-    private let fileConflictCoordinator = FileConflictCoordinator()
-    private let logger: RuntimeLogging
-    private let snapshotStore = TaskRecordSnapshotStore()
+    @ObservationIgnored private var repository: FileTaskRepository
+    @ObservationIgnored private var fileWatcher: FileWatcherService
+    @ObservationIgnored private var manualOrderService: ManualOrderService
+    @ObservationIgnored private var projectMetadataRepository: ProjectMetadataRepository
+    @ObservationIgnored private var triageRulesRepository: TriageRulesRepository
+    @ObservationIgnored private var perspectivesRepository: PerspectivesRepository
+    @ObservationIgnored private let queryEngine = TaskQueryEngine()
+    @ObservationIgnored private let triageSuggestionEngine = ProjectTriageSuggestionEngine()
+    @ObservationIgnored private let weeklyReviewEngine = WeeklyReviewEngine()
+    @ObservationIgnored private let perspectiveQueryEngine = PerspectiveQueryEngine()
+    @ObservationIgnored private let dateParser = NaturalLanguageDateParser()
+    @ObservationIgnored private let urlRouter = URLRouter()
+    @ObservationIgnored private let appleCalendarService = AppleCalendarService()
+    @ObservationIgnored private let calendarIntegrationManager: CalendarIntegrationManager
+    @ObservationIgnored private let calendarCoordinator: CalendarCoordinator
+    @ObservationIgnored private let usesFakeRemindersImportService: Bool
+    @ObservationIgnored private let remindersImportService: any RemindersImportServicing
+    @ObservationIgnored private let fileConflictCoordinator = FileConflictCoordinator()
+    @ObservationIgnored private let logger: RuntimeLogging
+    @ObservationIgnored private let snapshotStore = TaskRecordSnapshotStore()
     private(set) var rootURL: URL
 
 #if canImport(SwiftData)
-    let modelContainer: ModelContainer
-    private let modelContext: ModelContext
+    @ObservationIgnored let modelContainer: ModelContainer
+    @ObservationIgnored private let modelContext: ModelContext
 #endif
 
 #if canImport(UserNotifications)
-    private let notificationScheduler = UserNotificationScheduler()
-    private lazy var notificationCoordinator = NotificationCoordinator(scheduler: notificationScheduler)
+    @ObservationIgnored private let notificationScheduler = UserNotificationScheduler()
+    @ObservationIgnored private let notificationCoordinator: NotificationCoordinator
 #endif
 
-    private var canonicalByPath: [String: TaskRecord] = [:]
-    private var allIndexedRecords: [TaskRecord] = []
-    private var metadataIndex = TaskMetadataIndex.build(from: [TaskRecord]())
-    private var cachedPerspectivesDocument = PerspectivesDocument()
-    private var snapshotDiagnostics: [ParseFailureDiagnostic] = []
-    private var triageRules = TriageRulesDocument()
+    @ObservationIgnored private var canonicalByPath: [String: TaskRecord] = [:]
+    @ObservationIgnored private var allIndexedRecords: [TaskRecord] = []
+    @ObservationIgnored private var metadataIndex = TaskMetadataIndex.build(from: [TaskRecord]())
+    @ObservationIgnored private var cachedPerspectivesDocument = PerspectivesDocument()
+    @ObservationIgnored private var snapshotDiagnostics: [ParseFailureDiagnostic] = []
+    @ObservationIgnored private var triageRules = TriageRulesDocument()
+    @ObservationIgnored private var indexedRecordsVersion = 0
+    @ObservationIgnored private var cachedTodaySections: TodaySectionsCache?
+    @ObservationIgnored private var cachedUpcomingSections: UpcomingSectionsCache?
+    @ObservationIgnored private var cachedProjectPickerContent: ProjectPickerContentCache?
 
-    private let observationState = AppContainerObservationState()
-    private var metadataQuery: NSMetadataQuery?
-    private var suppressMetadataRefreshUntil: Date?
-    private var calendarRefreshTask: Task<Void, Never>?
-    private var foregroundRefreshTimer: Timer?
-    private var reminderImportRefreshGeneration = 0
-    private var startupValidationPending = false
-    private var perspectivesReloadTask: Task<Void, Never>?
+    @ObservationIgnored private let observationState = AppContainerObservationState()
+    @ObservationIgnored private var metadataQuery: NSMetadataQuery?
+    @ObservationIgnored private var suppressMetadataRefreshUntil: Date?
+    @ObservationIgnored private var foregroundRefreshTimer: Timer?
+    @ObservationIgnored private var reminderImportRefreshGeneration = 0
+    @ObservationIgnored private var startupValidationPending = false
+    @ObservationIgnored private var perspectivesReloadTask: Task<Void, Never>?
 
     private static let settingsNotificationHourKey = "settings_notification_hour"
     private static let settingsNotificationMinuteKey = "settings_notification_minute"
@@ -243,6 +278,7 @@ final class AppContainer: ObservableObject {
     }
 
     private static let settingsRemindersImportListIDKey = "settings_reminders_import_list_id"
+    private static let clearedReminderListSelectionSentinel = "__none__"
     private static let remindersImportListName = "Reminders"
     private static let settingsLocationFavoritesKey = "settings_location_favorites_v1"
     private static let settingsProjectsKey = "settings_projects_v1"
@@ -252,15 +288,11 @@ final class AppContainer: ObservableObject {
     private static let hashtagRegex = try? NSRegularExpression(pattern: "#([A-Za-z0-9_-]+)")
 
     var eveningStartTime: LocalTime {
-        get {
-            guard let s = UserDefaults.standard.string(forKey: Self.settingsEveningStartTimeKey),
-                  let t = try? LocalTime(isoTime: s) else {
-                return try! LocalTime(isoTime: "18:00")
-            }
-            return t
-        }
-        set {
-            UserDefaults.standard.set(newValue.isoString, forKey: Self.settingsEveningStartTimeKey)
+        didSet {
+            guard oldValue != eveningStartTime else { return }
+            UserDefaults.standard.set(eveningStartTime.isoString, forKey: Self.settingsEveningStartTimeKey)
+            invalidateSectionCaches()
+            _ = applyCurrentViewFilter()
         }
     }
 
@@ -284,6 +316,7 @@ final class AppContainer: ObservableObject {
         remindersImportService = Self.makeRemindersImportServiceForCurrentProcess(
             useFakeRemindersImportService: useFakeRemindersImportService
         )
+        self.eveningStartTime = Self.loadStoredEveningStartTime()
 
         let resolvedRoot = Self.resolveRootURL()
         self.rootURL = resolvedRoot
@@ -294,16 +327,21 @@ final class AppContainer: ObservableObject {
         self.modelContext = ModelContext(modelContainer)
 #endif
 
-        let repository = FileTaskRepository(rootURL: rootURL)
+        let repository = FileTaskRepository(rootURL: resolvedRoot)
         self.repository = repository
-        self.fileWatcher = FileWatcherService(rootURL: rootURL, repository: repository)
-        self.manualOrderService = ManualOrderService(rootURL: rootURL)
+        self.fileWatcher = FileWatcherService(rootURL: resolvedRoot, repository: repository)
+        self.manualOrderService = ManualOrderService(rootURL: resolvedRoot)
         self.projectMetadataRepository = ProjectMetadataRepository()
         self.triageRulesRepository = TriageRulesRepository()
         self.perspectivesRepository = PerspectivesRepository()
+        self.calendarIntegrationManager = CalendarIntegrationManager(service: appleCalendarService)
+        self.calendarCoordinator = CalendarCoordinator(manager: calendarIntegrationManager)
+#if canImport(UserNotifications)
+        self.notificationCoordinator = NotificationCoordinator(scheduler: notificationScheduler)
+#endif
 
         migrateIntegrationEnablementDefaultsIfNeeded()
-        selectedCalendarSourceIDs = calendarIntegrationManager.loadPersistedSourceSelection()
+        applyCalendarState(calendarCoordinator.initialState())
         loadReminderListSelection()
         loadLocationFavorites()
         loadProjectMetadataFromDisk()
@@ -311,7 +349,6 @@ final class AppContainer: ObservableObject {
         migrateLegacyProjectMetadataFromSettingsIfNeeded()
         loadPerspectivesFromDisk()
         migrateLegacyPerspectivesFromSettingsIfNeeded()
-        isCalendarConnected = appleCalendarService.isConnected
         hydrateInitialStateFromSnapshot()
         configureLifecycleObservers()
         startMetadataQuery()
@@ -321,6 +358,14 @@ final class AppContainer: ObservableObject {
 
     private static func shouldUseFakeRemindersImportServiceForCurrentProcess() -> Bool {
         ProcessInfo.processInfo.environment["TODOMD_FAKE_REMINDERS_IMPORT"] == "1"
+    }
+
+    private static func loadStoredEveningStartTime() -> LocalTime {
+        guard let storedValue = UserDefaults.standard.string(forKey: Self.settingsEveningStartTimeKey),
+              let time = try? LocalTime(isoTime: storedValue) else {
+            return try! LocalTime(isoTime: "18:00")
+        }
+        return time
     }
 
     private static func makeRemindersImportServiceForCurrentProcess(
@@ -395,7 +440,7 @@ final class AppContainer: ObservableObject {
                 existingRecordsByPath: previousCanonicalByPath
             )
             sourceActivityLog = updatedSourceActivityLog
-            var canonicalRecords = canonicalByPath.values.sorted { $0.identity.path < $1.identity.path }
+            var canonicalRecords = Array(canonicalByPath.values)
             var notificationUpserts = Dictionary(uniqueKeysWithValues: sync.records.map { ($0.identity.path, $0) })
             let notificationDeletedPaths = Set(sync.events.compactMap { event -> String? in
                 switch event {
@@ -412,7 +457,7 @@ final class AppContainer: ObservableObject {
                 for record in backfilledRecords {
                     notificationUpserts[record.identity.path] = record
                 }
-                canonicalRecords = canonicalByPath.values.sorted { $0.identity.path < $1.identity.path }
+                canonicalRecords = Array(canonicalByPath.values)
             }
 
             let autoUnblockResult = try autoResolveBlockedDependencies(in: canonicalRecords)
@@ -421,8 +466,9 @@ final class AppContainer: ObservableObject {
                 for record in autoUnblockResult.updatedRecords {
                     notificationUpserts[record.identity.path] = record
                 }
-                canonicalRecords = canonicalByPath.values.sorted { $0.identity.path < $1.identity.path }
-                notifyAutoUnblockedTasksIfEnabled(paths: autoUnblockResult.fullyUnblockedPaths, records: canonicalRecords)
+                canonicalRecords = Array(canonicalByPath.values)
+                let orderedRecords = canonicalRecords.sorted { $0.identity.path < $1.identity.path }
+                notifyAutoUnblockedTasksIfEnabled(paths: autoUnblockResult.fullyUnblockedPaths, records: orderedRecords)
             }
 
             let completionMetadataUpdates = try inferCompletionMetadata(in: canonicalRecords)
@@ -431,11 +477,13 @@ final class AppContainer: ObservableObject {
                 for record in completionMetadataUpdates {
                     notificationUpserts[record.identity.path] = record
                 }
-                canonicalRecords = canonicalByPath.values.sorted { $0.identity.path < $1.identity.path }
+                canonicalRecords = Array(canonicalByPath.values)
             }
+            canonicalRecords.sort { $0.identity.path < $1.identity.path }
 
             let indexStart = ContinuousClock.now
             allIndexedRecords = canonicalRecords
+            invalidateIndexedRecordCaches()
             let indexMilliseconds = elapsedMilliseconds(since: indexStart)
 
             diagnostics = mergedParseDiagnostics(
@@ -539,6 +587,7 @@ final class AppContainer: ObservableObject {
             fileWatcher.prime(fingerprints: hydration.fingerprints)
             canonicalByPath = Dictionary(uniqueKeysWithValues: hydration.records.map { ($0.identity.path, $0) })
             allIndexedRecords = hydration.records
+            invalidateIndexedRecordCaches()
             metadataIndex = TaskMetadataIndex.build(from: hydration.metadataEntries)
             snapshotDiagnostics = hydration.failures
             diagnostics = hydration.failures
@@ -561,6 +610,7 @@ final class AppContainer: ObservableObject {
         if canonicalByPath.isEmpty && !sync.records.isEmpty {
             canonicalByPath = Dictionary(uniqueKeysWithValues: sync.records.map { ($0.identity.path, $0) })
             metadataIndex = TaskMetadataIndex.build(from: sync.records)
+            invalidateProjectPickerCache()
         }
 
         var clearedDiagnosticPaths = Set(sync.records.map(\.identity.path))
@@ -581,6 +631,7 @@ final class AppContainer: ObservableObject {
         }
 
         snapshotDiagnostics = snapshotDiagnostics.filter { !clearedDiagnosticPaths.contains($0.path) }
+        invalidateProjectPickerCache()
     }
 
     private func replaceCanonicalRecords(_ updatedRecords: [TaskRecord]) {
@@ -588,6 +639,23 @@ final class AppContainer: ObservableObject {
             canonicalByPath[record.identity.path] = record
             metadataIndex.update(record: record)
         }
+        invalidateProjectPickerCache()
+    }
+
+    private func invalidateIndexedRecordCaches() {
+        indexedRecordsVersion += 1
+        cachedTodaySections = nil
+        cachedUpcomingSections = nil
+        invalidateProjectPickerCache()
+    }
+
+    private func invalidateSectionCaches() {
+        cachedTodaySections = nil
+        cachedUpcomingSections = nil
+    }
+
+    private func invalidateProjectPickerCache() {
+        cachedProjectPickerContent = nil
     }
 
     private func persistSnapshotBestEffort(
@@ -916,6 +984,13 @@ final class AppContainer: ObservableObject {
     }
 
     func todaySections(today: LocalDate = LocalDate.today(in: .current)) -> [TodaySection] {
+        if let cachedTodaySections,
+           cachedTodaySections.version == indexedRecordsVersion,
+           cachedTodaySections.today == today,
+           cachedTodaySections.eveningStart == eveningStartTime {
+            return cachedTodaySections.sections
+        }
+
         let todayRecords = allIndexedRecords.filter {
             queryEngine.matches($0, view: .builtIn(.today), today: today, eveningStart: eveningStartTime)
         }
@@ -928,13 +1003,27 @@ final class AppContainer: ObservableObject {
         }
 
         let groupOrder: [TodayGroup] = [.overdue, .scheduled, .dueToday, .deferredNowAvailable, .scheduledEvening]
-        return groupOrder.compactMap { group in
+        let sections = groupOrder.compactMap { group -> TodaySection? in
             guard let records = grouped[group], !records.isEmpty else { return nil }
             return TodaySection(group: group, records: records)
         }
+        cachedTodaySections = TodaySectionsCache(
+            version: indexedRecordsVersion,
+            today: today,
+            eveningStart: eveningStartTime,
+            sections: sections
+        )
+        return sections
     }
 
     func upcomingSections(today: LocalDate = LocalDate.today(in: .current)) -> [UpcomingSection] {
+        if let cachedUpcomingSections,
+           cachedUpcomingSections.version == indexedRecordsVersion,
+           cachedUpcomingSections.today == today,
+           cachedUpcomingSections.eveningStart == eveningStartTime {
+            return cachedUpcomingSections.sections
+        }
+
         let upcoming = allIndexedRecords.filter {
             queryEngine.matches($0, view: .builtIn(.upcoming), today: today, eveningStart: eveningStartTime)
         }
@@ -945,7 +1034,7 @@ final class AppContainer: ObservableObject {
             grouped[groupDate, default: []].append(record)
         }
 
-        return grouped.keys.sorted().map { date in
+        let sections = grouped.keys.sorted().map { date in
             let recordsForDate = grouped[date] ?? []
             let ordered = manualOrderService.ordered(records: recordsForDate, view: .builtIn(.upcoming))
                 .sorted { lhs, rhs in
@@ -964,6 +1053,13 @@ final class AppContainer: ObservableObject {
                 }
             return UpcomingSection(date: date, records: ordered)
         }
+        cachedUpcomingSections = UpcomingSectionsCache(
+            version: indexedRecordsVersion,
+            today: today,
+            eveningStart: eveningStartTime,
+            sections: sections
+        )
+        return sections
     }
 
     func weeklyReviewSections(
@@ -1402,6 +1498,10 @@ final class AppContainer: ObservableObject {
         let normalizedExclusion = projectToExclude?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .nilIfEmpty
+        let cacheKey = ProjectPickerCacheKey(version: indexedRecordsVersion, exclusion: normalizedExclusion)
+        if let cachedProjectPickerContent, cachedProjectPickerContent.key == cacheKey {
+            return cachedProjectPickerContent.content
+        }
         let groupedAreas = projectsByArea().map { group in
             let filteredProjects = group.projects.filter { project in
                 guard let normalizedExclusion else { return true }
@@ -1422,20 +1522,33 @@ final class AppContainer: ObservableObject {
             })
         }
 
-        return ProjectPickerContent(
+        let content = ProjectPickerContent(
             groupedAreas: groupedAreas,
             ungroupedProjects: ungroupedProjects,
             allProjects: allProjects
         )
+        cachedProjectPickerContent = ProjectPickerContentCache(key: cacheKey, content: content)
+        return content
     }
 
     func projectProgress(for project: String) -> (completed: Int, total: Int) {
         let normalizedProject = project.trimmingCharacters(in: .whitespacesAndNewlines)
-        let projectTasks = allIndexedRecords.filter {
-            $0.document.frontmatter.project?.trimmingCharacters(in: .whitespacesAndNewlines) == normalizedProject
+        var total = 0
+        var completed = 0
+
+        for record in allIndexedRecords {
+            guard record.document.frontmatter.project?.trimmingCharacters(in: .whitespacesAndNewlines) == normalizedProject else {
+                continue
+            }
+
+            let status = record.document.frontmatter.status
+            guard status != .cancelled else { continue }
+            total += 1
+            if status == .done {
+                completed += 1
+            }
         }
-        let total = projectTasks.filter { $0.document.frontmatter.status != .cancelled }.count
-        let completed = projectTasks.filter { $0.document.frontmatter.status == .done }.count
+
         return (completed: completed, total: total)
     }
 
@@ -1762,6 +1875,14 @@ final class AppContainer: ObservableObject {
 
     func requestQuickEntry() {
         shouldPresentQuickEntry = true
+    }
+
+    func clearVoiceRambleRequest() {
+        shouldPresentVoiceRamble = false
+    }
+
+    func requestVoiceRamble() {
+        shouldPresentVoiceRamble = true
     }
 
     func record(for path: String) -> TaskRecord? {
@@ -2360,6 +2481,7 @@ final class AppContainer: ObservableObject {
 
         do {
             try manualOrderService.saveOrder(view: selectedView, filenames: filenames)
+            invalidateSectionCaches()
             applyCurrentViewFilter()
         } catch {
             logger.error("Save manual order failed", metadata: ["error": error.localizedDescription])
@@ -2385,6 +2507,8 @@ final class AppContainer: ObservableObject {
                 }
             case .quickAdd:
                 shouldPresentQuickEntry = true
+            case .voiceRamble:
+                shouldPresentVoiceRamble = true
             }
         } catch {
             logger.error("URL routing failed", metadata: ["url": url.absoluteString, "error": error.localizedDescription])
@@ -2482,6 +2606,7 @@ final class AppContainer: ObservableObject {
     func setReminderListSelected(id: String) {
         if id.isEmpty {
             selectedReminderListID = nil
+            isReminderListSelectionExplicitlyCleared = true
             persistReminderListSelection()
             Task {
                 await refreshReminderImports()
@@ -2490,6 +2615,7 @@ final class AppContainer: ObservableObject {
         }
         guard reminderLists.contains(where: { $0.id == id }) else { return }
         selectedReminderListID = id
+        isReminderListSelectionExplicitlyCleared = false
         persistReminderListSelection()
         Task {
             await refreshReminderImports()
@@ -2630,88 +2756,64 @@ final class AppContainer: ObservableObject {
     }
 
     func isCalendarSourceSelected(_ sourceID: String) -> Bool {
-        selectedCalendarSourceIDs.contains(sourceID)
+        calendarCoordinator.isSourceSelected(sourceID, state: currentCalendarState)
     }
 
     func setCalendarSourceSelected(sourceID: String, isSelected: Bool) {
-        if isSelected {
-            selectedCalendarSourceIDs.insert(sourceID)
-        } else {
-            selectedCalendarSourceIDs.remove(sourceID)
-        }
-        calendarIntegrationManager.persistSourceSelection(selectedCalendarSourceIDs)
+        var state = currentCalendarState
+        calendarCoordinator.setSourceSelected(
+            sourceID: sourceID,
+            isSelected: isSelected,
+            state: &state
+        )
+        applyCalendarState(state)
         scheduleCalendarRefresh(force: true)
     }
 
     func selectAllCalendarSources() {
-        selectedCalendarSourceIDs = Set(calendarSources.map(\.id))
-        calendarIntegrationManager.persistSourceSelection(selectedCalendarSourceIDs)
+        var state = currentCalendarState
+        calendarCoordinator.selectAllSources(state: &state)
+        applyCalendarState(state)
         scheduleCalendarRefresh(force: true)
     }
 
     func connectCalendar() async {
-        isCalendarSyncing = true
-        calendarStatusMessage = nil
-        do {
-            try await calendarIntegrationManager.connect()
-            isCalendarConnected = true
-            await refreshCalendar(force: true)
-        } catch {
-            calendarStatusMessage = error.localizedDescription
-            if case AppleCalendarServiceError.accessDenied = error {
-                isCalendarConnected = false
-                calendarTodayEvents = []
-                calendarUpcomingSections = []
-                clearWidgetCalendarSnapshot()
-            }
-        }
-        isCalendarSyncing = false
+        let updated = await calendarCoordinator.connect(state: currentCalendarState)
+        applyCalendarState(updated)
     }
 
     func refreshCalendar(force: Bool = false) async {
-        isCalendarSyncing = true
-        defer { isCalendarSyncing = false }
-
-        let result = calendarIntegrationManager.refresh(
-            force: force,
-            selectedSourceIDs: selectedCalendarSourceIDs
+        let updated = await calendarCoordinator.refresh(
+            state: currentCalendarState,
+            force: force
         )
-        guard !result.wasThrottled else {
-            return
-        }
-
-        isCalendarConnected = result.isConnected
-        calendarStatusMessage = result.statusMessage
-        calendarSources = result.sources
-        selectedCalendarSourceIDs = result.selectedSourceIDs
-        calendarTodayEvents = result.todayEvents
-        calendarUpcomingSections = result.upcomingSections
-
-        if result.shouldClearSnapshot {
-            clearWidgetCalendarSnapshot()
-        } else if let capturedAt = result.capturedAt {
-            saveWidgetCalendarSnapshot(capturedAt: capturedAt)
-        }
+        applyCalendarState(updated)
     }
 
     private func scheduleCalendarRefresh(force: Bool = false) {
-        if force {
-            calendarRefreshTask?.cancel()
-            calendarRefreshTask = nil
-        } else if calendarRefreshTask != nil {
-            return
-        }
-
-        calendarRefreshTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.refreshCalendar(force: force)
-            self.calendarRefreshTask = nil
-        }
+        calendarCoordinator.scheduleRefresh(
+            force: force,
+            stateProvider: { [weak self] in
+                self?.currentCalendarState ?? CalendarCoordinatorState()
+            },
+            apply: { [weak self] updatedState in
+                self?.applyCalendarState(updatedState)
+            }
+        )
     }
 
     private func loadReminderListSelection() {
-        selectedReminderListID = nil
-        UserDefaults.standard.removeObject(forKey: Self.settingsRemindersImportListIDKey)
+        let defaults = UserDefaults.standard
+        let storedID = defaults.string(forKey: Self.settingsRemindersImportListIDKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if storedID == Self.clearedReminderListSelectionSentinel {
+            selectedReminderListID = nil
+            isReminderListSelectionExplicitlyCleared = true
+            return
+        }
+
+        selectedReminderListID = storedID?.isEmpty == false ? storedID : nil
+        isReminderListSelectionExplicitlyCleared = false
     }
 
     private func refreshReminderImportState(
@@ -2734,8 +2836,6 @@ final class AppContainer: ObservableObject {
             case .needsExplanationBeforeRequest:
                 if forceListRefresh || reminderLists.isEmpty {
                     reminderLists = []
-                    selectedReminderListID = nil
-                    persistReminderListSelection()
                 }
                 pendingReminderImports = []
                 remindersImportStatusMessage = "Allow Reminders access in Settings to import tasks from Reminders."
@@ -2743,8 +2843,6 @@ final class AppContainer: ObservableObject {
             case .requiresSettingsRedirect:
                 if forceListRefresh || reminderLists.isEmpty {
                     reminderLists = []
-                    selectedReminderListID = nil
-                    persistReminderListSelection()
                 }
                 pendingReminderImports = []
                 remindersImportStatusMessage = RemindersImportServiceError.accessDenied.localizedDescription
@@ -2801,8 +2899,6 @@ final class AppContainer: ObservableObject {
             guard refreshGeneration == reminderImportRefreshGeneration else { return }
             if forceListRefresh || reminderLists.isEmpty {
                 reminderLists = []
-                selectedReminderListID = nil
-                persistReminderListSelection()
             }
             pendingReminderImports = []
             remindersImportStatusMessage = error.localizedDescription
@@ -2856,7 +2952,10 @@ final class AppContainer: ObservableObject {
     }
 
     private func reminderImportMissingListMessage() -> String {
-        "No Reminders list named \(Self.remindersImportListName) is available to import from."
+        guard selectedReminderListID != nil else {
+            return "Choose a Reminders list to import from."
+        }
+        return "No Reminders list named \(Self.remindersImportListName) is available to import from."
     }
 
     private func loadLocationFavorites() {
@@ -2949,7 +3048,26 @@ final class AppContainer: ObservableObject {
             return
         }
 
+        if let selectedReminderListID,
+           lists.contains(where: { $0.id == selectedReminderListID }) {
+            persistReminderListSelection()
+            return
+        }
+
+        if isReminderListSelectionExplicitlyCleared {
+            selectedReminderListID = nil
+            persistReminderListSelection()
+            return
+        }
+
+        if selectedReminderListID != nil {
+            self.selectedReminderListID = nil
+            persistReminderListSelection()
+            return
+        }
+
         selectedReminderListID = preferredReminderImportList(in: lists)?.id
+        isReminderListSelectionExplicitlyCleared = false
         persistReminderListSelection()
     }
 
@@ -2964,7 +3082,13 @@ final class AppContainer: ObservableObject {
 
     private func persistReminderListSelection() {
         let defaults = UserDefaults.standard
-        defaults.set(selectedReminderListID, forKey: Self.settingsRemindersImportListIDKey)
+        if isReminderListSelectionExplicitlyCleared {
+            defaults.set(Self.clearedReminderListSelectionSentinel, forKey: Self.settingsRemindersImportListIDKey)
+        } else if let selectedReminderListID {
+            defaults.set(selectedReminderListID, forKey: Self.settingsRemindersImportListIDKey)
+        } else {
+            defaults.removeObject(forKey: Self.settingsRemindersImportListIDKey)
+        }
     }
 
     private func persistLocationFavorites() {
@@ -3126,26 +3250,26 @@ final class AppContainer: ObservableObject {
         return normalized
     }
 
-    private func saveWidgetCalendarSnapshot(capturedAt: Date) {
-        let snapshot = WidgetCalendarSnapshot(
-            capturedAt: capturedAt,
-            capturedDay: LocalDate.today(in: .current),
-            todayEvents: calendarTodayEvents.map(\.widgetSnapshotValue),
-            upcomingSections: calendarUpcomingSections.map(\.widgetSnapshotValue)
+    private var currentCalendarState: CalendarCoordinatorState {
+        CalendarCoordinatorState(
+            isConnected: isCalendarConnected,
+            isSyncing: isCalendarSyncing,
+            statusMessage: calendarStatusMessage,
+            sources: calendarSources,
+            selectedSourceIDs: selectedCalendarSourceIDs,
+            todayEvents: calendarTodayEvents,
+            upcomingSections: calendarUpcomingSections
         )
-        WidgetCalendarSnapshotStore.save(snapshot)
-        reloadTodayTomorrowWidgetTimeline()
     }
 
-    private func clearWidgetCalendarSnapshot() {
-        WidgetCalendarSnapshotStore.clear()
-        reloadTodayTomorrowWidgetTimeline()
-    }
-
-    private func reloadTodayTomorrowWidgetTimeline() {
-#if canImport(WidgetKit)
-        WidgetCenter.shared.reloadTimelines(ofKind: "TodoMDTodayTomorrowWidget")
-#endif
+    private func applyCalendarState(_ state: CalendarCoordinatorState) {
+        isCalendarConnected = state.isConnected
+        isCalendarSyncing = state.isSyncing
+        calendarStatusMessage = state.statusMessage
+        calendarSources = state.sources
+        selectedCalendarSourceIDs = state.selectedSourceIDs
+        calendarTodayEvents = state.todayEvents
+        calendarUpcomingSections = state.upcomingSections
     }
 
     private func migrateLegacyPerspectivesFromSettingsIfNeeded() {
