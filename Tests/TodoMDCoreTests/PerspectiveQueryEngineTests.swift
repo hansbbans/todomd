@@ -204,6 +204,456 @@ final class PerspectiveQueryEngineTests: XCTestCase {
         )
     }
 
+    func testIncompleteItemsDueThisUpcomingFridayIncludesOverdueRecords() throws {
+        let parser = NaturalLanguagePerspectiveParser(calendar: Calendar(identifier: .gregorian))
+        let creationDate = ISO8601DateFormatter().date(from: "2026-02-28T12:00:00Z")!
+        let parsed = parser.parse("incomplete items in TL project due this upcoming Friday", relativeTo: creationDate)
+
+        var overdueFrontmatter = TestSupport.sampleFrontmatter(
+            title: "Overdue follow-up",
+            due: try LocalDate(isoDate: "2026-03-05")
+        )
+        overdueFrontmatter.project = "Tl"
+        let overdueRecord = TaskRecord(
+            identity: TaskFileIdentity(path: "/tmp/relative-friday-overdue-match.md"),
+            document: .init(frontmatter: overdueFrontmatter, body: "")
+        )
+
+        var fridayFrontmatter = TestSupport.sampleFrontmatter(
+            title: "Friday deadline",
+            due: try LocalDate(isoDate: "2026-03-06")
+        )
+        fridayFrontmatter.project = "Tl"
+        let fridayRecord = TaskRecord(
+            identity: TaskFileIdentity(path: "/tmp/relative-friday-on-match.md"),
+            document: .init(frontmatter: fridayFrontmatter, body: "")
+        )
+
+        var laterFrontmatter = TestSupport.sampleFrontmatter(
+            title: "Later follow-up",
+            due: try LocalDate(isoDate: "2026-03-07")
+        )
+        laterFrontmatter.project = "Tl"
+        let laterRecord = TaskRecord(
+            identity: TaskFileIdentity(path: "/tmp/relative-friday-later.md"),
+            document: .init(frontmatter: laterFrontmatter, body: "")
+        )
+
+        var completedFrontmatter = TestSupport.sampleFrontmatter(
+            title: "Completed overdue",
+            due: try LocalDate(isoDate: "2026-03-04")
+        )
+        completedFrontmatter.project = "Tl"
+        completedFrontmatter.status = .done
+        let completedRecord = TaskRecord(
+            identity: TaskFileIdentity(path: "/tmp/relative-friday-completed.md"),
+            document: .init(frontmatter: completedFrontmatter, body: "")
+        )
+
+        var cancelledFrontmatter = TestSupport.sampleFrontmatter(
+            title: "Cancelled overdue",
+            due: try LocalDate(isoDate: "2026-03-04")
+        )
+        cancelledFrontmatter.project = "Tl"
+        cancelledFrontmatter.status = .cancelled
+        let cancelledRecord = TaskRecord(
+            identity: TaskFileIdentity(path: "/tmp/relative-friday-cancelled.md"),
+            document: .init(frontmatter: cancelledFrontmatter, body: "")
+        )
+
+        let allRecords = [overdueRecord, fridayRecord, laterRecord, completedRecord, cancelledRecord]
+        let index = TaskMetadataIndex.build(from: allRecords)
+        let perspective = PerspectiveDefinition(name: "Friday Incomplete", rules: parsed.rules)
+        let today = try LocalDate(isoDate: "2026-03-03")
+
+        let candidatePaths = try XCTUnwrap(
+            engine.candidatePaths(for: perspective, using: index, today: today)
+        )
+
+        XCTAssertEqual(
+            candidatePaths,
+            Set([overdueRecord.identity.path, fridayRecord.identity.path])
+        )
+
+        let recordsByPath = Dictionary(uniqueKeysWithValues: allRecords.map { ($0.identity.path, $0) })
+        let filtered = candidatePaths
+            .compactMap { recordsByPath[$0] }
+            .filter { engine.matches($0, perspective: perspective, today: today) }
+
+        XCTAssertEqual(
+            Set(filtered.map(\.identity.path)),
+            Set([overdueRecord.identity.path, fridayRecord.identity.path])
+        )
+    }
+
+    func testShowMeAllIncompleteItemsLeadPhraseIncludesOverdueRecords() throws {
+        let parser = NaturalLanguagePerspectiveParser(calendar: Calendar(identifier: .gregorian))
+        let creationDate = ISO8601DateFormatter().date(from: "2026-02-28T12:00:00Z")!
+        let parsed = parser.parse("show me all incomplete items in TL project due this upcoming Friday", relativeTo: creationDate)
+
+        var overdueFrontmatter = TestSupport.sampleFrontmatter(
+            title: "Overdue follow-up",
+            due: try LocalDate(isoDate: "2026-03-05")
+        )
+        overdueFrontmatter.project = "Tl"
+        let overdueRecord = TaskRecord(
+            identity: TaskFileIdentity(path: "/tmp/relative-friday-show-overdue-match.md"),
+            document: .init(frontmatter: overdueFrontmatter, body: "")
+        )
+
+        var fridayFrontmatter = TestSupport.sampleFrontmatter(
+            title: "Friday deadline",
+            due: try LocalDate(isoDate: "2026-03-06")
+        )
+        fridayFrontmatter.project = "Tl"
+        let fridayRecord = TaskRecord(
+            identity: TaskFileIdentity(path: "/tmp/relative-friday-show-on-match.md"),
+            document: .init(frontmatter: fridayFrontmatter, body: "")
+        )
+
+        var laterFrontmatter = TestSupport.sampleFrontmatter(
+            title: "Later follow-up",
+            due: try LocalDate(isoDate: "2026-03-07")
+        )
+        laterFrontmatter.project = "Tl"
+        let laterRecord = TaskRecord(
+            identity: TaskFileIdentity(path: "/tmp/relative-friday-show-later.md"),
+            document: .init(frontmatter: laterFrontmatter, body: "")
+        )
+
+        let allRecords = [overdueRecord, fridayRecord, laterRecord]
+        let index = TaskMetadataIndex.build(from: allRecords)
+        let perspective = PerspectiveDefinition(name: "Friday Incomplete Lead", rules: parsed.rules)
+        let today = try LocalDate(isoDate: "2026-03-03")
+
+        let candidatePaths = try XCTUnwrap(
+            engine.candidatePaths(for: perspective, using: index, today: today)
+        )
+
+        XCTAssertEqual(
+            candidatePaths,
+            Set([overdueRecord.identity.path, fridayRecord.identity.path])
+        )
+    }
+
+    func testExactDateNotDoneKeepsExactDueMatching() throws {
+        let parser = NaturalLanguagePerspectiveParser(calendar: Calendar(identifier: .gregorian))
+        let creationDate = ISO8601DateFormatter().date(from: "2026-02-28T12:00:00Z")!
+        let parsed = parser.parse("anything in project TL due March 6 not done", relativeTo: creationDate)
+
+        var exactOpenFrontmatter = TestSupport.sampleFrontmatter(
+            title: "Open deadline",
+            due: try LocalDate(isoDate: "2026-03-06")
+        )
+        exactOpenFrontmatter.project = "Tl"
+        let exactOpenRecord = TaskRecord(
+            identity: TaskFileIdentity(path: "/tmp/exact-not-done-open.md"),
+            document: .init(frontmatter: exactOpenFrontmatter, body: "")
+        )
+
+        var exactDoneFrontmatter = TestSupport.sampleFrontmatter(
+            title: "Done deadline",
+            due: try LocalDate(isoDate: "2026-03-06")
+        )
+        exactDoneFrontmatter.project = "Tl"
+        exactDoneFrontmatter.status = .done
+        let exactDoneRecord = TaskRecord(
+            identity: TaskFileIdentity(path: "/tmp/exact-not-done-done.md"),
+            document: .init(frontmatter: exactDoneFrontmatter, body: "")
+        )
+
+        var earlierFrontmatter = TestSupport.sampleFrontmatter(
+            title: "Earlier open",
+            due: try LocalDate(isoDate: "2026-03-05")
+        )
+        earlierFrontmatter.project = "Tl"
+        let earlierRecord = TaskRecord(
+            identity: TaskFileIdentity(path: "/tmp/exact-not-done-earlier.md"),
+            document: .init(frontmatter: earlierFrontmatter, body: "")
+        )
+
+        let allRecords = [exactOpenRecord, exactDoneRecord, earlierRecord]
+        let index = TaskMetadataIndex.build(from: allRecords)
+        let perspective = PerspectiveDefinition(name: "Exact Not Done", rules: parsed.rules)
+        let today = try LocalDate(isoDate: "2026-03-03")
+
+        let candidatePaths = try XCTUnwrap(
+            engine.candidatePaths(for: perspective, using: index, today: today)
+        )
+
+        XCTAssertEqual(candidatePaths, Set([exactOpenRecord.identity.path]))
+
+        let recordsByPath = Dictionary(uniqueKeysWithValues: allRecords.map { ($0.identity.path, $0) })
+        let filtered = candidatePaths
+            .compactMap { recordsByPath[$0] }
+            .filter { engine.matches($0, perspective: perspective, today: today) }
+
+        XCTAssertEqual(filtered.map(\.identity.path), [exactOpenRecord.identity.path])
+    }
+
+    func testProjectNamedIncompleteKeepsExactDueDateMatching() throws {
+        let parser = NaturalLanguagePerspectiveParser(calendar: Calendar(identifier: .gregorian))
+        let creationDate = ISO8601DateFormatter().date(from: "2026-02-28T12:00:00Z")!
+        let parsed = parser.parse("in project Incomplete Migration due March 6", relativeTo: creationDate)
+
+        var exactDoneFrontmatter = TestSupport.sampleFrontmatter(
+            title: "Ship migration",
+            due: try LocalDate(isoDate: "2026-03-06")
+        )
+        exactDoneFrontmatter.project = "Incomplete Migration"
+        exactDoneFrontmatter.status = .done
+        let exactDoneRecord = TaskRecord(
+            identity: TaskFileIdentity(path: "/tmp/incomplete-migration-exact-done.md"),
+            document: .init(frontmatter: exactDoneFrontmatter, body: "")
+        )
+
+        var exactOpenFrontmatter = TestSupport.sampleFrontmatter(
+            title: "Open migration follow-up",
+            due: try LocalDate(isoDate: "2026-03-06")
+        )
+        exactOpenFrontmatter.project = "Incomplete Migration"
+        let exactOpenRecord = TaskRecord(
+            identity: TaskFileIdentity(path: "/tmp/incomplete-migration-exact-open.md"),
+            document: .init(frontmatter: exactOpenFrontmatter, body: "")
+        )
+
+        var earlierFrontmatter = TestSupport.sampleFrontmatter(
+            title: "Earlier prep",
+            due: try LocalDate(isoDate: "2026-03-05")
+        )
+        earlierFrontmatter.project = "Incomplete Migration"
+        let earlierRecord = TaskRecord(
+            identity: TaskFileIdentity(path: "/tmp/incomplete-migration-earlier.md"),
+            document: .init(frontmatter: earlierFrontmatter, body: "")
+        )
+
+        let allRecords = [exactDoneRecord, exactOpenRecord, earlierRecord]
+        let index = TaskMetadataIndex.build(from: allRecords)
+        let perspective = PerspectiveDefinition(name: "Incomplete Migration March 6", rules: parsed.rules)
+        let today = try LocalDate(isoDate: "2026-03-03")
+
+        let candidatePaths = try XCTUnwrap(
+            engine.candidatePaths(for: perspective, using: index, today: today)
+        )
+
+        XCTAssertEqual(
+            candidatePaths,
+            Set([exactDoneRecord.identity.path, exactOpenRecord.identity.path])
+        )
+
+        let recordsByPath = Dictionary(uniqueKeysWithValues: allRecords.map { ($0.identity.path, $0) })
+        let filtered = candidatePaths
+            .compactMap { recordsByPath[$0] }
+            .filter { engine.matches($0, perspective: perspective, today: today) }
+
+        XCTAssertEqual(
+            Set(filtered.map(\.identity.path)),
+            Set([exactDoneRecord.identity.path, exactOpenRecord.identity.path])
+        )
+    }
+
+    func testProjectNamesContainingOrEndingWithIncompleteKeepExactDueDateMatching() throws {
+        let parser = NaturalLanguagePerspectiveParser(calendar: Calendar(identifier: .gregorian))
+        let creationDate = ISO8601DateFormatter().date(from: "2026-02-28T12:00:00Z")!
+        let cases: [(query: String, project: String, prefix: String)] = [
+            ("in project Incomplete due March 6", "Incomplete", "project-incomplete"),
+            ("in project Migration Incomplete due March 6", "Migration Incomplete", "migration-incomplete")
+        ]
+
+        for testCase in cases {
+            let parsed = parser.parse(testCase.query, relativeTo: creationDate)
+
+            var exactDoneFrontmatter = TestSupport.sampleFrontmatter(
+                title: "Exact done \(testCase.prefix)",
+                due: try LocalDate(isoDate: "2026-03-06")
+            )
+            exactDoneFrontmatter.project = testCase.project
+            exactDoneFrontmatter.status = .done
+            let exactDoneRecord = TaskRecord(
+                identity: TaskFileIdentity(path: "/tmp/\(testCase.prefix)-exact-done.md"),
+                document: .init(frontmatter: exactDoneFrontmatter, body: "")
+            )
+
+            var exactOpenFrontmatter = TestSupport.sampleFrontmatter(
+                title: "Exact open \(testCase.prefix)",
+                due: try LocalDate(isoDate: "2026-03-06")
+            )
+            exactOpenFrontmatter.project = testCase.project
+            let exactOpenRecord = TaskRecord(
+                identity: TaskFileIdentity(path: "/tmp/\(testCase.prefix)-exact-open.md"),
+                document: .init(frontmatter: exactOpenFrontmatter, body: "")
+            )
+
+            var earlierFrontmatter = TestSupport.sampleFrontmatter(
+                title: "Earlier \(testCase.prefix)",
+                due: try LocalDate(isoDate: "2026-03-05")
+            )
+            earlierFrontmatter.project = testCase.project
+            let earlierRecord = TaskRecord(
+                identity: TaskFileIdentity(path: "/tmp/\(testCase.prefix)-earlier.md"),
+                document: .init(frontmatter: earlierFrontmatter, body: "")
+            )
+
+            let allRecords = [exactDoneRecord, exactOpenRecord, earlierRecord]
+            let index = TaskMetadataIndex.build(from: allRecords)
+            let perspective = PerspectiveDefinition(name: testCase.project, rules: parsed.rules)
+            let today = try LocalDate(isoDate: "2026-03-03")
+
+            let candidatePaths = try XCTUnwrap(
+                engine.candidatePaths(for: perspective, using: index, today: today)
+            )
+
+            XCTAssertEqual(
+                candidatePaths,
+                Set([exactDoneRecord.identity.path, exactOpenRecord.identity.path]),
+                testCase.query
+            )
+
+            let recordsByPath = Dictionary(uniqueKeysWithValues: allRecords.map { ($0.identity.path, $0) })
+            let filtered = candidatePaths
+                .compactMap { recordsByPath[$0] }
+                .filter { engine.matches($0, perspective: perspective, today: today) }
+
+            XCTAssertEqual(
+                Set(filtered.map(\.identity.path)),
+                Set([exactDoneRecord.identity.path, exactOpenRecord.identity.path]),
+                testCase.query
+            )
+        }
+    }
+
+    func testMetadataValuesNamedIncompleteKeepExactDueDateMatching() throws {
+        let parser = NaturalLanguagePerspectiveParser(calendar: Calendar(identifier: .gregorian))
+        let creationDate = ISO8601DateFormatter().date(from: "2026-02-28T12:00:00Z")!
+
+        let metadataCases: [(query: String, configure: (inout TaskFrontmatterV1) -> Void, prefix: String)] = [
+            (
+                "tagged incomplete due March 6",
+                { $0.tags = ["incomplete"] },
+                "tagged-incomplete"
+            ),
+            (
+                "assigned to incomplete due March 6",
+                { $0.assignee = "incomplete" },
+                "assigned-incomplete"
+            ),
+            (
+                "in projects Home and Incomplete due March 6",
+                { $0.project = "Incomplete" },
+                "projects-incomplete"
+            )
+        ]
+
+        for testCase in metadataCases {
+            let parsed = parser.parse(testCase.query, relativeTo: creationDate)
+
+            var exactDoneFrontmatter = TestSupport.sampleFrontmatter(
+                title: "Exact done \(testCase.prefix)",
+                due: try LocalDate(isoDate: "2026-03-06")
+            )
+            testCase.configure(&exactDoneFrontmatter)
+            exactDoneFrontmatter.status = .done
+            let exactDoneRecord = TaskRecord(
+                identity: TaskFileIdentity(path: "/tmp/\(testCase.prefix)-exact-done.md"),
+                document: .init(frontmatter: exactDoneFrontmatter, body: "")
+            )
+
+            var exactOpenFrontmatter = TestSupport.sampleFrontmatter(
+                title: "Exact open \(testCase.prefix)",
+                due: try LocalDate(isoDate: "2026-03-06")
+            )
+            testCase.configure(&exactOpenFrontmatter)
+            let exactOpenRecord = TaskRecord(
+                identity: TaskFileIdentity(path: "/tmp/\(testCase.prefix)-exact-open.md"),
+                document: .init(frontmatter: exactOpenFrontmatter, body: "")
+            )
+
+            var earlierFrontmatter = TestSupport.sampleFrontmatter(
+                title: "Earlier \(testCase.prefix)",
+                due: try LocalDate(isoDate: "2026-03-05")
+            )
+            testCase.configure(&earlierFrontmatter)
+            let earlierRecord = TaskRecord(
+                identity: TaskFileIdentity(path: "/tmp/\(testCase.prefix)-earlier.md"),
+                document: .init(frontmatter: earlierFrontmatter, body: "")
+            )
+
+            let allRecords = [exactDoneRecord, exactOpenRecord, earlierRecord]
+            let index = TaskMetadataIndex.build(from: allRecords)
+            let perspective = PerspectiveDefinition(name: testCase.prefix, rules: parsed.rules)
+            let today = try LocalDate(isoDate: "2026-03-03")
+
+            let candidatePaths = try XCTUnwrap(
+                engine.candidatePaths(for: perspective, using: index, today: today)
+            )
+
+            XCTAssertEqual(
+                candidatePaths,
+                Set([exactDoneRecord.identity.path, exactOpenRecord.identity.path]),
+                testCase.query
+            )
+
+            let recordsByPath = Dictionary(uniqueKeysWithValues: allRecords.map { ($0.identity.path, $0) })
+            let filtered = candidatePaths
+                .compactMap { recordsByPath[$0] }
+                .filter { engine.matches($0, perspective: perspective, today: today) }
+
+            XCTAssertEqual(
+                Set(filtered.map(\.identity.path)),
+                Set([exactDoneRecord.identity.path, exactOpenRecord.identity.path]),
+                testCase.query
+            )
+        }
+    }
+
+    func testAlternateOrderProjectStopsBeforeCompletedByProjectBotClause() throws {
+        let parser = NaturalLanguagePerspectiveParser(calendar: Calendar(identifier: .gregorian))
+        let creationDate = ISO8601DateFormatter().date(from: "2026-02-28T12:00:00Z")!
+        let parsed = parser.parse("in TL project completed by project-bot due March 6", relativeTo: creationDate)
+
+        var matchingFrontmatter = TestSupport.sampleFrontmatter(
+            title: "Completed by project bot",
+            due: try LocalDate(isoDate: "2026-03-06")
+        )
+        matchingFrontmatter.project = "Tl"
+        matchingFrontmatter.status = .done
+        matchingFrontmatter.completedBy = "project-bot"
+        let matchingRecord = TaskRecord(
+            identity: TaskFileIdentity(path: "/tmp/project-bot-match.md"),
+            document: .init(frontmatter: matchingFrontmatter, body: "")
+        )
+
+        var wrongProjectFrontmatter = TestSupport.sampleFrontmatter(
+            title: "Wrong project",
+            due: try LocalDate(isoDate: "2026-03-06")
+        )
+        wrongProjectFrontmatter.project = "Tl Project Completed By"
+        wrongProjectFrontmatter.status = .done
+        wrongProjectFrontmatter.completedBy = "project-bot"
+        let wrongProjectRecord = TaskRecord(
+            identity: TaskFileIdentity(path: "/tmp/project-bot-wrong-project.md"),
+            document: .init(frontmatter: wrongProjectFrontmatter, body: "")
+        )
+
+        let allRecords = [matchingRecord, wrongProjectRecord]
+        let index = TaskMetadataIndex.build(from: allRecords)
+        let perspective = PerspectiveDefinition(name: "Project Bot Completion", rules: parsed.rules)
+        let today = try LocalDate(isoDate: "2026-03-03")
+
+        let candidatePaths = try XCTUnwrap(
+            engine.candidatePaths(for: perspective, using: index, today: today)
+        )
+
+        XCTAssertEqual(candidatePaths, Set([matchingRecord.identity.path]))
+
+        let recordsByPath = Dictionary(uniqueKeysWithValues: allRecords.map { ($0.identity.path, $0) })
+        let filtered = candidatePaths
+            .compactMap { recordsByPath[$0] }
+            .filter { engine.matches($0, perspective: perspective, today: today) }
+
+        XCTAssertEqual(filtered.map(\.identity.path), [matchingRecord.identity.path])
+    }
+
     func testCandidateSelectionUsesIndexedNegatedRelativeWeekdayRule() throws {
         let perspective = PerspectiveDefinition(
             name: "Not Due By Upcoming Friday",
