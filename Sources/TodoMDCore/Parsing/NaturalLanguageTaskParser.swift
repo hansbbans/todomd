@@ -387,6 +387,12 @@ public struct NaturalLanguagePerspectiveParser {
     public var calendar: Calendar
     private var dateParser: NaturalLanguageDateParser { NaturalLanguageDateParser(calendar: calendar) }
 
+    private struct ConcreteDuePhrase {
+        let phrase: String
+        let isExplicitDayMatch: Bool
+        let isLooseRelativeMatch: Bool
+    }
+
     public init(calendar: Calendar = .current) {
         self.calendar = calendar
     }
@@ -449,7 +455,9 @@ public struct NaturalLanguagePerspectiveParser {
 
     private func parseConjunction(_ query: String, referenceDate: Date) -> (group: PerspectiveRuleGroup, confidence: Double) {
         var conditions: [PerspectiveCondition] = []
-        let excludesDoneStatus = query.contains("not done") || query.contains("not completed")
+        let excludesDoneStatus = query.contains("not done")
+            || query.contains("not completed")
+        let requestsIncompleteStatus = containsIncompleteStatusIntent(in: query)
 
         if let projects = parseProjectList(query), projects.count > 1 {
             let projectRules = projects.map { PerspectiveCondition.rule(PerspectiveRule(field: .project, operator: .equals, value: $0)) }
@@ -493,9 +501,17 @@ public struct NaturalLanguagePerspectiveParser {
             conditions.append(.rule(PerspectiveRule(field: .due, operator: .onOrBefore, jsonValue: dateValue)))
         }
 
-        if let phrase = parseConcreteDuePhrase(query),
-           let dateValue = resolvedDateValue(from: phrase, referenceDate: referenceDate) {
-            conditions.append(.rule(PerspectiveRule(field: .due, operator: .on, jsonValue: dateValue)))
+        if let concreteDuePhrase = parseConcreteDuePhrase(query),
+           let dateValue = resolvedDateValue(from: concreteDuePhrase.phrase, referenceDate: referenceDate) {
+            let dueOperator: PerspectiveOperator
+            if concreteDuePhrase.isExplicitDayMatch {
+                dueOperator = .on
+            } else if concreteDuePhrase.isLooseRelativeMatch && (excludesDoneStatus || requestsIncompleteStatus) {
+                dueOperator = .onOrBefore
+            } else {
+                dueOperator = .on
+            }
+            conditions.append(.rule(PerspectiveRule(field: .due, operator: dueOperator, jsonValue: dateValue)))
         }
 
         if query.contains("overdue") {
@@ -539,7 +555,17 @@ public struct NaturalLanguagePerspectiveParser {
             conditions.append(.rule(PerspectiveRule(field: .estimatedMinutes, operator: .lessThan, jsonValue: .number(Double(minutes)))))
         }
 
-        if excludesDoneStatus {
+        if requestsIncompleteStatus {
+            conditions.append(.rule(PerspectiveRule(
+                field: .status,
+                operator: .in,
+                jsonValue: .array([
+                    .string(TaskStatus.todo.rawValue),
+                    .string(TaskStatus.inProgress.rawValue),
+                    .string(TaskStatus.someday.rawValue)
+                ])
+            )))
+        } else if excludesDoneStatus {
             conditions.append(.rule(PerspectiveRule(field: .status, operator: .notEquals, value: TaskStatus.done.rawValue)))
         } else if query.contains("someday") {
             conditions.append(.rule(PerspectiveRule(field: .status, operator: .equals, value: TaskStatus.someday.rawValue)))
@@ -622,8 +648,14 @@ public struct NaturalLanguagePerspectiveParser {
     }
 
     private func parseSingleProject(_ query: String) -> String? {
-        guard let phrase = scopedPhrase(in: query, after: "in project ") else { return nil }
-        return titleCase(phrase)
+        if let phrase = scopedPhrase(in: query, after: "in project ") {
+            return titleCase(phrase)
+        }
+        let alternateOrderPattern = #"in ([a-z0-9 _\-]+?) project(?=\s+(?:due|scheduled|tagged|high|medium|low|flagged|overdue|no|completed|not|blocked|unblocked|that|which|where|assigned|repeating|recurring|created|tasks|from)\b|$)"#
+        if let phrase = firstMatch(pattern: alternateOrderPattern, in: query) {
+            return titleCase(phrase)
+        }
+        return nil
     }
 
     private func parseProjectList(_ query: String) -> [String]? {
@@ -681,9 +713,10 @@ public struct NaturalLanguagePerspectiveParser {
         return firstMatch(pattern: #"under ([0-9]+) minutes?"#, in: query).flatMap(Int.init)
     }
 
-    private func parseConcreteDuePhrase(_ query: String) -> String? {
+    private func parseConcreteDuePhrase(_ query: String) -> ConcreteDuePhrase? {
         guard var phrase = scopedPhrase(in: query, after: "due ") else { return nil }
         phrase = phrase.trimmingCharacters(in: .whitespacesAndNewlines)
+        var isExplicitDayMatch = false
 
         if phrase == "today" || phrase == "tomorrow" || phrase == "this week" || phrase == "no due date" {
             return nil
@@ -695,10 +728,17 @@ public struct NaturalLanguagePerspectiveParser {
 
         if phrase.hasPrefix("on ") {
             phrase.removeFirst(3)
+            isExplicitDayMatch = true
         }
 
         phrase = phrase.trimmingCharacters(in: .whitespacesAndNewlines)
-        return phrase.isEmpty ? nil : phrase
+        guard !phrase.isEmpty else { return nil }
+        let isLooseRelativeMatch = isRelativeWeekdayPhrase(phrase.lowercased())
+        return ConcreteDuePhrase(
+            phrase: phrase,
+            isExplicitDayMatch: isExplicitDayMatch,
+            isLooseRelativeMatch: isLooseRelativeMatch
+        )
     }
 
     private func normalize(_ query: String) -> String {
@@ -777,6 +817,12 @@ public struct NaturalLanguagePerspectiveParser {
             return nil
         }
         return value[captureRange].trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func containsIncompleteStatusIntent(in value: String) -> Bool {
+        let normalized = normalize(value)
+        let pattern = #"^(?:(?:show me|show|anything)\s+)?(?:all\s+)?incomplete(?:\s+(?:item|items|task|tasks|thing|things))?(?:$|\s)"#
+        return normalized.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
     }
 
     private func resolvedDateValue(from phrase: String, referenceDate: Date) -> JSONValue? {
