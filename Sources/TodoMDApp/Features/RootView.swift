@@ -547,37 +547,6 @@ private struct RootPullToSearchTopMarker: ViewModifier {
 }
 #endif
 
-enum RootPullToSearchFeedbackState: Equatable {
-    case hidden
-    case visible
-    case armed
-
-    private static let defaultPolicy = RootPullToSearchFeedbackPolicy()
-
-    static func make(
-        isEnabled: Bool,
-        dragStartedAtTop: Bool,
-        translation: CGSize
-    ) -> RootPullToSearchFeedbackState {
-        defaultPolicy.phase(
-            isEnabled: isEnabled,
-            dragStartedAtTop: dragStartedAtTop,
-            translation: translation
-        )
-    }
-
-    static func shouldTriggerSearch(
-        isEnabled: Bool,
-        dragStartedAtTop: Bool,
-        translation: CGSize
-    ) -> Bool {
-        defaultPolicy.shouldTrigger(
-            isEnabled: isEnabled,
-            dragStartedAtTop: dragStartedAtTop,
-            translation: translation
-        )
-    }
-}
 
 struct RootPullToSearchFeedbackPolicy {
     let revealDistance: CGFloat
@@ -593,62 +562,42 @@ struct RootPullToSearchFeedbackPolicy {
         self.activationDistance = activationDistance
         self.maxHorizontalDrift = maxHorizontalDrift
     }
-
-    func phase(
-        isEnabled: Bool,
-        dragStartedAtTop: Bool,
-        translation: CGSize
-    ) -> RootPullToSearchFeedbackState {
-        guard isEnabled, dragStartedAtTop else { return .hidden }
-
-        let verticalPull = max(0, translation.height)
-        guard verticalPull > 0, abs(translation.width) < maxHorizontalDrift else {
-            return .hidden
-        }
-
-        if verticalPull >= activationDistance {
-            return .armed
-        }
-        if verticalPull >= revealDistance {
-            return .visible
-        }
-        return .hidden
-    }
-
-    func shouldTrigger(
-        isEnabled: Bool,
-        dragStartedAtTop: Bool,
-        translation: CGSize
-    ) -> Bool {
-        phase(
-            isEnabled: isEnabled,
-            dragStartedAtTop: dragStartedAtTop,
-            translation: translation
-        ) == .armed
-    }
 }
 
 private struct RootPullToSearchIndicator: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    let phase: RootPullToSearchFeedbackState
+    /// 0 = fully hidden, 1 = fully armed. May slightly exceed 1 for rubber-band overshoot.
+    let progress: CGFloat
 
-    private var armedAnimation: Animation {
-        if reduceMotion {
-            return .easeOut(duration: 0.12)
-        }
-        return .spring(response: 0.22, dampingFraction: 0.72, blendDuration: 0.1)
-    }
-
-    private var isVisible: Bool {
-        phase != .hidden
-    }
-
-    private var isArmed: Bool {
-        phase == .armed
-    }
+    private var isArmed: Bool { progress >= 1.0 }
 
     var body: some View {
+        if reduceMotion {
+            // Reduced motion: instant appear/disappear, no position tracking
+            indicatorContent
+                .opacity(progress > 0.5 ? 1 : 0)
+                .animation(.easeOut(duration: 0.12), value: progress > 0.5)
+        } else {
+            // Full motion: smoothly track the drag gesture with no spring delays
+            let p = max(0, min(progress, 1.0))
+            indicatorContent
+                // Fade in fast, reaching full opacity at 60% of the way
+                .opacity(max(0, min(1, (p - 0.1) / 0.5)))
+                // Scale up from 0.88 → 1.0 as user pulls
+                .scaleEffect(0.88 + (0.12 * p))
+                // Slide down into view: starts 20pt below natural pos (hidden), ends 6pt above (visible)
+                .offset(y: 20 - (26 * p))
+                // Only animate the armed-state icon/border changes, not the continuous tracking
+                .animation(.spring(response: 0.22, dampingFraction: 0.65), value: isArmed)
+        }
+    }
+
+    @ViewBuilder
+    private var indicatorContent: some View {
+        let p = max(0, min(progress, 1.0))
+        let borderOpacity = 0.06 + (0.12 * p)
+
         VStack(spacing: 7) {
             Image(systemName: isArmed ? "magnifyingglass.circle.fill" : "magnifyingglass")
                 .font(.system(size: 22, weight: .semibold))
@@ -666,15 +615,10 @@ private struct RootPullToSearchIndicator: View {
                 .fill(Color.black.opacity(0.28))
                 .overlay(
                     Capsule(style: .continuous)
-                        .strokeBorder(Color.white.opacity(isArmed ? 0.18 : 0.08), lineWidth: 1)
+                        .strokeBorder(Color.white.opacity(borderOpacity), lineWidth: 1)
                 )
         )
         .shadow(color: Color.black.opacity(0.22), radius: 16, y: 10)
-        .scaleEffect(isVisible ? 1 : 0.9)
-        .offset(y: isVisible ? -6 : 18)
-        .opacity(isVisible ? 1 : 0)
-        .animation(armedAnimation, value: isArmed)
-        .animation(armedAnimation, value: isVisible)
         .accessibilityHidden(true)
     }
 }
@@ -684,10 +628,12 @@ struct RootPullToSearchGestureModifier: ViewModifier {
     let onTrigger: () -> Void
 
 #if os(iOS)
-    @State private var feedbackPhase: RootPullToSearchFeedbackState = .hidden
+    /// 0 = fully hidden, 1 = armed. Driven directly by drag—no spring delay during tracking.
+    @State private var dragProgress: CGFloat = 0
     @State private var isListAtTop = true
     @State private var dragStartedAtTop = false
     @State private var isTrackingDrag = false
+    @State private var hasTriggeredArmedHaptic = false
 
     private let topOffsetTolerance: CGFloat = 12
     private let feedbackPolicy = RootPullToSearchFeedbackPolicy()
@@ -712,66 +658,77 @@ struct RootPullToSearchGestureModifier: ViewModifier {
                         }
 
                         guard isEnabled, dragStartedAtTop else {
-                            resetIndicatorIfNeeded(animated: true)
+                            if dragProgress > 0 {
+                                withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                                    dragProgress = 0
+                                }
+                            }
                             return
                         }
 
-                        let nextPhase = feedbackPolicy.phase(
-                            isEnabled: isEnabled,
-                            dragStartedAtTop: dragStartedAtTop,
-                            translation: value.translation
-                        )
-                        guard nextPhase != feedbackPhase else { return }
-                        feedbackPhase = nextPhase
+                        let verticalPull = max(0, value.translation.height)
+                        let horizontalDrift = abs(value.translation.width)
+
+                        // Cancel if drifted too far sideways
+                        guard horizontalDrift < feedbackPolicy.maxHorizontalDrift else {
+                            if dragProgress > 0 {
+                                withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                                    dragProgress = 0
+                                    hasTriggeredArmedHaptic = false
+                                }
+                            }
+                            return
+                        }
+
+                        // Map pull distance to 0...1 progress.
+                        // 0 = revealDistance, 1 = activationDistance.
+                        let rawProgress = (verticalPull - feedbackPolicy.revealDistance) /
+                            (feedbackPolicy.activationDistance - feedbackPolicy.revealDistance)
+                        let newProgress = max(0, rawProgress)
+
+                        // Apply rubber-band damping past the armed threshold so it
+                        // doesn't feel like it keeps accelerating forever.
+                        let rubberBanded = newProgress > 1.0
+                            ? 1.0 + (newProgress - 1.0) * 0.25
+                            : newProgress
+
+                        // Directly set—no withAnimation—so the indicator follows the
+                        // finger with zero lag. The view re-renders on next display frame.
+                        dragProgress = min(rubberBanded, 1.3)
+
+                        // Haptic bump when crossing into the armed zone
+                        if dragProgress >= 1.0, !hasTriggeredArmedHaptic {
+                            hasTriggeredArmedHaptic = true
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        } else if dragProgress < 0.9 {
+                            hasTriggeredArmedHaptic = false
+                        }
                     }
                     .onEnded { value in
-                        let shouldTrigger = feedbackPolicy.shouldTrigger(
-                            isEnabled: isEnabled,
-                            dragStartedAtTop: dragStartedAtTop,
-                            translation: value.translation
-                        )
+                        let wasArmed = dragProgress >= 1.0
 
-                        resetGestureState(animated: true)
+                        isTrackingDrag = false
+                        dragStartedAtTop = false
+                        hasTriggeredArmedHaptic = false
 
-                        guard shouldTrigger else { return }
+                        // Spring the indicator back to hidden
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            dragProgress = 0
+                        }
+
+                        guard wasArmed else { return }
                         onTrigger()
                     }
             )
             .overlay(alignment: .top) {
-                RootPullToSearchIndicator(
-                    phase: feedbackPhase
-                )
-                .padding(.top, 8)
-                .allowsHitTesting(false)
+                RootPullToSearchIndicator(progress: dragProgress)
+                    .padding(.top, 8)
+                    .allowsHitTesting(false)
             }
 #else
         content
 #endif
     }
-
-#if os(iOS)
-    private func resetGestureState(animated: Bool) {
-        dragStartedAtTop = false
-        isTrackingDrag = false
-        resetIndicator(animated: animated)
-    }
-
-    private func resetIndicator(animated: Bool) {
-        guard feedbackPhase != .hidden else { return }
-        if animated {
-            withAnimation(.interactiveSpring(response: 0.18, dampingFraction: 0.84, blendDuration: 0.08)) {
-                feedbackPhase = .hidden
-            }
-        } else {
-            feedbackPhase = .hidden
-        }
-    }
-
-    private func resetIndicatorIfNeeded(animated: Bool) {
-        guard feedbackPhase != .hidden else { return }
-        resetIndicator(animated: animated)
-    }
-#endif
 }
 
 private struct RootNavigationTitleModifier: ViewModifier {
